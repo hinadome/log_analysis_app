@@ -100,6 +100,54 @@ def _shebang_of(path: str) -> str | None:
     return text if text.startswith("#!") else None
 
 
+def _shebang_missing_interpreter(shebang: str) -> str | None:
+    """The interpreter a shebang names, when it is not installed.
+
+    '#!/usr/bin/python' on a python3-only box fails the exec with ENOENT
+    (reported as if the script were missing); '#!/usr/bin/env ruby'
+    without ruby dies inside env as a bare 'Exited with code 127'. Both
+    read far better as "that interpreter is not installed".
+    """
+    parts = shebang[2:].split()
+    if not parts:
+        return None
+    interp = parts[0]
+    if interp.endswith("/env") and len(parts) > 1:
+        return parts[1] if shutil.which(parts[1]) is None else None
+    if "/" in interp:
+        return interp if not Path(interp).is_file() else None
+    return interp if shutil.which(interp) is None else None
+
+
+def _preflight_reason(argv: list[str], cwd: Path) -> str | None:
+    """Why a rendered command cannot start, or None when it can.
+
+    The executor's spawn errors say what to fix, but only once the job
+    leaves the queue; this fails it at submission with the same words.
+    """
+    head = argv[0] if argv else ""
+    if not head:
+        return "the command template rendered to an empty command"
+    if "/" in head:
+        path = Path(head)
+        if not path.is_absolute():
+            path = cwd / path
+        if not path.is_file():
+            return (f"'{head}' was not found — the command names a file "
+                    "that does not exist")
+        shebang = _shebang_of(str(path))
+        if shebang:
+            missing = _shebang_missing_interpreter(shebang)
+            if missing:
+                return (f"'{head}' exists, but its first line '{shebang}' "
+                        "names an interpreter that is not installed on "
+                        "this server")
+    elif shutil.which(head) is None:
+        return (f"'{head}' was not found — is that interpreter installed "
+                "on this server?")
+    return None
+
+
 def _is_compressed(path: str) -> bool:
     return Path(path).suffix.lower() in _DECOMPRESSORS
 
@@ -181,6 +229,19 @@ class Executor:
             job.output_file = str(output_path)
         log_arg = str(self.input_path(job))
         job.command = render_command(script, log_arg, job.params, output_path)
+        # Fail fast when the rendered command cannot start (missing
+        # interpreter — its own, or the one named in the script's
+        # shebang). Sandbox runs are skipped: their interpreters live in
+        # the sandbox image, and a missing docker CLI has its own error.
+        reason = None if DOCKER_SANDBOX else _preflight_reason(job.command, out_dir)
+        if reason is not None:
+            job.status = "failed"
+            job.error = f"Failed to start: {reason}"
+            job.finished_at = utcnow()
+            self._store.save(job)
+            if job.chain_id:
+                self._skip_remaining(job)
+            return
         self._store.save(job)
         self._tasks[job.id] = asyncio.create_task(self._run(job, script))
 

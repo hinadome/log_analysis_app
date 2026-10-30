@@ -136,7 +136,13 @@ repo root
 1. **`submit(job, script)`** renders the final argv from the manifest command
    template (`{script}`, `{log}`, `{output}`, `{args}`) and persists it, then
    schedules `_run()` as an asyncio task. The rendered `command` is stored on
-   the job record — the UI can show exactly what ran.
+   the job record — the UI can show exactly what ran. Before scheduling, a
+   pre-flight checks that the command can start: a missing interpreter (the
+   command's own, or the one named in a directly executed script's shebang,
+   including `#!/usr/bin/env X`) fails the job instantly with the same
+   message the spawn error would give — a chain head takes its steps to
+   `skipped`. Sandbox runs skip the pre-flight (their interpreters live in
+   the sandbox image).
 2. **`_run()`** acquires the concurrency semaphore (`MAX_CONCURRENT_JOBS`),
    materializes the input (see §3.3), spawns the subprocess with
    `stdout=PIPE, stderr=PIPE, cwd=<job>/outputs/`, and pumps both streams to

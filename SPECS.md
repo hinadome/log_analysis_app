@@ -35,7 +35,11 @@ the script through an interpreter, or `chmod +x` it), ENOEXEC → executable
 but no shebang line, ENOENT → the first token was not found — a missing
 interpreter (python3/node/ruby/perl… not installed), or, when the script
 file itself exists, a shebang line naming an interpreter that is not
-installed.
+installed. Commands are also pre-flighted at submission: a missing
+interpreter — the command's own, or the one named in a directly executed
+script's shebang, including `#!/usr/bin/env X` (which would otherwise
+exit 127 inside env) — fails the job instantly with that message, and the
+remaining steps of a chain are skipped.
 
 ## 3. Job record schema
 

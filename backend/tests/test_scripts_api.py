@@ -296,3 +296,42 @@ def test_spawn_error_hints(client, scripts_dir):
     err = client.get(f"/api/jobs/{jobs[0]['id']}").json()["error"]
     assert "#!/definitely/not/an/interpreter" in err
     assert "not installed" in err
+
+
+def test_submit_fails_fast_on_missing_interpreter(client, scripts_dir):
+    """A command naming an interpreter that is not installed fails at
+    submission — instantly, with the interpreter named — not at spawn."""
+    client.post("/api/scripts", json=_body(
+        "nointerpreter", command="definitely-not-an-interpreter {script} {log} {args}"))
+    jobs = submit(client, [{"script_id": "nointerpreter", "params": {}}])
+    job = client.get(f"/api/jobs/{jobs[0]['id']}").json()
+    assert job["status"] == "failed"  # already failed — never left the queue
+    assert "'definitely-not-an-interpreter' was not found" in job["error"]
+
+
+def test_submit_fails_fast_on_missing_env_shebang_interpreter(client, scripts_dir):
+    """#!/usr/bin/env X with a missing X used to die inside env as a
+    bare 'Exited with code 127'; submission now names the interpreter."""
+    client.post("/api/scripts", json=_body(
+        "envmissing", code="#!/usr/bin/env no-such-interpreter\ntrue\n",
+        command="{script} {log} {args}"))
+    jobs = submit(client, [{"script_id": "envmissing", "params": {}}])
+    job = client.get(f"/api/jobs/{jobs[0]['id']}").json()
+    assert job["status"] == "failed"
+    assert "#!/usr/bin/env no-such-interpreter" in job["error"]
+
+
+def test_chain_first_step_preflight_skips_the_rest(client, scripts_dir):
+    """When a chain's first step cannot start, the later steps are
+    skipped — not left waiting forever."""
+    client.post("/api/scripts", json=_body(
+        "stepone", command="definitely-not-an-interpreter {script} {log} {args}"))
+    client.post("/api/scripts", json=_body())  # step two: the working one
+    jobs = submit(client, [{"script_id": "stepone", "params": {}},
+                           {"script_id": "shout", "params": {}}],
+                  mode="chain")
+    first = client.get(f"/api/jobs/{jobs[0]['id']}").json()
+    second = client.get(f"/api/jobs/{jobs[1]['id']}").json()
+    assert first["status"] == "failed"
+    assert "definitely-not-an-interpreter" in first["error"]
+    assert second["status"] == "skipped"
