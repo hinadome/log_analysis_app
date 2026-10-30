@@ -138,7 +138,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | Method & Path | Description |
 |---|---|
 | `GET /api/auth/status` | `{"auth_required": bool}` |
-| `POST /api/auth/login` | `{"password": "…"}` → sets HttpOnly cookie; 401 on wrong password; no-op success when auth disabled |
+| `POST /api/auth/login` | `{"password": "…"}` → sets HttpOnly cookie; 401 on wrong password; **rate-limited: 5 failed attempts per client IP per 60 s → 429** with `Retry-After` (a successful login clears the counter); no-op success when auth disabled |
 | `POST /api/auth/logout` | clears the session cookie |
 
 ### Logs
@@ -146,7 +146,8 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | Method & Path | Description |
 |---|---|
 | `GET /api/logs` | `{"logs": [{name, path, size, modified}]}` — recursive, newest first |
-| `GET /api/logs/preview?path=…&lines=200` | `lines` ≤ 2000; decompresses on the fly → `{name, path, size, compressed, lines[], truncated}` |
+| `GET /api/logs/preview?path=…&lines=200[&tail=1]` | `lines` ≤ 2000; decompresses on the fly → `{name, path, size, compressed, lines[], truncated}`. Default reads the first lines; `tail=1` reads the last lines (backwards seek for plain files, streamed window for compressed ones) |
+| `POST /api/logs/upload` | multipart `file` field → saves it into `LOGS_DIR` (flat) → `{saved, size, log}`. The name is reduced to a safe basename (`^[\w][\w.\- ]{0,254}$`); errors: 409 name exists / 413 over `MAX_LOG_UPLOAD_MB` / 422 empty or invalid name / 403 uploads disabled. Written as a hidden `.name.part` until complete, so partial uploads never appear in listings |
 
 ### Scripts
 
@@ -157,13 +158,14 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | `POST /api/scripts` | create a flat-style script. Body: `{id, extension, code, manifest}` (`manifest` per §6). Errors: 409 id exists / 422 bad id (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`), empty code, bad timeout (1–86400), or invalid manifest/parameters |
 | `PUT /api/scripts/{id}` | update code and/or manifest; a changed `extension` moves the code file. 404 unknown, 400 directory-style, 422 body/path id mismatch |
 | `DELETE /api/scripts/{id}` | removes the code file and its sidecar. Job history is kept (stdout/artifacts are per-job); jobs of a deleted script can no longer be re-run (404) |
+| `GET /api/scripts/{id}/export` | tar.gz download: code + sidecar manifest (flat) or the full directory (directory-style), plus a `RESTORE.txt` explaining where to unpack |
 
 ### Jobs
 
 | Method & Path | Description |
 |---|---|
 | `POST /api/jobs` | submission (§4) → `{"jobs": [Job]}`. Errors: 404 unknown script / 404 unknown log / 400 path escapes `LOGS_DIR` / 422 bad params or empty list |
-| `GET /api/jobs?status=…&q=…` | list jobs (newest first), optionally filtered by status and/or free-text `q` (matches label, script name/id, log name, job id, chain id) |
+| `GET /api/jobs?status=…&q=…&limit=&offset=` | list jobs (newest first), optionally filtered by status and/or free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
 | `GET /api/jobs/{id}` | job detail incl. tails and `chain_steps` (§3) |
 | `GET /api/jobs/{id}/stdout` `/stderr` | full text (`text/plain`, 20 MB cap) |
 | `GET /api/jobs/{id}/files/{name}` | download an artifact (name must be a single path segment) |
@@ -293,6 +295,7 @@ step per §4.1 rule 2.
 | `DEFAULT_TIMEOUT` | `600` | fallback timeout seconds (manifest wins) |
 | `LOG_PREVIEW_LINES` | `200` | default lines in log preview |
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
+| `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `LOGSMITH_TOKEN` | *(unset)* | UI password; unset disables auth |
 | `JOB_RETENTION_DAYS` | `0` | startup auto-delete window (0 = keep forever) |
 

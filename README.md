@@ -84,13 +84,27 @@ reuses it on every later start — it is never regenerated while it exists.
   (stored in your browser's localStorage).
 - **Labels & job search** — tag a submission with a label ("timeout spike
   investigation") at creation time and filter the job history by label,
-  script, log or free text.
+  script, log, chain or free text — searched server-side (debounced) and
+  paged, so the history stays responsive as it grows.
+- **Log upload** — drag & drop log files straight into the browser (or
+  click to browse); they land in the server's `logs/` directory ready to
+  analyze. Collisions are rejected, sizes are capped
+  (`MAX_LOG_UPLOAD_MB`), and partial uploads never show up half-written.
+- **Head & tail previews** — preview a log from the top or the bottom
+  (⇣ Tail is usually what you want); tail seeks backwards from EOF, so it
+  is instant even on huge files.
+- **Table & diff views** — stdout that is a JSON array of objects renders
+  as a table (with a Raw toggle); any finished job can be diffed against
+  another with "⇄ Compare" (unified line diff, before/after at a glance).
 - **Script editor** — create, edit and delete scripts in the browser: code
   textarea, manifest form (name, command, timeout, output file) and a JSON
   parameter editor. Writes ordinary flat-style files into `scripts/`, so
-  hand-added scripts and UI-created ones are interchangeable. The bundled
-  samples cover every editor language — Python, Bash, Node, Ruby and Perl —
-  and double as reference templates.
+  hand-added scripts and UI-created ones are interchangeable. One-click
+  **backup** (tar.gz download) and code copy make deletes non-scary. The
+  bundled samples cover every editor language — Python, Bash, Node, Ruby
+  and Perl — and double as reference templates.
+- **Brute-force protection** — failed logins are rate-limited per client
+  (5 per minute) once `LOGSMITH_TOKEN` is set.
 - **Notifications** — enable the 🔔 button in the top bar to get a browser
   notification when a job finishes.
 - **Parameter presets** — save/load named parameter combos per script
@@ -231,17 +245,19 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/logs` | list log files (recursive, newest first) |
-| GET | `/api/logs/preview?path=…&lines=200` | first N lines |
+| GET | `/api/logs/preview?path=…&lines=200[&tail=1]` | first (or last, with `tail=1`) N lines |
+| POST | `/api/logs/upload` | multipart upload of a log file into `logs/` (409 on collision, 413 over `MAX_LOG_UPLOAD_MB`) |
 | GET | `/api/scripts` | scripts + manifests |
 | GET | `/api/scripts/{id}` | code + manifest of a script (for the editor) |
 | POST | `/api/scripts` | create a script `{id, extension, code, manifest}` (UI editor) |
 | PUT | `/api/scripts/{id}` | update code/manifest (extension change moves the file) |
 | DELETE | `/api/scripts/{id}` | remove script + manifest (job history is kept) |
+| GET | `/api/scripts/{id}/export` | download the script as a tar.gz backup |
 | POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs |
 | POST | `/api/jobs/prune?days=N` | delete jobs older than N days |
 | GET | `/api/auth/status` | whether a password is required |
-| POST | `/api/auth/login` `/logout` | password → session cookie |
-| GET | `/api/jobs` | list jobs (optional `?status=`, `?q=` free-text search over label/script/log/ids) |
+| POST | `/api/auth/login` `/logout` | password → session cookie (login is rate-limited: 5 failures/min per client) |
+| GET | `/api/jobs` | list jobs (optional `?status=`, `?q=` free-text search over label/script/log/ids, `?limit=&offset=` paging; returns `total`) |
 | GET | `/api/jobs/{id}` | detail incl. stdout/stderr tails |
 | GET | `/api/jobs/{id}/events` | SSE stream (status + stdout deltas) |
 | GET | `/api/jobs/{id}/stdout` `/stderr` | full text |
@@ -264,6 +280,7 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `DEFAULT_TIMEOUT` | `600` | fallback timeout (manifest wins) |
 | `LOG_PREVIEW_LINES` | `200` | default lines in the log preview modal |
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
+| `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `LOGSMITH_TOKEN` | *(unset)* | password for the UI; unset disables auth (localhost only) |
 | `JOB_RETENTION_DAYS` | `0` | auto-delete jobs older than N days at startup (0 = keep forever) |
 
@@ -278,11 +295,14 @@ Example: `LOGSMITH_TOKEN=s3cret JOB_RETENTION_DAYS=14 ./run.sh`
 
 The suite runs against the real sample scripts with temporary `logs/` and
 `data/` directories — it never touches your actual job history. Coverage:
-job store persistence/reconcile/prune, executor lifecycle (timeouts, cancel,
-decompression), chain advancement/cancel invariants, and the full HTTP API
-(atomic validation, labels + search, full and partial re-run). See
+job store persistence/reconcile/prune (plus the parse cache), executor
+lifecycle (timeouts, cancel, decompression), chain advancement/cancel
+invariants, the full HTTP API (atomic validation, labels + search, paging,
+full and partial re-run), log preview (head/tail/compressed), upload
+sanitization and caps, and authentication incl. rate limiting. See
 [ARCHITECTURE.md §11](ARCHITECTURE.md#11-testing) for the invariant → test
-mapping.
+mapping. CI runs the suite and the frontend build on every push
+(`.github/workflows/tests.yml`).
 
 ## Security notes
 

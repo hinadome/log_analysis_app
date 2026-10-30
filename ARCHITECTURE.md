@@ -55,19 +55,24 @@ backend/app/
 │                      LogFile, JobSpecIn, JobCreateRequest, Job (incl. chain
 │                      fields), JobStatus literal
 ├── auth.py            Shared-password auth: HttpOnly cookie session +
-│                      Bearer token; constant-time comparisons
+│                      Bearer token; constant-time comparisons; per-IP
+│                      login rate limiting (5 failures/60s → 429)
 ├── routers/
-│   ├── logs.py        GET /api/logs, GET /api/logs/preview (transparent
-│   │                  decompression for .gz/.bz2/.xz)
+│   ├── logs.py        GET /api/logs, GET /api/logs/preview (head + tail,
+│   │                  transparent decompression for .gz/.bz2/.xz),
+│   │                  POST /api/logs/upload (multipart, streamed, capped)
 │   ├── scripts.py     GET /api/scripts; editor endpoints (create/update/
 │   │                  delete flat-style scripts, constrained ids so writes
-│   │                  can never escape SCRIPTS_DIR)
+│   │                  can never escape SCRIPTS_DIR); GET …/export (tar.gz
+│   │                  backup)
 │   └── jobs.py        Job lifecycle endpoints; two-pass validation for
-│                      create/rerun; chain-aware cancel/delete/rerun
+│                      create/rerun; chain-aware cancel/delete/rerun;
+│                      ?q=/?status= filters + limit/offset paging
 └── services/
     ├── scanner.py     Discovers logs (recursive, newest first) and scripts
     │                  (flat + directory styles, default commands)
-    ├── job_store.py   Filesystem persistence; list_chain; reconcile; prune
+    ├── job_store.py   Filesystem persistence; parse cache keyed by
+    │                  (mtime, size); list_chain; reconcile; prune
     └── executor.py    Execution engine + chain (pipeline) engine
 
 backend/tests/         pytest suite: conftest isolates LOGS_DIR/DATA_DIR to
@@ -83,16 +88,22 @@ frontend/src/
 ├── fmt.js             Byte formatting
 └── components/
     ├── LoginView.jsx      Password screen
-    ├── LogPicker.jsx      Log list + preview modal
+    ├── LogPicker.jsx      Log list + upload dropzone + preview modal
+    │                      (Head ⇡ / Tail ⇣ toggle)
     ├── ScriptPicker.jsx   Script cards (click = add a step), ＋ New /
     │                      ✏️ edit opening the script editor
     ├── ScriptEditor.jsx   Browser editor: code, manifest fields, JSON
-    │                      parameters — writes flat-style files via the API
+    │                      parameters — writes flat-style files via the API;
+    │                      copy-code + tar.gz backup buttons
     ├── ParamForm.jsx       Per-step parameter card, ↑/↓ ordering, presets
-    ├── JobsPanel.jsx       Job list: badges, search, chain "step 2/3" chip,
-    │                      labels, prune
-    └── JobDetail.jsx      SSE live view, chain strip, markdown artifacts,
-                           copy-as-command, re-run (full / from here)
+    ├── JobsPanel.jsx       Job list: badges, server-side search (debounced
+    │                      in App), Load-more paging, chain "step 2/3"
+    │                      chip, labels, prune
+    ├── JobDetail.jsx      SSE live view, chain strip, markdown artifacts,
+    │                      copy-as-command, re-run (full / from here)
+    │                      ⇄ Compare (opens DiffView)
+    └── DiffView.jsx       Unified line diff (hand-rolled LCS, 2000-line
+                           cap) of two completed jobs' stdout
 ```
 
 ## 3. Job execution engine (`services/executor.py`)
@@ -269,7 +280,12 @@ data/jobs/20261029-110333-88914512/     # id = timestamp + 8 hex chars
 └── outputs/        # script cwd; artifacts served via /api/jobs/{id}/files/
 ```
 
-`list()` scans directories and parses `job.json` (sorted newest-first);
+`list()` scans directories and returns parsed jobs sorted newest-first. To
+keep the 1.5 s polling loop cheap at scale, parsed `job.json` files are
+cached in memory keyed by `(mtime_ns, size)`: the directory listing is still
+the source of truth (deleted/wiped jobs can never leak from the cache),
+every `save()` bumps the mtime so exactly one file re-parses per update, and
+callers receive copies so mutating a listed job can't corrupt the cache.
 `list_chain()` filters by `chain_id` and sorts by `chain_index`. Writes that
 race a deletion fail silently (OSError is swallowed in `save`) — a deleted
 job is never resurrected by an in-flight runner. `prune()` removes job dirs
@@ -294,9 +310,17 @@ Single-page React app; all state lives in `App.jsx`:
   submission order only.
 - **Job polling** at 1.5 s while any job is active, 5 s otherwise; job
   completions raise toasts and (with permission) browser notifications.
+- **Job history** is searched and paged server-side: the search box drives
+  `GET /api/jobs?q=` through a 250 ms debounce (kept in a ref so polling
+  retains the active query), and "Load more" grows the fetch window
+  (`limit`, offset stays 0 so the newest jobs are always in view).
 - **JobDetail** consumes the SSE stream, renders the chain strip (clickable
   per-step chips with status icons), markdown artifacts (sanitized with
-  DOMPurify), and a copyable reconstruction of the command line.
+  DOMPurify), JSON-array output as a table, a copyable reconstruction of
+  the command line, and "⇄ Compare" (DiffView: LCS line diff of two
+  completed jobs' stdout).
+- **LogPicker** includes a drag-and-drop upload zone (multiple files,
+  streamed to `POST /api/logs/upload`) and Head/Tail preview toggles.
 - **Presets** (`presets.js`) store named parameter sets per script in
   localStorage — client-side only.
 
@@ -304,11 +328,18 @@ Single-page React app; all state lives in `App.jsx`:
 
 - **Auth**: optional shared password (`LOGSMITH_TOKEN`). Browser login sets
   an HttpOnly, SameSite=Lax cookie (Secure on HTTPS); automation uses
-  `Authorization: Bearer`. Comparisons are constant-time. When unset, the
-  server warns and runs open — acceptable only because it binds to 127.0.0.1.
+  `Authorization: Bearer`. Comparisons are constant-time. Failed logins are
+  rate-limited per client IP (5 per 60 s sliding window → 429 with
+  `Retry-After`); a successful login clears the counter, and the Bearer path
+  is unaffected. When unset, the server warns and runs open — acceptable
+  only because it binds to 127.0.0.1.
 - **No shell**: commands are tokenized with `shlex` but executed via `exec`
   — parameter values are literal argv tokens and can never inject syntax.
 - **Path containment**: log paths resolve strictly inside `LOGS_DIR`.
+- **Uploads**: multipart log uploads are reduced to a single safe path
+  component (`^[\w][\w.\- ]{0,254}$`) inside `LOGS_DIR`, streamed with a
+  size cap, and staged as a hidden `.name.part` until complete — no
+  half-written files in listings, no traversal, no unbounded disk use.
 - **Artifact rendering** is sanitized (DOMPurify) before display.
 - **Script authoring via the API** writes only flat-style files with
   id/extension-constrained names inside `SCRIPTS_DIR` — no path traversal;
@@ -351,7 +382,9 @@ runs actual `grep`/`python3` subprocesses, so it exercises the real execution
 path. Executor-level tests fabricate `ScriptInfo` objects and patch the
 executor's script lookup so advancement can be driven deterministically;
 API tests drive one `TestClient` (full lifespan: reconcile → start → prune)
-per test.
+per test. CI (`.github/workflows/tests.yml`) runs the suite and the frontend
+build on every push and pull request; the repo is under git with `data/`,
+`certs/`, `.env` and build outputs gitignored.
 
 | Test module | Covers |
 |---|---|
@@ -359,8 +392,12 @@ per test.
 | `test_executor.py` | single-job lifecycle: exit codes, timeouts, cancellation, gzip input decompression, script env vars, artifact collection, `chain_output()` |
 | `test_chains.py` | invariants 1–4 + 6 below: artifact/stdout hand-off, compressed hand-off decompression, fail→skip, no-output→fail-next, gap tolerance, advancement-error containment, cancel-flag blocking |
 | `test_chain_cancel.py` | invariant 5-adjacent cancel semantics: kill running + skip waiting, idempotent return values, skip reasons |
-| `test_api.py` | the HTTP contract end-to-end: atomic validation (invariant 3), chain flow via real scripts, labels + `?q=` search, full/partial rerun (invariant 7) incl. 400/409 paths, delete-live-chain (invariant 6), cancel endpoint, prune guard |
-| `test_scripts_api.py` | script editor endpoints against a temp SCRIPTS_DIR: create→discover→run, defaults, duplicate/bad-input rejection, source roundtrip, update incl. extension change, delete + rerun-404 |
+| `test_api.py` | the HTTP contract end-to-end: atomic validation (invariant 3), chain flow via real scripts, labels + `?q=` search (incl. chain ids), pagination + post-filter totals, full/partial rerun (invariant 7) incl. 400/409 paths, delete-live-chain (invariant 6), cancel endpoint, prune guard |
+| `test_scripts_api.py` | script editor endpoints against a temp SCRIPTS_DIR: create→discover→run, defaults, duplicate/bad-input rejection, source roundtrip, update incl. extension change, delete + rerun-404, export (contents + restore round-trip) |
+| `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
+| `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
+| `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
+| `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token), rate limiting, slate-clearing on success, no-op when auth is off |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,
 (2) gap tolerance, (3) `test_api` atomic-validation cases, (4) decompression
