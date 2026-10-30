@@ -296,6 +296,73 @@ interpreter (`bash {script} {log}`) they need neither.
 }
 ```
 
+### How command, parameters and code fit together
+
+A script is three pieces — the **code file**, the manifest's **`command`**
+template and its **`parameters`** — and they meet in exactly one place:
+the command line the server renders at submission. Everything the manifest
+declares ends up on that command line or in the environment; everything the
+code parses must come from those two.
+
+Worked example — the bundled `error_counter` sample, a user picks `app.log`,
+severity `WARN`, filter `timeout`, JSON output on:
+
+```
+ manifest (error_counter.json)                UI form (built from "parameters")
+ ┌───────────────────────────────────┐        ┌─────────────────────────────────┐
+ │ "command":                        │        │ Severity   (level)   [WARN ▾]   │
+ │    python3 {script} {log} {args}  │        │ Filter     (pattern) [timeout ] │
+ │ "parameters": [                    │        │ JSON output (json)   ☑         │
+ │   level   --level   enum           │        └────────────────┬────────────────┘
+ │   pattern --pattern string         │                         │  params object
+ │   json    --json    boolean        │                         ▼
+ │ ]                                  │    {"level":"WARN","pattern":"timeout",
+ └───────────────────────────────────┘     "json":true}
+                                                │  rendered at submission
+                                                ▼
+ python3 /…/scripts/error_counter.py /…/logs/app.log --level WARN --pattern timeout --json
+ └ interpreter ┘└──────── {script} ─────────┘└─ {log} ─┘└──────────── {args} ─────────────┘
+
+ the code (error_counter.py) receives exactly:
+   argv : ["…/error_counter.py", "…/app.log", "--level", "WARN",
+           "--pattern", "timeout", "--json"]
+   env  : JOB_ID, JOB_LOG_PATH, JOB_OUTPUT_DIR, JOB_ORIGINAL_LOG
+   cwd  : the job's outputs/ directory
+```
+
+Step by step:
+
+1. **`command` positions everything.** At submission each placeholder is
+   substituted (table below); the template is tokenized with shell rules
+   but executed **without a shell**, so a parameter value can never be
+   re-read as shell syntax. A template without `{args}` is a *fixed*
+   command — parameters are still validated, but no flags are appended.
+
+2. **`parameters[].flag` is the contract with the code.** `{args}` is
+   built from the filled-in values by type: `boolean` true renders as the
+   bare flag (`--json`), `multi` repeats the flag per value
+   (`--field a --field b`), everything else as `--flag value`; empty/false
+   values are omitted. Those flag strings are exactly what the script must
+   parse — in the sample every parameter has a matching
+   `parser.add_argument("--level", …)`. The `name` is only the key used by
+   the UI and API (`"params": {"level": "WARN"}`); it never appears on the
+   command line.
+
+3. **The code reads argv and/or the environment.** With the default
+   template the input path is the first argument (`$1` / `sys.argv[1]` /
+   …), and `JOB_LOG_PATH` carries it even for commands that omit `{log}`
+   — see "Reading the input in your script" below. In a chain, the same
+   slots carry the previous step's output instead of the selected log.
+
+The rendered command is stored on the job, so you can always verify what
+actually ran: both UIs show it in the job's details view ("Executed
+command (argv, no shell)" in React, the details tab in the python UI).
+
+Direct-execution variant: with a shebang in the code
+(`#!/usr/bin/env python3`) and command `{script} {log} {args}`, the script
+file itself is argv[0] — same placeholders, same parameter contract, one
+fewer file in the command line.
+
 ### Command placeholders
 
 | Placeholder | Expands to |
