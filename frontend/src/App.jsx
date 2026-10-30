@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, UNAUTHORIZED_EVENT } from "./api.js";
-import { useInterval } from "./hooks.js";
+import { useHashRoute, useInterval } from "./hooks.js";
 import { fmtBytes } from "./fmt.js";
 import { loadChainPresets, saveChainPreset, deleteChainPreset } from "./presets.js";
 import LoginView from "./components/LoginView.jsx";
@@ -12,6 +12,14 @@ import JobsPanel from "./components/JobsPanel.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
+const JOB_ID_RE = /^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$/;
+
+/** Map the URL hash to a view: "#/" → home, "#/job/<id>" → job (anything else → home). */
+function parseRoute(hash) {
+  const m = /^#\/job\/([0-9a-z-]+)$/i.exec(hash || "");
+  if (m && JOB_ID_RE.test(m[1])) return { name: "job", id: m[1] };
+  return { name: "home" };
+}
 
 function defaultParams(script) {
   const out = {};
@@ -53,7 +61,9 @@ export default function App() {
   const jobsLimitRef = useRef(200);
   const [jobSearch, setJobSearch] = useState("");
   const jobQueryRef = useRef(""); // what refreshJobs should ask the server for
-  const [view, setView] = useState({ name: "home" });
+  const view = parseRoute(useHashRoute()); // hash is the source of truth for the view
+  const openJob = useCallback((id) => { window.location.hash = `#/job/${id}`; }, []);
+  const goHome = useCallback(() => { window.location.hash = "#/"; }, []);
   const [toast, setToast] = useState(null);
   const [scriptEditor, setScriptEditor] = useState(null); // null | "new" | script id
   const [busy, setBusy] = useState(false);
@@ -538,7 +548,7 @@ export default function App() {
               onLoadMore={loadMoreJobs}
               query={jobSearch}
               onSearch={setJobSearch}
-              onOpen={(id) => setView({ name: "job", id })}
+              onOpen={openJob}
               onCancel={cancelJob}
               onDelete={deleteJob}
               onClearFinished={clearFinished}
@@ -549,9 +559,9 @@ export default function App() {
         ) : (
           <JobDetail
             id={view.id}
-            onBack={() => { setView({ name: "home" }); refreshJobs(); }}
-            onOpenJob={(id) => setView({ name: "job", id })}
-            onRerun={(id) => setView({ name: "job", id })}
+            onBack={() => { goHome(); refreshJobs(); }}
+            onOpenJob={openJob}
+            onRerun={openJob}
             onChanged={refreshJobs}
           />
         )}
