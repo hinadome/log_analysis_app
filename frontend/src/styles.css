@@ -216,6 +216,41 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent);
 }
 .dropzone:hover, .dropzone.over { border-color: var(--accent); color: var(--text); }
 .dropzone.over { background: var(--panel2); border-style: solid; }
+
+/* ---------- JSON table output ---------- */
+.output-wrap { display: flex; flex-direction: column; min-width: 0; }
+.table-scroll { overflow: auto; max-height: 640px; border: 1px solid var(--border); border-radius: 8px; }
+.json-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.json-table th, .json-table td {
+  padding: 5px 12px; border-bottom: 1px solid var(--border);
+  text-align: left; white-space: nowrap; max-width: 420px; overflow: hidden;
+  text-overflow: ellipsis;
+}
+.json-table th {
+  position: sticky; top: 0; background: var(--panel2); color: var(--muted);
+  font-weight: 600; z-index: 1;
+}
+.json-table tbody tr:hover { background: var(--panel2); }
+.json-table td.mono, .json-table th.mono { font-family: var(--mono); font-size: 12px; }
+
+/* ---------- diff view ---------- */
+.diff-head {
+  display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px 0;
+}
+.diff-select { display: inline-block; width: auto; margin-left: 8px; padding: 4px 8px; }
+.diff-summary { padding: 10px 16px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.chip.okish { color: #3fb950; border-color: #238636; }
+.diff {
+  font-family: var(--mono); font-size: 12px; line-height: 1.55;
+  max-height: 60vh; overflow: auto;
+  border: 1px solid var(--border); border-radius: 8px; margin: 0 16px 16px;
+}
+.diff-line { display: flex; padding: 0 8px; white-space: pre-wrap; word-break: break-all; }
+.diff-line.add { background: rgba(46, 160, 67, 0.14); color: #7ee787; }
+.diff-line.del { background: rgba(248, 81, 73, 0.14); color: #ffa198; text-decoration: none; }
+.diff-sign { flex: 0 0 18px; opacity: 0.85; user-select: none; }
+.diff-text { flex: 1; }
 .job-row {
   display: flex; gap: 10px; align-items: center;
   padding: 9px 10px;

@@ -5,6 +5,7 @@ import { api } from "../api.js";
 import { useInterval } from "../hooks.js";
 import { cx, elapsed, fmtBytes, fmtDate } from "../fmt.js";
 import { OutputView, StatusBadge } from "./ui.jsx";
+import DiffView from "./DiffView.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
 const RUNNING = new Set(["queued", "running"]);
@@ -36,6 +37,7 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
   const [fileViews, setFileViews] = useState({});
   const [fileModes, setFileModes] = useState({}); // name -> "rendered" | "raw"
   const [copied, setCopied] = useState(false);
+  const [compare, setCompare] = useState(false);
   const tailRef = useRef(null);
   const stickBottom = useRef(true);
 
@@ -195,6 +197,15 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
               </button>
             )}
             <button className="btn sm" onClick={rerun} title="Re-run the whole chain from step 1">Re-run</button>
+            {!active && (
+              <button
+                className="btn ghost sm"
+                onClick={() => setCompare(true)}
+                title="Diff this job's output against another completed job"
+              >
+                ⇄ Compare…
+              </button>
+            )}
             <button className="btn ghost sm" onClick={del}>Delete</button>
           </div>
         </div>
@@ -332,6 +343,8 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
           <pre className="output cmd-view">{JSON.stringify(job.params, null, 2)}</pre>
         </div>
       )}
+
+      {compare && <DiffView jobId={id} onClose={() => setCompare(false)} />}
     </div>
   );
 }
