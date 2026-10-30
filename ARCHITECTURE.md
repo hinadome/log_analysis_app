@@ -111,6 +111,21 @@ frontend/src/
     │                      ⇄ Compare (opens DiffView)
     └── DiffView.jsx       Unified line diff (hand-rolled LCS, 2000-line
                            cap) of two completed jobs' stdout
+
+repo root
+├── run.sh             Launcher: start/stop/status/restart (background or
+│                      foreground), --ui python|react; bootstraps .venv,
+│                      node_modules and the SPA build on demand; secure-by-
+│                      default token generation
+├── Dockerfile         Ships the whole app as one container (optional)
+├── sandbox.Dockerfile Interpreter image for LOGSMITH_DOCKER_SANDBOX=1 runs
+└── tools/
+    ├── generate_cert.sh         Local TLS certificate for run.sh
+    ├── generate_sample_logs.py  Sample data for a fresh checkout
+    └── upload.sh                scp the git-tracked files to a remote host
+                                (no .venv/node_modules/data/certs/.run/.env
+                                — the remote bootstraps itself on first
+                                start; --start also launches it there)
 ```
 
 ## 3. Job execution engine (`services/executor.py`)

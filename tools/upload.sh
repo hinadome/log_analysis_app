@@ -109,5 +109,5 @@ if [ "$START" = "1" ]; then
   ssh -p "$PORT" "$REMOTE" "cd '$QDIR' && ./run.sh start"
 else
   echo "Done     ●  $REMOTE:$DIR"
-  echo "           start it there:  ssh -t $REMOTE 'cd $DIR && ./run.sh'"
+  echo "           start it there:  ssh -t $REMOTE \"cd '$DIR' && ./run.sh\""
 fi

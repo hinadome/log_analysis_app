@@ -52,6 +52,26 @@ Node dependency).
 started. In dev mode the backend auto-reloads on backend-code changes
 (running jobs are cancelled on reload) and Vite proxies `/api` to it.
 
+## Copying to another machine
+
+`tools/upload.sh` scps the app to a remote host — exactly the git-tracked
+files, so `.venv`, `node_modules`, `frontend/dist`, `data/`, `certs/`,
+`.run/` and `.env` stay behind (`.gitignore` by construction; no secrets
+or job history leave the machine). The remote then bootstraps itself on
+its first `./run.sh start`:
+
+```bash
+tools/upload.sh user@192.168.1.50            # → ~/logsmith on the remote
+tools/upload.sh -p 2222 me@server:apps/logsmith   # custom ssh port + dir
+tools/upload.sh --start user@host           # unpack and start it there
+tools/upload.sh --tar-only                   # just build the tarball, no upload
+```
+
+Re-uploads refresh the tracked files in place — remote state (jobs, token,
+certs) is untouched. A dirty working tree is refused unless `--dirty` is
+passed (snapshots uncommitted tracked changes; new files still need a
+commit).
+
 ## HTTPS
 
 `run.sh` serves the app over **https://localhost:8000**. On first start it
