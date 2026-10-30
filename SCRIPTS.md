@@ -186,6 +186,30 @@ grep's "no match" exit. A shebang is not required when the command names
 the interpreter (`bash {script} …`); add one anyway if you might run the
 script directly (below).
 
+### Sourcing files (bash, zsh)
+
+`source` works **inside your script's code** — bash is running it — but
+a bare filename will not be found: the job's cwd is its `outputs/`
+directory, not `scripts/`. Resolve helpers relative to the script
+itself:
+
+```bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/helpers.sh"     # config, env vars, shell functions…
+```
+
+What can never work: `source` in the manifest `command`. Commands are
+executed without a shell and `source` is a shell builtin, not a program —
+the job fails at submission with `'source' was not found`. Shell logic
+that must run *before* your code belongs in the script (or in a wrapper
+bash script that sources first, then does the work).
+
+A side effect of discovery: a bare `.sh` file in `scripts/` shows up in
+the UI as a runnable script of its own. To keep helper files out of the
+run page, put them in a subdirectory such as `scripts/lib/` — discovery
+ignores directories without a `manifest.json`, and your scripts can
+still source them by path.
+
 ## Node.js
 
 Command: `node {script} {log} {args}`. The code
