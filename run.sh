@@ -25,6 +25,10 @@
 # only the script + its input + the output directory mounted. The sandbox
 # image (sandbox.Dockerfile) is built automatically on first use.
 #
+# First start sets itself up: .venv, python packages, node modules and the
+# SPA build are created on demand when missing (or when their requirements
+# files changed). --ui python needs no Node at all.
+#
 # Anything else (e.g. './run.sh --port 8001') runs the foreground server with
 # the args passed through to uvicorn, exactly like before (except --ui,
 # which this script consumes).
@@ -46,7 +50,7 @@ HOST="${LOGSMITH_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 
 UI="${LOGSMITH_UI:-react}"        # frontend: react SPA or python pages (--ui)
 
 usage() {
-  sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # --- small helpers ------------------------------------------------------
@@ -203,11 +207,50 @@ wait_ready() { # $1 = url, $2 = label, $3 = log file
   return 1
 }
 
-# One-time setup shared by every mode.
+# One-time setup shared by every mode. Idempotent and self-healing:
+# - .venv is (re)created when missing or broken
+# - python packages reinstall when backend/requirements.txt changed
+# - everything is reported, so a slow first start is never a mystery
 ensure_backend_env() {
-  if [ ! -d .venv ]; then
+  local stamp=.venv/.logsmith-installed
+  if [ ! -x .venv/bin/python ]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "Error: python3 (3.10+) is not installed or not on PATH." >&2
+      exit 1
+    fi
+    rm -rf .venv   # a venv without a python binary is a broken half-state
+    echo "Setup    ●  creating virtualenv .venv…"
     python3 -m venv .venv
+  fi
+  if [ ! -f "$stamp" ] || [ backend/requirements.txt -nt "$stamp" ]; then
+    echo "Setup    ●  installing python packages (backend/requirements.txt)…"
     .venv/bin/pip install -q -r backend/requirements.txt
+    touch "$stamp"
+  fi
+  if [ ! -x .venv/bin/uvicorn ]; then
+    echo "Error: .venv looks broken (uvicorn missing after install)." >&2
+    echo "       Fix: rm -rf .venv && ./run.sh start" >&2
+    exit 1
+  fi
+}
+
+# Frontend packages — only the react UI needs Node at all (--ui python
+# skips this entirely). Reinstalled when node_modules is missing or
+# frontend/package-lock.json changed since the last install.
+ensure_node_modules() {
+  [ "$UI" = "react" ] || return 0
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "Error: npm is not installed or not on PATH — the react UI needs it." >&2
+    echo "       Install Node.js, or run the server-rendered UI instead:" >&2
+    echo "         ./run.sh start --ui python" >&2
+    exit 1
+  fi
+  local stamp=frontend/node_modules/.logsmith-installed
+  if [ ! -d frontend/node_modules ] || [ ! -f "$stamp" ] \
+     || [ frontend/package-lock.json -nt "$stamp" ]; then
+    echo "Setup    ●  installing frontend packages (frontend/package.json)…"
+    (cd frontend && npm install --silent --no-fund --no-audit)
+    touch "$stamp"
   fi
 }
 
@@ -298,7 +341,8 @@ start_backend() { # $1 = "dev" | "prod"
 
 start_frontend() {
   if [ ! -x frontend/node_modules/.bin/vite ]; then
-    echo "Error: Vite is not installed. Run: cd frontend && npm install" >&2
+    echo "Error: Vite is not installed in frontend/node_modules." >&2
+    echo "       This should not happen (run.sh installs it) — try: rm -rf frontend/node_modules && ./run.sh start --dev" >&2
     exit 1
   fi
   nohup sh -c 'cd frontend && exec ./node_modules/.bin/vite --strictPort' \
@@ -316,8 +360,9 @@ cmd_start() { # args may contain --dev and --ui python|react
   scan_host "$@"
   scan_ui "$@"
   mkdir -p "$RUN_DIR"
-  ensure_backend_env
   already_running_or_busy "Backend" "$BACKEND_PID" "$BACKEND_PORT"
+  ensure_backend_env
+  ensure_node_modules
   ensure_auth
   ensure_sandbox
   cert_hint
@@ -327,7 +372,7 @@ cmd_start() { # args may contain --dev and --ui python|react
 
   if [ "$mode" = "prod" ] && [ "$UI" = "react" ] && [ ! -f frontend/dist/index.html ]; then
     echo "Building the frontend (first start)…"
-    (cd frontend && npm install --silent && npm run build >/dev/null)
+    (cd frontend && npm run build >/dev/null)
   fi
 
   start_backend "$mode"
@@ -452,10 +497,6 @@ case "${1:-}" in
     scan_host "$@"
     scan_ui "$@"
     strip_ui "$@"
-    ensure_backend_env
-    if [ "$UI" = "react" ] && [ ! -f frontend/dist/index.html ]; then
-      (cd frontend && npm install --silent && npm run build >/dev/null)
-    fi
     if command -v lsof >/dev/null 2>&1 && port_busy "$BACKEND_PORT"; then
       PID="$(lsof -ti ":$BACKEND_PORT" | head -1)"
       echo "Error: port $BACKEND_PORT is already in use by PID $PID:" >&2
@@ -464,6 +505,12 @@ case "${1:-}" in
       echo "Stop that process first (kill $PID), or start on another port:" >&2
       echo "  ./run.sh --port 8001" >&2
       exit 1
+    fi
+    ensure_backend_env
+    ensure_node_modules
+    if [ "$UI" = "react" ] && [ ! -f frontend/dist/index.html ]; then
+      echo "Building the frontend (first start)…"
+      (cd frontend && npm run build >/dev/null)
     fi
     ensure_auth
     ensure_sandbox

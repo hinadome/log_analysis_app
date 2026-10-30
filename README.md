@@ -10,16 +10,15 @@ artifact files) are viewable in the browser.
 
 ## Quick start
 
-```bash
-# 1. Backend (Python 3.10+)
-python3 -m venv .venv
-.venv/bin/pip install -r backend/requirements.txt
+Prerequisites: Python 3.10+ — plus Node.js for the default react UI
+(`--ui python` needs no Node at all). Everything else the first
+`./run.sh start` does by itself:
 
-# 2. Sample data (skippable if you point LOGS_DIR/SCRIPTS_DIR at your own dirs)
+```bash
+# 1. Sample data (skippable if you point LOGS_DIR/SCRIPTS_DIR at your own dirs)
 python3 tools/generate_sample_logs.py
 
-# 3a. Production-style: build the frontend once, backend serves it
-cd frontend && npm install && npm run build && cd ..
+# 2. Production-style: backend serves the built SPA
 ./run.sh start                                      # https://localhost:8000
 
 # 3b. Or dev mode with hot reload (frontend on :5173, proxies /api)
@@ -34,6 +33,10 @@ cd frontend && npm install && npm run build && cd ..
 ./run.sh restart [--dev] [--ui python|react]        # stop + start
 ./run.sh                                            # foreground server (Ctrl+C stops)
 ```
+
+First start sets itself up: `.venv` and its python packages, `node_modules`
+and the SPA build are created on demand — and reinstalled automatically when
+`backend/requirements.txt` or `frontend/package-lock.json` changed.
 
 `--ui` (or `LOGSMITH_UI`) picks the frontend: `react` — the default SPA
 built with Vite — or `python` — Jinja2 pages rendered by the backend with
