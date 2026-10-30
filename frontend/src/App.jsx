@@ -51,6 +51,7 @@ export default function App() {
   const [scripts, setScripts] = useState([]);
   const [health, setHealth] = useState(null);
   const [selectedLog, setSelectedLog] = useState(null);
+  const [fanout, setFanout] = useState([]); // extra logs the submission also runs on
   const [steps, setSteps] = useState([]); // [{key, scriptId, params}]
   const [mode, setMode] = useState("parallel"); // parallel | chain
   const [label, setLabel] = useState("");      // optional tag for a submission
@@ -332,26 +333,41 @@ export default function App() {
     openJob(jobId);
   };
 
+  const toggleFanout = (log) => {
+    setFanout((list) =>
+      list.some((l) => l.path === log.path)
+        ? list.filter((l) => l.path !== log.path)
+        : [...list, log]);
+  };
+
   const run = async () => {
     if (!selectedLog || steps.length === 0) return;
     setBusy(true);
     try {
-      const body = {
-        log_path: selectedLog.path,
-        mode,
-        label: label.trim() || undefined,
-        jobs: steps.map((st) => ({
-          script_id: st.scriptId,
-          params: serializeParams(scriptById[st.scriptId], st.params),
-        })),
-      };
-      const res = await api.createJobs(body);
-      const isChain = mode === "chain" && res.jobs.length > 1;
+      // fan-out: the same submission runs once per selected log
+      const targets = [selectedLog, ...fanout.filter((l) => l.path !== selectedLog.path)];
+      const jobsSpec = steps.map((st) => ({
+        script_id: st.scriptId,
+        params: serializeParams(scriptById[st.scriptId], st.params),
+      }));
+      let queued = 0;
+      for (const target of targets) {
+        const res = await api.createJobs({
+          log_path: target.path,
+          mode,
+          label: label.trim() || undefined,
+          jobs: jobsSpec,
+        });
+        queued += res.jobs.length;
+      }
+      const isChain = mode === "chain" && steps.length > 1;
       setToast({
         kind: "ok",
-        text: isChain
-          ? `Chain of ${res.jobs.length} steps queued — each step feeds the next`
-          : `${res.jobs.length} job${res.jobs.length > 1 ? "s" : ""} queued — watch the Jobs panel`,
+        text: targets.length > 1
+          ? `${queued} job${queued > 1 ? "s" : ""} queued across ${targets.length} logs — watch the Jobs panel`
+          : isChain
+            ? `Chain of ${queued} steps queued — each step feeds the next`
+            : `${queued} job${queued > 1 ? "s" : ""} queued — watch the Jobs panel`,
       });
       refreshJobs();
     } catch (e) {
@@ -426,6 +442,8 @@ export default function App() {
                 logs={logs}
                 value={selectedLog}
                 onSelect={setSelectedLog}
+                fanout={fanout}
+                onToggleFanout={toggleFanout}
                 logsDir={health?.logs_dir || "logs/"}
                 onUploadFiles={uploadFiles}
               />
@@ -544,7 +562,9 @@ export default function App() {
                   <div className="runbar-info">
                     {selectedLog
                       ? steps.length > 0
-                        ? <><span className="mono">{selectedLog.name}</span> × {steps.length} step(s)</>
+                        ? fanout.length > 0
+                          ? <>{fanout.length + 1} logs × {steps.length} step(s) = {(fanout.length + 1) * steps.length} job(s)</>
+                          : <><span className="mono">{selectedLog.name}</span> × {steps.length} step(s)</>
                         : "Now add one or more scripts"
                       : "Select a log file to begin"}
                   </div>

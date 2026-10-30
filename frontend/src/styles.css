@@ -91,6 +91,11 @@ body {
   background: var(--panel2); cursor: pointer;
 }
 .log-row:hover { border-color: var(--border2); }
+.log-row.fan { border-color: var(--accent); }
+.fanout-btn.on {
+  background: var(--accent); color: var(--bg);
+  border-color: var(--accent); font-weight: 700;
+}
 .log-row.selected { border-color: var(--accent); background: rgba(68, 147, 248, 0.08); }
 .radio {
   width: 14px; height: 14px; border-radius: 50%;

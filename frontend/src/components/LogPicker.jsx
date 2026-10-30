@@ -3,7 +3,7 @@ import { api } from "../api.js";
 import { cx, fmtBytes, fmtDate } from "../fmt.js";
 import { Modal, StepHead } from "./ui.jsx";
 
-export default function LogPicker({ logs, value, onSelect, logsDir, onUploadFiles }) {
+export default function LogPicker({ logs, value, onSelect, fanout, onToggleFanout, logsDir, onUploadFiles }) {
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState(null);
   const [tail, setTail] = useState(false);
@@ -67,25 +67,37 @@ export default function LogPicker({ logs, value, onSelect, logsDir, onUploadFile
         {filtered.length === 0 && (
           <div className="empty">No log files match. Put files in the server's logs/ directory.</div>
         )}
-        {filtered.map((log) => (
-          <div
-            key={log.path}
-            className={cx("log-row", { selected: value?.path === log.path })}
-            onClick={() => onSelect(log)}
-          >
-            <span className={cx("radio", { on: value?.path === log.path })} />
-            <span className="mono log-name">{log.name}</span>
-            <span className="muted">{fmtBytes(log.size)}</span>
-            <span className="muted hide-sm">{fmtDate(log.modified)}</span>
-            <button
-              className="btn ghost sm"
-              disabled={loading}
-              onClick={(e) => { e.stopPropagation(); openPreview(log); }}
+        {filtered.map((log) => {
+          const isFan = fanout?.some((l) => l.path === log.path);
+          return (
+            <div
+              key={log.path}
+              className={cx("log-row", { selected: value?.path === log.path, fan: isFan })}
+              onClick={() => onSelect(log)}
             >
-              Preview
-            </button>
-          </div>
-        ))}
+              <span className={cx("radio", { on: value?.path === log.path })} />
+              <span className="mono log-name">{log.name}</span>
+              <span className="muted">{fmtBytes(log.size)}</span>
+              <span className="muted hide-sm">{fmtDate(log.modified)}</span>
+              <button
+                className={cx("btn ghost sm fanout-btn", isFan && "on")}
+                title={isFan
+                  ? "Remove from the fan-out — this log won't get the submission"
+                  : "Fan out: also run the submission on this log"}
+                onClick={(e) => { e.stopPropagation(); onToggleFanout(log); }}
+              >
+                {isFan ? "✓" : "＋"}
+              </button>
+              <button
+                className="btn ghost sm"
+                disabled={loading}
+                onClick={(e) => { e.stopPropagation(); openPreview(log); }}
+              >
+                Preview
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {preview && (
