@@ -324,6 +324,14 @@ export default function App() {
     setToast({ kind: "ok", text: `Script "${name}" deleted (existing job history is kept)` });
   };
 
+  // test-run from the editor: the script was saved, a job was just submitted
+  const onScriptRan = (jobId) => {
+    loadAll();
+    refreshJobs();
+    setScriptEditor(null);
+    openJob(jobId);
+  };
+
   const run = async () => {
     if (!selectedLog || steps.length === 0) return;
     setBusy(true);
@@ -584,6 +592,7 @@ export default function App() {
           onClose={() => setScriptEditor(null)}
           onSaved={onScriptSaved}
           onDeleted={onScriptDeleted}
+          onRan={onScriptRan}
           onError={showError}
         />
       )}

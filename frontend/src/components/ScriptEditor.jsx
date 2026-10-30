@@ -78,7 +78,7 @@ const DEFAULTS = {
   code: "",
 };
 
-export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, onError }) {
+export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, onRan, onError }) {
   const [form, setForm] = useState(DEFAULTS);
   const [paramsText, setParamsText] = useState("[]");
   const [paramsError, setParamsError] = useState(null);
@@ -130,14 +130,14 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
     }));
   };
 
-  const save = async () => {
+  const save = async ({ silent = false } = {}) => {
     let parameters;
     try {
       parameters = JSON.parse(paramsText || "[]");
       if (!Array.isArray(parameters)) throw new Error("must be a JSON array");
     } catch (e) {
       setParamsError(`Parameters: ${e.message}`);
-      return;
+      return null;
     }
     setParamsError(null);
     setSaving(true);
@@ -158,9 +158,11 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
       const res = isCreate
         ? await api.createScript(body)
         : await api.updateScript(scriptId, body);
-      onSaved(res.script);
+      if (!silent) onSaved(res.script);
+      return { script: res.script, parameters };
     } catch (e) {
       onError(e);
+      return null;
     } finally {
       setSaving(false);
     }
@@ -199,6 +201,44 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
   const idOk = idPattern.test(form.id.trim());
 
   const [copied, setCopied] = useState(false);
+  const [logs, setLogs] = useState(null); // null = not loaded yet
+  const [logPath, setLogPath] = useState("");
+  const [runOpen, setRunOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+
+  const openRun = () => {
+    setRunOpen(true);
+    if (logs === null) {
+      api.listLogs().then((r) => {
+        setLogs(r.logs);
+        setLogPath(r.logs[0]?.path || "");
+      }).catch(onError);
+    }
+  };
+
+  /** Save (silently), then run the script with its manifest defaults on the chosen log. */
+  const runOn = async (path) => {
+    if (!path) return;
+    setRunning(true);
+    try {
+      const saved = await save({ silent: true });
+      if (!saved) return;
+      const params = {};
+      for (const spec of saved.parameters) {
+        if (spec.default != null && spec.default !== "") params[spec.name] = spec.default;
+      }
+      const res = await api.createJobs({
+        log_path: path,
+        mode: "parallel",
+        jobs: [{ script_id: saved.script.id, params }],
+      });
+      onRan(res.jobs[0].id);
+    } catch (e) {
+      onError(e);
+    } finally {
+      setRunning(false);
+    }
+  };
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(form.code);
@@ -294,6 +334,30 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
                 </span>}
           </label>
         </div>
+        {runOpen && (
+          <div className="run-strip">
+            <span className="muted sm">Run on:</span>
+            <select
+              className="editor-input run-log-select"
+              value={logPath}
+              onChange={(e) => setLogPath(e.target.value)}
+            >
+              {logs === null
+                ? <option value="">loading logs…</option>
+                : logs.length === 0
+                  ? <option value="">(no logs available)</option>
+                  : logs.map((l) => <option key={l.path} value={l.path}>{l.name}</option>)}
+            </select>
+            <button
+              className="btn primary sm"
+              disabled={!logPath || running || saving || busy || !idOk || !form.code.trim()}
+              onClick={() => runOn(logPath)}
+            >
+              {running ? "Starting…" : "▶ Run now"}
+            </button>
+            <button className="btn ghost sm" onClick={() => setRunOpen(false)}>✕</button>
+          </div>
+        )}
         <div className="editor-actions">
           {!isNew && !dup && (
             <button className="btn ghost sm" onClick={duplicate}
@@ -321,6 +385,14 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
             </a>
           )}
           <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn ghost"
+            onClick={openRun}
+            disabled={busy || saving || !idOk || !form.code.trim()}
+            title="Save this script and run it on a log — see the result immediately"
+          >
+            ▶ Run…
+          </button>
           <button className="btn" onClick={save} disabled={busy || saving || !idOk || !form.code.trim()}>
             {saving ? "Saving…" : (isCreate ? "Create script" : "Save changes")}
           </button>

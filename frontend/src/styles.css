@@ -503,6 +503,13 @@ pre.output.has-err { color: var(--red); }
 }
 .editor-actions .spacer { flex: 1; }
 
+/* test-run strip inside the script editor */
+.run-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border-top: 1px dashed var(--border2); margin-top: 12px; padding-top: 12px;
+}
+.run-log-select { max-width: 300px; width: auto; }
+
 /* ---------- toast ---------- */
 .toast {
   position: fixed; bottom: 24px; right: 24px; z-index: 200;
