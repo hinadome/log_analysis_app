@@ -291,6 +291,33 @@ interpreter (`bash {script} {log}`) they need neither.
 | `{output}` | `<job>/outputs/<output_filename>` — file artifacts |
 | `{args}` | rendered CLI flags from validated parameters |
 
+### Reading the input in your script
+
+`{log}` is a placeholder of the **command template**, not of your code: at
+submission it becomes the absolute input path and your script receives it
+as a command-line argument — with the default commands, the first one.
+
+```bash
+LOG="$1"                          # bash — quote it, paths may contain spaces
+grep -c ERROR "$LOG"
+```
+
+```python
+import argparse                    # python — the error_counter.py style
+p = argparse.ArgumentParser()
+p.add_argument("log")
+args = p.parse_args()              # or simply: sys.argv[1]
+```
+
+`node` / `ruby` / `perl` equivalents: `process.argv[2]` / `ARGV[0]` /
+`$ARGV[0]`. Every job also exports `JOB_LOG_PATH` (the same input path),
+`JOB_ORIGINAL_LOG` (the log as selected in the UI), `JOB_OUTPUT_DIR` and
+`JOB_ID` — so a script whose command omits `{log}` can still read
+`os.environ["JOB_LOG_PATH"]`. Scripts that simply read their input
+argument work unchanged in chains, where step 2+ receives the previous
+step's output as `{log}`. Compressed logs (.gz/.bz2/.xz) are decompressed
+by the server first — `{log}` is always plain text.
+
 ### Chains (pipelines)
 
 `POST /api/jobs` with `"mode": "chain"` links the submitted steps: step 1 runs
