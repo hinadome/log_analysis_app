@@ -40,6 +40,18 @@ def _require_editing_enabled() -> None:
                    "run, but not created, changed or deleted",
         )
 
+
+def _write_code(code_path: Path, code: str) -> None:
+    """Write a script's code file, executable.
+
+    A command template may run the file directly (`{script} {log}` without
+    an interpreter); write_text's default 644 mode would then fail the job
+    with EACCES. Interpreted invocation (python3 {script} …) only needs the
+    read bit, so 755 is safe either way.
+    """
+    code_path.write_text(code, encoding="utf-8")
+    code_path.chmod(0o755)
+
 # Default command template per extension when the manifest leaves it blank.
 _DEFAULT_COMMAND = {
     "py": "python3 {script} {log} {args}",
@@ -130,7 +142,7 @@ def create_script(req: ScriptUpsertRequest):
     manifest_path = SCRIPTS_DIR / f"{req.id}.json"
     try:
         SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-        code_path.write_text(req.code, encoding="utf-8")
+        _write_code(code_path, req.code)
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         # never leave a half-written pair behind
@@ -154,7 +166,7 @@ def update_script(script_id: str, req: ScriptUpsertRequest):
     code_path = SCRIPTS_DIR / f"{script_id}.{req.extension}"
     manifest_path = SCRIPTS_DIR / f"{script_id}.json"
     try:
-        code_path.write_text(req.code, encoding="utf-8")
+        _write_code(code_path, req.code)
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         if code_path != old_code_path:
             old_code_path.unlink(missing_ok=True)  # extension changed

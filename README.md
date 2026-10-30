@@ -251,7 +251,11 @@ You don't have to write these files by hand: the **＋ New script** button in
 the UI opens a browser editor for the flat style — code, manifest fields and
 parameters — and existing scripts can be edited (✏️ on any script card) or
 deleted there too. UI-created scripts are indistinguishable from hand-added
-ones on disk.
+ones on disk, except that the editor writes the code file **executable**
+(mode 755) — so `command` may also run the script directly (`{script}
+{log} {args}`) when the code starts with a shebang line like `#!/bin/bash`.
+Scripts written by hand need `chmod +x` for that; run through an
+interpreter (`bash {script} {log}`) they need neither.
 
 ```jsonc
 {

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import bz2
+import errno
 import gzip
 import lzma
 import os
@@ -54,6 +55,29 @@ _DECOMPRESSORS = {
 # Sandbox containers are named after their job so a timeout or cancel can
 # stop the container itself, not just the docker CLI (see _terminate).
 _CONTAINER_PREFIX = "logsmith-job-"
+
+
+def _spawn_error(argv: list[str], exc: OSError) -> str:
+    """Turn a process-spawn failure into a message that says what to fix.
+
+    EACCES/ENOEXEC are almost always a manifest command executing the
+    script file itself: a file needs both the execute bit and a shebang
+    for direct execution, while `bash {script} {log}` needs neither.
+    """
+    head = argv[0] if argv else "?"
+    hint = ""
+    if exc.errno == errno.EACCES:
+        hint = (f" — '{head}' is not executable. If that is the script "
+                "itself, run it through an interpreter (command: "
+                "'bash {script} {log}') or make it executable with a "
+                "shebang line first (chmod +x).")
+    elif exc.errno == errno.ENOEXEC:
+        hint = (f" — '{head}' is executable but has no shebang. Add a "
+                "first line like '#!/bin/bash', or run it through an "
+                "interpreter.")
+    elif exc.errno == errno.ENOENT:
+        hint = f" — '{head}' was not found. Is that interpreter installed on this server?"
+    return f"Failed to start: {exc}{hint}"
 
 
 def _is_compressed(path: str) -> bool:
@@ -426,6 +450,10 @@ class Executor:
                         cwd=str(out_dir),
                         env=env,
                     )
+                except OSError as exc:
+                    job.status = "failed"
+                    job.error = _spawn_error(argv, exc)
+                    return
                 except Exception as exc:
                     job.status = "failed"
                     job.error = f"Failed to start: {exc}"

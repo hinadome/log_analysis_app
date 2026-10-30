@@ -224,3 +224,62 @@ def test_export_restores_to_a_working_script(client, scripts_dir):
         assert any(s["id"] == "shout" for s in listed)
     finally:
         monkey.undo()
+
+
+# --- executable scripts + actionable spawn errors -----------------------------
+#
+# A manifest command may run the script file directly ("{script} {log}" with
+# no interpreter); that needs the execute bit (the editor writes 755) and a
+# shebang. The spawn-failure errors must say which of the two is missing.
+
+def test_editor_creates_executable_scripts(client, scripts_dir):
+    code_path = scripts_dir / "shout.sh"
+    client.post("/api/scripts", json=_body())
+    assert code_path.stat().st_mode & 0o111, "created scripts must be executable"
+
+    # updates keep it executable, across an extension change too
+    res = client.put("/api/scripts/shout", json=_body(extension="py"))
+    assert res.status_code == 200, res.text
+    assert (scripts_dir / "shout.py").stat().st_mode & 0o111
+
+
+def test_direct_execution_of_editor_script(client, scripts_dir):
+    """{script} without an interpreter: works for editor-created scripts
+    as long as the code starts with a shebang."""
+    body = _body("direct", code='#!/bin/bash\necho "lines: $(wc -l < "$1")"\n',
+                 command="{script} {log} {args}")
+    assert client.post("/api/scripts", json=body).status_code == 200
+    jobs = submit(client, [{"script_id": "direct", "params": {}}])
+    wait_status(client, [jobs[0]["id"]], ("completed",))
+    stdout = client.get(f"/api/jobs/{jobs[0]['id']}/stdout").text
+    assert "lines:" in stdout
+
+
+def test_spawn_error_hints(client, scripts_dir):
+    """Hand-made scripts (no +x) and missing interpreters fail with a
+    message that says what to fix, not just a bare errno."""
+    # EACCES: script without the execute bit (as if written by hand)
+    client.post("/api/scripts", json=_body(
+        "notexec", code="#!/bin/bash\ntrue\n", command="{script} {log} {args}"))
+    (scripts_dir / "notexec.sh").chmod(0o644)
+    jobs = submit(client, [{"script_id": "notexec", "params": {}}])
+    wait_status(client, [jobs[0]["id"]], ("failed",))
+    err = client.get(f"/api/jobs/{jobs[0]['id']}").json()["error"]
+    assert "not executable" in err
+    assert "interpreter" in err
+
+    # ENOEXEC: executable but no shebang line
+    client.post("/api/scripts", json=_body(
+        "noshebang", code="true\n", command="{script} {log} {args}"))
+    jobs = submit(client, [{"script_id": "noshebang", "params": {}}])
+    wait_status(client, [jobs[0]["id"]], ("failed",))
+    err = client.get(f"/api/jobs/{jobs[0]['id']}").json()["error"]
+    assert "shebang" in err
+
+    # ENOENT: interpreter that does not exist on the server
+    client.post("/api/scripts", json=_body(
+        "nointerp", command="definitely-not-an-interpreter {script} {log} {args}"))
+    jobs = submit(client, [{"script_id": "nointerp", "params": {}}])
+    wait_status(client, [jobs[0]["id"]], ("failed",))
+    err = client.get(f"/api/jobs/{jobs[0]['id']}").json()["error"]
+    assert "was not found" in err

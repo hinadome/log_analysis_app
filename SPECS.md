@@ -29,7 +29,10 @@ Standard error strings: `Cancelled by user`, `Cancelled by server shutdown`,
 `Interrupted by server restart`, `Skipped: step N did not complete`,
 `Previous step produced no output to chain`, `Script no longer available:
 <id>`, `Timed out after N seconds`, `Exited with code N`, `Failed to start:
-…`, `Failed to decompress input: …`.
+…`, `Failed to decompress input: …`. Spawn failures (`Failed to start:`)
+carry an actionable hint: EACCES → the first token is not executable (run
+the script through an interpreter, or `chmod +x` it), ENOEXEC → executable
+but no shebang line, ENOENT → that interpreter is not installed.
 
 ## 3. Job record schema
 
@@ -225,8 +228,11 @@ editor, which rewrites a clean manifest on save).
 
 Scripts can also be authored through the API/UI editor (`POST/PUT/DELETE
 /api/scripts`): it writes ordinary flat-style files (code + sidecar
-manifest), so UI-created and hand-added scripts are interchangeable.
-Directory-style scripts are read-only in the UI.
+manifest), so UI-created and hand-added scripts are interchangeable. The
+code file is written **executable** (mode 755), so a command template may
+run it directly (`{script} {log}`) when the code starts with a shebang
+line — without one, direct execution fails with ENOEXEC. Directory-style
+scripts are read-only in the UI.
 
 ```jsonc
 {
