@@ -125,7 +125,8 @@ repo root
     └── upload.sh                scp the git-tracked files to a remote host
                                 (no .venv/node_modules/data/certs/.run/.env
                                 — the remote bootstraps itself on first
-                                start; --start also launches it there)
+                                start; ~/… dir targets expand on the remote,
+                                --start restarts it so new code goes live)
 ```
 
 ## 3. Job execution engine (`services/executor.py`)

@@ -2,9 +2,9 @@
 # LogSmith uploader — copy the app to a remote machine via scp.
 #
 #   tools/upload.sh user@host                 unpacks into ~/logsmith on the host
-#   tools/upload.sh user@host:apps/logsmith   custom target dir (absolute paths ok)
+#   tools/upload.sh user@host:apps/logsmith   custom dir (~/… or absolute ok)
 #   tools/upload.sh -p 2222 user@host         non-standard ssh port
-#   tools/upload.sh --start user@host         also runs ./run.sh start there
+#   tools/upload.sh --start user@host         also (re)starts it there
 #
 # What is uploaded: exactly the files git tracks. The local runtime state
 # (.venv, node_modules, frontend/dist, data/, certs/, .run/, .env —
@@ -16,8 +16,8 @@
 #   --dirty      include uncommitted tracked changes; a dirty tree is refused
 #                by default — otherwise you would upload something you
 #                cannot rebuild from the repo
-#   --start      after unpacking, start the app on the remote (background
-#                mode: the banner prints, ssh returns, server keeps running)
+#   --start      after unpacking, (re)start the app on the remote — a restart
+#                when it is already running, so the new code goes live
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -62,7 +62,10 @@ TREE="HEAD"
 if [ -n "$(git status --porcelain)" ]; then
   if [ "$DIRTY" = "0" ]; then
     echo "Error: the working tree has uncommitted changes — they would NOT" >&2
-    echo "       be uploaded. Commit first, or pass --dirty to snapshot them." >&2
+    echo "       be uploaded:" >&2
+    git status --short | sed 's/^/         /' >&2
+    echo "       Commit first, or pass --dirty to snapshot tracked changes." >&2
+    echo "       Untracked files (??) never upload — commit them." >&2
     exit 1
   fi
   TREE="$(git stash create)"
@@ -92,22 +95,38 @@ REMOTE="${TARGET%%:*}"
 [ -n "$REMOTE" ] || die "no host in '$TARGET' (want user@host[:dir])"
 [ -n "$DIR" ] || DIR="logsmith"
 
-# Single-quote the remote paths (a dir like "my apps/logsmith" must survive).
-qdir() { printf '%s' "$1" | sed "s/'/'\\\\''/g"; }
-QDIR="$(qdir "$DIR")"
-QTMP="$(qdir "/tmp/logsmith-upload-$$.tar.gz")"
+# Quote a path for the remote shell. Everything is single-quoted (a dir like
+# "my apps/logsmith" must survive); a leading ~[user] stays unquoted so the
+# remote expands it — user@host:~/logsmith means $HOME/logsmith there, not a
+# literal '~' directory created inside it.
+rq() {
+  local p="$1" prefix=""
+  case "$p" in
+    "~")    prefix="~";         p=""             ;;
+    "~/"*)  prefix="~";         p="${p:2}"       ;;  # substring: a ~ in a ${…#pattern} gets tilde-expanded
+    "~"*/*) prefix="${p%%/*}";  p="${p#*/}"      ;;
+    "~"*)   prefix="$p";        p=""             ;;
+  esac
+  p="$(printf '%s' "$p" | sed "s/'/'\\\\''/g")"
+  if [ -z "$prefix" ]; then printf "'%s'" "$p"
+  elif [ -z "$p" ]; then printf '%s' "$prefix"
+  else printf "%s/'%s'" "$prefix" "$p"; fi
+}
+QDIR="$(rq "$DIR")"
+TMPPATH="/tmp/logsmith-upload-$$.tar.gz"  # raw — scp must not get shell quotes
+RTMP="$(rq "$TMPPATH")"                   # quoted — for the remote command line
 
 echo "Upload   ●  $REMOTE:$DIR (port $PORT)"
-scp -P "$PORT" "$TARBALL" "$REMOTE:$QTMP"
+scp -P "$PORT" "$TARBALL" "$REMOTE:$TMPPATH"
 
-echo "Extract  ●  refreshing tracked files in \$HOME-relative '$DIR'"
+echo "Extract  ●  refreshing tracked files in '$DIR'"
 ssh -p "$PORT" "$REMOTE" \
-  "mkdir -p '$QDIR' && tar -xzf '$QTMP' -C '$QDIR' && rm -f '$QTMP'"
+  "mkdir -p $QDIR && tar -xzf $RTMP -C $QDIR && rm -f $RTMP"
 
 if [ "$START" = "1" ]; then
-  echo "Start    ●  ./run.sh start on $REMOTE"
-  ssh -p "$PORT" "$REMOTE" "cd '$QDIR' && ./run.sh start"
+  echo "Start    ●  ./run.sh restart on $REMOTE"
+  ssh -p "$PORT" "$REMOTE" "cd $QDIR && ./run.sh restart"
 else
   echo "Done     ●  $REMOTE:$DIR"
-  echo "           start it there:  ssh -t $REMOTE \"cd '$DIR' && ./run.sh\""
+  echo "           start it there:  ssh -t $REMOTE \"cd $QDIR && ./run.sh\""
 fi

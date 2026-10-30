@@ -63,14 +63,17 @@ its first `./run.sh start`:
 ```bash
 tools/upload.sh user@192.168.1.50            # → ~/logsmith on the remote
 tools/upload.sh -p 2222 me@server:apps/logsmith   # custom ssh port + dir
-tools/upload.sh --start user@host           # unpack and start it there
+tools/upload.sh --start user@host           # unpack and (re)start it there
 tools/upload.sh --tar-only                   # just build the tarball, no upload
 ```
 
 Re-uploads refresh the tracked files in place — remote state (jobs, token,
-certs) is untouched. A dirty working tree is refused unless `--dirty` is
-passed (snapshots uncommitted tracked changes; new files still need a
-commit).
+certs) is untouched. Target dirs may be home-relative, `~/…`-style or
+absolute (the remote shell expands the tilde). `--start` restarts the app
+there, so the uploaded code goes live. A dirty working tree is refused
+unless `--dirty` is passed (snapshots uncommitted tracked changes; new
+untracked files — e.g. scripts created in the UI editor — never upload
+without a commit; the refusal lists exactly what is uncommitted).
 
 ## HTTPS
 
