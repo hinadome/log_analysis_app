@@ -100,6 +100,46 @@ def test_parallel_submission(client):
     assert "timeout" in stdout.text and "deadlock" in stdout.text
 
 
+def test_parallel_jobs_overlap_and_api_answers_while_they_run(client):
+    """Concurrency is a hard contract of the workbench, not a nice-to-have.
+
+    Parallel submissions must execute at the same time (overlapping
+    started_at/finished_at windows — a sequential runner would leave gaps),
+    and the API must keep answering while jobs run: the executor runs
+    scripts as asyncio subprocesses, so a running job can never make the
+    server unresponsive. Both properties regressed would read to a user as
+    "script processes are not async".
+    """
+    steps = [{"script_id": "slow_scan", "params": {"seconds": 1, "interval": 0.2}}] * 3
+    jobs = submit(client, steps)
+    ids = [j["id"] for j in jobs]
+
+    # While the jobs run, the API answers: a mid-flight poll must observe
+    # a non-terminal status through a normal request/response.
+    seen_mid_flight = False
+    for _ in range(100):
+        statuses = [client.get(f"/api/jobs/{jid}").json()["status"] for jid in ids]
+        if "running" in statuses:
+            seen_mid_flight = True
+            break
+        if all(s in ("completed", "failed") for s in statuses):
+            break
+        time.sleep(0.05)
+    assert seen_mid_flight, "jobs were never observed running — poll answered too late?"
+
+    wait_status(client, ids, ("completed",))
+
+    # Overlap: every job started before the first one finished. ISO-8601
+    # timestamps from the same clock compare correctly as strings.
+    final = [client.get(f"/api/jobs/{jid}").json() for jid in ids]
+    starts = [j["started_at"] for j in final]
+    ends = [j["finished_at"] for j in final]
+    assert max(starts) < min(ends), (
+        f"parallel jobs did not overlap:\n"
+        + "\n".join(f"  {s} -> {e}" for s, e in zip(starts, ends))
+    )
+
+
 def test_chain_flow(client):
     jobs = submit(client, ERROR_STEPS, mode="chain")
     assert len(jobs) == 3
