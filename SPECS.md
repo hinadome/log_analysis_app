@@ -88,8 +88,22 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 - **Validation is atomic (two-pass)**: every step's script existence, manifest
   health and parameter types are checked **before** any job is created. A
   rejected request (404 unknown script / 422 bad params) leaves zero jobs.
-- `parallel`: all jobs start immediately (bounded by the pool); each reads
-  the selected log. A single job in `chain` mode behaves identically.
+- `parallel`: all jobs start immediately (bounded by the pool) and **overlap
+  in execution**; each reads the selected log. A single job in `chain` mode
+  behaves identically.
+- **Execution is async end-to-end**: scripts run as asyncio subprocesses
+  with awaited I/O, so the API keeps serving requests — and both UIs keep
+  live-updating (React via SSE + polling, python via its 2 s page refresh)
+  — while jobs run. Locked in by a regression test that asserts parallel
+  jobs overlap in wall-clock and the API answers mid-run.
+- **The rendered command is pre-flighted at submission**: a bare first
+  token must resolve on `PATH`; a path first token must exist — and when
+  the script is executed directly, its shebang's interpreter (a direct path
+  or `#!/usr/bin/env X`) must be installed too. A violation creates the
+  job already `failed` with the same message the spawn error would give
+  (§2), never queued, and a rejected chain head marks its remaining steps
+  `skipped`. Sandbox runs are exempt — their interpreters live in the
+  sandbox image, and a missing Docker CLI has its own error.
 
 ### 4.1 Chain rules (normative)
 
@@ -299,6 +313,12 @@ Each script process receives:
 - env: `JOB_ID`, `JOB_LOG_PATH` (resolved input path), `JOB_OUTPUT_DIR`,
   `JOB_ORIGINAL_LOG` (the originally selected file) + the server environment
 
+With the default command templates (`<interpreter> {script} {log} {args}`)
+the input path is the script's **first argument** — `$1` in shell,
+`sys.argv[1]` in python, `process.argv[2]` in node, `ARGV[0]` in ruby,
+`$ARGV[0]` in perl. A command that omits `{log}` can read the same path
+from `JOB_LOG_PATH` instead.
+
 Artifacts: write to the `{output}` path, or write any files into
 `$JOB_OUTPUT_DIR` — both are served by `GET /api/jobs/{id}/files/{name}`.
 In a chain, whatever the step leaves there (or its stdout) feeds the next
@@ -385,3 +405,40 @@ UIs can adapt.
 | `JOB_RETENTION_DAYS` | `0` | startup auto-delete window (0 = keep forever) |
 
 All variables are read once at process start; restart to apply changes.
+
+## 10. Deployment: `tools/upload.sh`
+
+Copies the app to a remote host over ssh/scp, so it can run there against
+that machine's own logs.
+
+```bash
+tools/upload.sh user@host                    # → ~/logsmith on the remote
+tools/upload.sh user@host:apps/logsmith     # custom dir (~/…, ~user/… or absolute)
+tools/upload.sh -p 2222 user@host           # non-standard ssh port
+tools/upload.sh --start user@host           # unpack, then (re)start it there
+tools/upload.sh --tar-only                   # build the tarball, print its path, upload nothing
+```
+
+Normative behavior:
+
+- **Content**: exactly the files git tracks — `git archive` of the committed
+  tree. Local runtime state (`.venv`, `node_modules`, `frontend/dist`,
+  `data/`, `certs/`, `.run/`, `.env`) never leaves the machine; no job
+  history, auth token or private key is uploaded.
+- **Target directory** may be home-relative (`~/…`, expanded by the remote
+  shell — not a literal `~` directory), `~user/…` or absolute. Re-uploads
+  refresh the tracked files in place; remote state (jobs, generated token,
+  TLS certs, uploaded logs) is untouched.
+- **A dirty working tree is refused by default**: uncommitted tracked
+  changes would not be in the tarball, so the upload aborts and lists
+  exactly what is uncommitted. `--dirty` snapshots them (`git stash create`
+  — a commit object, no stash entry, nothing is modified). **Untracked
+  files never upload** — scripts created in the UI editor must be
+  committed before they exist for the remote.
+- **`--start`** runs `./run.sh restart` on the remote after unpacking: a
+  fresh start when it is stopped, a restart when it is running — the
+  uploaded code goes live either way (the stop is a safe no-op when idle).
+- The remote bootstraps itself on its first `./run.sh start`: `.venv` +
+  python packages, `node_modules` and the SPA build are created on demand
+  and reinstalled when their lockfiles change. It needs python3 — Node
+  only for the react UI (`--ui python` needs none).

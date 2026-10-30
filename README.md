@@ -75,6 +75,11 @@ unless `--dirty` is passed (snapshots uncommitted tracked changes; new
 untracked files — e.g. scripts created in the UI editor — never upload
 without a commit; the refusal lists exactly what is uncommitted).
 
+The remote bootstraps itself on its first `./run.sh start` (`.venv`,
+packages, `node_modules`, SPA build — all on demand). It needs python3;
+Node is only required for the react UI, so `--ui python` runs without it.
+Normative behavior: [SPECS.md §10](SPECS.md#10-deployment-toolsuploadsh).
+
 ## HTTPS
 
 `run.sh` serves the app over **https://localhost:8000**. On first start it
@@ -116,7 +121,16 @@ Vite proxy talks HTTPS to the backend.
   deep-linkable URL; the two are mutually exclusive at startup because the
   SPA owns a catch-all route.
 - **Async execution** — jobs get an ID immediately and run in a bounded pool
-  (`MAX_CONCURRENT_JOBS`, default 4). Output streams live into the job view.
+  (`MAX_CONCURRENT_JOBS`, default 4), overlapping in wall-clock. The server
+  stays fully responsive while jobs run — execution is async end-to-end
+  (subprocesses with awaited I/O), and that is pinned by a regression test.
+- **Self-diagnosing failures** — a job that cannot start says exactly why:
+  a first token that is not executable, a missing shebang, or a missing
+  interpreter — including the one named in a script's shebang
+  (`#!/usr/bin/python` on a python3-only host reads like a lost file, but
+  is a missing interpreter). Commands are pre-flighted at submission:
+  a missing interpreter fails the job instantly with the culprit named
+  instead of erroring later, and the rest of a chain is skipped.
 - **Deep links** — every job has a URL (`#/job/<id>`); refresh, the browser
   back button and shared links all land on the right view.
 - **Live streaming** — the job detail page uses server-sent events
@@ -433,10 +447,12 @@ job store persistence/reconcile/prune (plus the parse cache), executor
 lifecycle (timeouts, cancel, gz/bz2/xz decompression), chain advancement/cancel
 invariants, the full HTTP API (atomic validation, labels + search, status
 filtering, paging, SSE streaming, the step-input endpoint, full and partial
-re-run), log preview (head/tail/compressed), upload sanitization and caps,
-authentication incl. rate limiting and session expiry, the python UI's page
-flow (login, submission, fan-out, chains, compare, editor, the output table
-+ CSV), plus the frontend's diff/table logic. See
+re-run), submission pre-flight + spawn-error diagnostics (missing
+interpreters named), the async contract (parallel jobs overlap; the API
+answers mid-run), log preview (head/tail/compressed), upload sanitization
+and caps, authentication incl. rate limiting and session expiry, the
+python UI's page flow (login, submission, fan-out, chains, compare,
+editor, the output table + CSV), plus the frontend's diff/table logic. See
 [ARCHITECTURE.md §11](ARCHITECTURE.md#11-testing) for the invariant → test
 mapping. CI installs the pinned `backend/requirements.lock`, runs both
 suites and the frontend build on every push (`.github/workflows/tests.yml`).
