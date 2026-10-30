@@ -48,8 +48,12 @@ def _write_code(code_path: Path, code: str) -> None:
     an interpreter); write_text's default 644 mode would then fail the job
     with EACCES. Interpreted invocation (python3 {script} …) only needs the
     read bit, so 755 is safe either way.
+
+    CRLF is normalized to LF: text pasted from Windows tools carries
+    carriage returns, and one at the end of the shebang line breaks
+    direct execution ('bash\\r': No such file or directory).
     """
-    code_path.write_text(code, encoding="utf-8")
+    code_path.write_text(code.replace("\r\n", "\n"), encoding="utf-8")
     code_path.chmod(0o755)
 
 # Default command template per extension when the manifest leaves it blank.

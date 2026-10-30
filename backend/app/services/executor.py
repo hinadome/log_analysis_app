@@ -148,6 +148,30 @@ def _preflight_reason(argv: list[str], cwd: Path) -> str | None:
     return None
 
 
+def _crlf_reason(script_path: str) -> str | None:
+    """Why a CRLF-ended script file cannot run as-is, or None.
+
+    A carriage return at the end of the first line survives the shebang
+    check above (str.strip() eats it), so the interpreter looks fine —
+    but the kernel hands the '\r' to the interpreter as part of its name
+    ('env: bash\r: No such file or directory', exit 127), and in a shell
+    script every command line ends with '\r' too. Windows line endings
+    must be converted to Unix LF before the script can run.
+    """
+    try:
+        with open(script_path, "rb") as fh:
+            first = fh.readline(4096)
+    except OSError:
+        return None
+    if not first.rstrip(b"\n").endswith(b"\r"):
+        return None
+    return (f"'{script_path}' has Windows line endings (CRLF) — every "
+            "line ends with a carriage return, which becomes part of the "
+            "shebang's interpreter ('bash\\r') and of every shell command. "
+            "Convert the file to Unix LF (dos2unix, or re-save it in the "
+            "script editor) and run again.")
+
+
 def _is_compressed(path: str) -> bool:
     return Path(path).suffix.lower() in _DECOMPRESSORS
 
@@ -231,9 +255,13 @@ class Executor:
         job.command = render_command(script, log_arg, job.params, output_path)
         # Fail fast when the rendered command cannot start (missing
         # interpreter — its own, or the one named in the script's
-        # shebang). Sandbox runs are skipped: their interpreters live in
-        # the sandbox image, and a missing docker CLI has its own error.
-        reason = None if DOCKER_SANDBOX else _preflight_reason(job.command, out_dir)
+        # shebang; Windows line endings in the code file). Sandbox runs
+        # skip the interpreter checks — their interpreters live in the
+        # sandbox image, and a missing docker CLI has its own error —
+        # but the CRLF check is about the file itself and always runs.
+        reason = _crlf_reason(script.script_path)
+        if reason is None and not DOCKER_SANDBOX:
+            reason = _preflight_reason(job.command, out_dir)
         if reason is not None:
             job.status = "failed"
             job.error = f"Failed to start: {reason}"

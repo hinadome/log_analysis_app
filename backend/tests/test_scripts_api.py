@@ -321,6 +321,53 @@ def test_submit_fails_fast_on_missing_env_shebang_interpreter(client, scripts_di
     assert "#!/usr/bin/env no-such-interpreter" in job["error"]
 
 
+def _write_crlf_script(scripts_dir, script_id="crlfdirect", command="{script} {log} {args}"):
+    """A hand-added CRLF script — written directly, because the editor
+    normalizes CRLF on save (its own regression test covers that)."""
+    (scripts_dir / f"{script_id}.sh").write_bytes(
+        b"#!/usr/bin/env bash\r\necho hi\r\n")
+    (scripts_dir / f"{script_id}.json").write_text(json.dumps({
+        "name": "CRLF", "command": command, "timeout": 30, "parameters": [],
+    }))
+
+
+def test_submit_fails_fast_on_crlf_script(client, scripts_dir):
+    """A CRLF-ended script used to pass every interpreter check (strip()
+    eats the \\r) and die at spawn as a cryptic exit 127 —
+    "env: bash\\r: No such file or directory". Submission now names the
+    Windows line endings and the fix."""
+    _write_crlf_script(scripts_dir)
+    jobs = submit(client, [{"script_id": "crlfdirect", "params": {}}])
+    job = client.get(f"/api/jobs/{jobs[0]['id']}").json()
+    assert job["status"] == "failed"  # at submission — never left the queue
+    assert job["exit_code"] is None
+    assert "Windows line endings (CRLF)" in job["error"]
+    assert "dos2unix" in job["error"]
+
+
+def test_crlf_script_caught_even_when_interpreted(client, scripts_dir):
+    """The CRLF check is on the code file, not the shebang path: a
+    'bash {script} …' command runs bash fine, but every line of a CRLF
+    script ends with \\r — caught at submission all the same."""
+    _write_crlf_script(scripts_dir, "crlfbash", command="bash {script} {log} {args}")
+    jobs = submit(client, [{"script_id": "crlfbash", "params": {}}])
+    job = client.get(f"/api/jobs/{jobs[0]['id']}").json()
+    assert job["status"] == "failed"
+    assert "Windows line endings (CRLF)" in job["error"]
+
+
+def test_editor_save_normalizes_crlf(client, scripts_dir):
+    """Code saved through the editor is normalized to LF — a paste from
+    Windows tools must not create a file that fails at spawn."""
+    client.post("/api/scripts", json=_body(
+        "was_crlf", code="#!/usr/bin/env bash\r\necho ok\r\n",
+        command="{script} {log} {args}"))
+    on_disk = (scripts_dir / "was_crlf.sh").read_bytes()
+    assert b"\r" not in on_disk
+    jobs = submit(client, [{"script_id": "was_crlf", "params": {}}])
+    wait_status(client, [jobs[0]["id"]], ("completed",))
+
+
 def test_chain_first_step_preflight_skips_the_rest(client, scripts_dir):
     """When a chain's first step cannot start, the later steps are
     skipped — not left waiting forever."""

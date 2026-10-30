@@ -49,13 +49,20 @@ Identical rules for every language:
 | Exit code | `0` → job `completed`; anything else → `failed` with the code shown |
 | Timeout | `timeout` seconds from the manifest, then the process is killed |
 
-Two things to keep in mind:
+Three things to keep in mind:
 
 - **The interpreter must exist on the server.** Write `python3`, not
   `python` (fresh Linux boxes often only have the former), and
   `#!/usr/bin/env python3`-style shebangs for direct execution. A missing
   interpreter fails the job **at submission** with its name in the error
   — no guessing. The Docker sandbox image ships all five interpreters.
+- **Save scripts with Unix LF line endings.** A Windows-style CRLF file
+  passes every interpreter check yet dies at spawn with the cryptic
+  `env: 'bash\r': No such file or directory` — the carriage return
+  becomes part of the interpreter name, and of every shell command.
+  LogSmith fails such a job **at submission** with the reason named
+  (convert with `dos2unix`, or re-save the script in the UI editor,
+  which always writes LF — even for text pasted from Windows tools).
 - **No shell ever runs your command**, so parameter values are literal
   argv tokens: a value like `foo; rm -rf /` is just a string to grep for,
   and you never need extra quoting to survive interpolation.
