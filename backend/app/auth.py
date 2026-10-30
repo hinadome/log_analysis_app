@@ -22,6 +22,7 @@ from .config import AUTH_TOKEN
 
 COOKIE_NAME = "logsmith_session"
 SESSION_SALT = "logsmith-session:v1"
+SESSION_MAX_AGE = 7 * 86400  # 7 days, then the browser drops the cookie
 
 # Brute-force protection: at most N failed logins per IP per window.
 LOGIN_FAILURE_WINDOW = 60.0  # seconds
@@ -113,6 +114,7 @@ def login(body: LoginBody, request: Request, response: Response):
         samesite="lax",
         secure=request.url.scheme == "https",
         path="/",
+        max_age=SESSION_MAX_AGE,  # sessions expire; without this they live forever
     )
     return {"ok": True, "auth_required": True}
 

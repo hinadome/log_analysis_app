@@ -1,0 +1,16 @@
+# never bake local state or build tooling into the image
+.git
+.github
+.venv
+node_modules
+frontend/node_modules
+frontend/dist
+data
+logs
+certs
+*.log
+.env
+nohup.out
+__pycache__
+*.pyc
+.pytest_cache

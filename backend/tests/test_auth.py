@@ -43,6 +43,8 @@ def test_cookie_login_and_logout(client, auth_on):
     set_cookie = res.headers["set-cookie"]
     assert "logsmith_session=" in set_cookie
     assert TOKEN not in set_cookie  # the cookie carries a hash, never the token
+    # the session expires — it must not live forever in the browser
+    assert f"Max-Age={auth_module.SESSION_MAX_AGE}" in set_cookie
 
     # the session cookie authenticates (browser path)
     assert client.get("/api/jobs").status_code == 200

@@ -17,8 +17,9 @@ jobs:
 
       # The suite runs the repository's sample scripts for real, including the
       # Node, Ruby and Perl ones — all preinstalled on ubuntu-latest.
+      # Runtime deps come from the lock file so CI tests exactly what deploys.
       - name: Install dependencies
-        run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+        run: pip install -r backend/requirements.lock -r backend/requirements-dev.txt
 
       - name: Run test suite
         run: pytest backend/tests -q
