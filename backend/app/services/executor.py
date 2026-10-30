@@ -63,6 +63,9 @@ def _spawn_error(argv: list[str], exc: OSError) -> str:
     EACCES/ENOEXEC are almost always a manifest command executing the
     script file itself: a file needs both the execute bit and a shebang
     for direct execution, while `bash {script} {log}` needs neither.
+    ENOENT is either a missing interpreter (python3/node/ruby/… not
+    installed) or — when the script file itself exists — a shebang line
+    naming an interpreter that is not installed.
     """
     head = argv[0] if argv else "?"
     hint = ""
@@ -76,8 +79,25 @@ def _spawn_error(argv: list[str], exc: OSError) -> str:
                 "first line like '#!/bin/bash', or run it through an "
                 "interpreter.")
     elif exc.errno == errno.ENOENT:
-        hint = f" — '{head}' was not found. Is that interpreter installed on this server?"
+        shebang = _shebang_of(head)
+        if shebang:
+            hint = (f" — '{head}' exists, but its first line "
+                    f"'{shebang}' names an interpreter that is not "
+                    "installed on this server.")
+        else:
+            hint = f" — '{head}' was not found. Is that interpreter installed on this server?"
     return f"Failed to start: {exc}{hint}"
+
+
+def _shebang_of(path: str) -> str | None:
+    """The file's first line when it is a shebang, else None."""
+    try:
+        with open(path, "rb") as fh:
+            first = fh.readline(4096)
+    except OSError:
+        return None
+    text = first.decode(errors="replace").strip()
+    return text if text.startswith("#!") else None
 
 
 def _is_compressed(path: str) -> bool:

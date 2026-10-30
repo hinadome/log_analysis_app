@@ -32,7 +32,10 @@ Standard error strings: `Cancelled by user`, `Cancelled by server shutdown`,
 …`, `Failed to decompress input: …`. Spawn failures (`Failed to start:`)
 carry an actionable hint: EACCES → the first token is not executable (run
 the script through an interpreter, or `chmod +x` it), ENOEXEC → executable
-but no shebang line, ENOENT → that interpreter is not installed.
+but no shebang line, ENOENT → the first token was not found — a missing
+interpreter (python3/node/ruby/perl… not installed), or, when the script
+file itself exists, a shebang line naming an interpreter that is not
+installed.
 
 ## 3. Job record schema
 

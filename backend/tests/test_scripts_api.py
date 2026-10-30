@@ -283,3 +283,16 @@ def test_spawn_error_hints(client, scripts_dir):
     wait_status(client, [jobs[0]["id"]], ("failed",))
     err = client.get(f"/api/jobs/{jobs[0]['id']}").json()["error"]
     assert "was not found" in err
+
+    # ENOENT via shebang: the script itself exists and is executable, but
+    # its first line names an interpreter that is not installed — the
+    # kernel reports ENOENT for the interpreter, which looks like the
+    # script went missing. The error must name the shebang instead.
+    client.post("/api/scripts", json=_body(
+        "badshebang", code="#!/definitely/not/an/interpreter\ntrue\n",
+        command="{script} {log} {args}"))
+    jobs = submit(client, [{"script_id": "badshebang", "params": {}}])
+    wait_status(client, [jobs[0]["id"]], ("failed",))
+    err = client.get(f"/api/jobs/{jobs[0]['id']}").json()["error"]
+    assert "#!/definitely/not/an/interpreter" in err
+    assert "not installed" in err
