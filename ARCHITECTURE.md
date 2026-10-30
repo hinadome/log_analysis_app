@@ -129,7 +129,8 @@ frontend/src/
 
 ### 3.2 Input resolution (unified for logs and chained inputs)
 
-`_input_path()` / `_materialize_input()` treat the selected log and a chained
+`input_path()` (public — the `/input` endpoint uses the same resolver) /
+`_materialize_input()` treat the selected log and a chained
 previous-step output identically:
 
 ```
@@ -302,23 +303,35 @@ chain step stays open — it is not terminal). The frontend uses
 
 ## 8. Frontend architecture
 
-Single-page React app; all state lives in `App.jsx`:
+Single-page React app; state lives in `App.jsx`:
 
+- **Routing**: the URL hash is the source of truth — `#/` is home,
+  `#/job/<id>` the job view (`useHashRoute` + `parseRoute` validating the job
+  id shape). Refresh, browser back/forward and shareable job links all work
+  without server-side routing.
 - **Selection model**: steps are an ordered array of `{key, scriptId,
   params}` — the same script may appear multiple times. In chain mode the
   order is the pipeline order (↑/↓ buttons); in parallel mode it is
   submission order only.
+- **Fan-out**: LogPicker's ＋ toggles arm extra logs; Run submits the same
+  steps once per armed log (frontend loop over the unchanged submit API) and
+  the runbar previews "N logs × M steps = K jobs".
 - **Job polling** at 1.5 s while any job is active, 5 s otherwise; job
   completions raise toasts and (with permission) browser notifications.
-- **Job history** is searched and paged server-side: the search box drives
-  `GET /api/jobs?q=` through a 250 ms debounce (kept in a ref so polling
-  retains the active query), and "Load more" grows the fetch window
-  (`limit`, offset stays 0 so the newest jobs are always in view).
+- **Job history** is filtered, searched and paged server-side: the search box
+  drives `GET /api/jobs?q=` through a 250 ms debounce and status chips drive
+  `?status=` (both kept in refs so polling retains the active query);
+  "Load more" grows the fetch window (`limit`, offset stays 0 so the newest
+  jobs are always in view).
 - **JobDetail** consumes the SSE stream, renders the chain strip (clickable
   per-step chips with status icons), markdown artifacts (sanitized with
-  DOMPurify), JSON-array output as a table, a copyable reconstruction of
-  the command line, and "⇄ Compare" (DiffView: LCS line diff of two
-  completed jobs' stdout).
+  DOMPurify), JSON-array output as a sortable table with CSV download, the
+  Input tab (lazy `GET /input` — what the script actually received), a
+  copyable reconstruction of the command line, and "⇄ Compare" (DiffView:
+  LCS line diff of two completed jobs' stdout).
+- **ScriptEditor** creates/edits/deletes scripts, duplicates them into new
+  ids, and can test-run: ▶ Run… saves silently and submits the script with
+  its manifest defaults on a chosen log, then navigates to the job.
 - **LogPicker** includes a drag-and-drop upload zone (multiple files,
   streamed to `POST /api/logs/upload`) and Head/Tail preview toggles.
 - **Presets** (`presets.js`) store named parameter sets per script in
@@ -327,12 +340,12 @@ Single-page React app; all state lives in `App.jsx`:
 ## 9. Security model
 
 - **Auth**: optional shared password (`LOGSMITH_TOKEN`). Browser login sets
-  an HttpOnly, SameSite=Lax cookie (Secure on HTTPS); automation uses
-  `Authorization: Bearer`. Comparisons are constant-time. Failed logins are
-  rate-limited per client IP (5 per 60 s sliding window → 429 with
-  `Retry-After`); a successful login clears the counter, and the Bearer path
-  is unaffected. When unset, the server warns and runs open — acceptable
-  only because it binds to 127.0.0.1.
+  an HttpOnly, SameSite=Lax cookie (Secure on HTTPS, expires after 7 days);
+  automation uses `Authorization: Bearer`. Comparisons are constant-time.
+  Failed logins are rate-limited per client IP (5 per 60 s sliding window →
+  429 with `Retry-After`); a successful login clears the counter, and the
+  Bearer path is unaffected. When unset, the server warns and runs open —
+  acceptable only because it binds to 127.0.0.1.
 - **No shell**: commands are tokenized with `shlex` but executed via `exec`
   — parameter values are literal argv tokens and can never inject syntax.
 - **Path containment**: log paths resolve strictly inside `LOGS_DIR`.
@@ -373,6 +386,7 @@ verify:
 ```bash
 .venv/bin/pip install -r backend/requirements-dev.txt
 .venv/bin/python -m pytest backend/tests -q
+cd frontend && npm test          # vitest — the diff/table pure logic
 ```
 
 `conftest.py` points `LOGS_DIR`/`DATA_DIR` at temp directories **before any
@@ -382,22 +396,24 @@ runs actual `grep`/`python3` subprocesses, so it exercises the real execution
 path. Executor-level tests fabricate `ScriptInfo` objects and patch the
 executor's script lookup so advancement can be driven deterministically;
 API tests drive one `TestClient` (full lifespan: reconcile → start → prune)
-per test. CI (`.github/workflows/tests.yml`) runs the suite and the frontend
-build on every push and pull request; the repo is under git with `data/`,
+per test. CI (`.github/workflows/tests.yml`) installs the pinned
+`requirements.lock`, runs the suite, builds the frontend and runs vitest on
+every push and pull request; the repo is under git with `data/`,
 `certs/`, `.env` and build outputs gitignored.
 
 | Test module | Covers |
 |---|---|
 | `test_store.py` | persistence round-trip, newest-first listing, chain ordering, `reconcile()`, `prune()`, label persistence, delete-vs-save races |
-| `test_executor.py` | single-job lifecycle: exit codes, timeouts, cancellation, gzip input decompression, script env vars, artifact collection, `chain_output()` |
+| `test_executor.py` | single-job lifecycle: exit codes, timeouts, cancellation, gz/bz2/xz input decompression, script env vars, artifact collection, `chain_output()` |
 | `test_chains.py` | invariants 1–4 + 6 below: artifact/stdout hand-off, compressed hand-off decompression, fail→skip, no-output→fail-next, gap tolerance, advancement-error containment, cancel-flag blocking |
 | `test_chain_cancel.py` | invariant 5-adjacent cancel semantics: kill running + skip waiting, idempotent return values, skip reasons |
-| `test_api.py` | the HTTP contract end-to-end: atomic validation (invariant 3), chain flow via real scripts, labels + `?q=` search (incl. chain ids), pagination + post-filter totals, full/partial rerun (invariant 7) incl. 400/409 paths, delete-live-chain (invariant 6), cancel endpoint, prune guard |
+| `test_api.py` | the HTTP contract end-to-end: atomic validation (invariant 3), chain flow via real scripts, labels + `?q=` search (incl. chain ids), status filtering (single + comma-separated), pagination + post-filter totals, the `/input` endpoint (log, chained, decompressed, gone-source 404), the SSE stream (live stdout + terminal status frames), full/partial rerun (invariant 7) incl. 400/409 paths, delete-live-chain (invariant 6), cancel endpoint, prune guard |
 | `test_scripts_api.py` | script editor endpoints against a temp SCRIPTS_DIR: create→discover→run, defaults, duplicate/bad-input rejection, source roundtrip, update incl. extension change, delete + rerun-404, export (contents + restore round-trip) |
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
-| `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token), rate limiting, slate-clearing on success, no-op when auth is off |
+| `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
+| `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,
 (2) gap tolerance, (3) `test_api` atomic-validation cases, (4) decompression

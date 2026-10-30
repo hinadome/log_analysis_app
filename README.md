@@ -58,6 +58,8 @@ reuses it on every later start — it is never regenerated while it exists.
 
 - **Async execution** — jobs get an ID immediately and run in a bounded pool
   (`MAX_CONCURRENT_JOBS`, default 4). Output streams live into the job view.
+- **Deep links** — every job has a URL (`#/job/<id>`); refresh, the browser
+  back button and shared links all land on the right view.
 - **Live streaming** — the job detail page uses server-sent events
   (`GET /api/jobs/{id}/events`) for zero-latency stdout while a script runs,
   with automatic fallback to polling.
@@ -79,13 +81,20 @@ reuses it on every later start — it is never regenerated while it exists.
 - **Continue-from-step-N** — re-run only from a chosen step onwards: earlier
   steps' persisted outputs are reused, so iterating on step 3 doesn't pay for
   step 1 again ("Re-run from here" on any chain step).
+- **Step-input viewer** — the Input tab shows exactly what a script received:
+  the selected log, or for chain steps the previous step's actual output
+  (compressed sources shown decompressed).
 - **Saved pipelines** — save a whole ordered chain (scripts + parameters)
   under a name and load it on any log, like parameter presets but for chains
   (stored in your browser's localStorage).
+- **Fan-out over logs** — arm extra logs with the ＋ toggle in the log list
+  and one Run submits the same scripts against each of them ("3 logs × 2
+  steps = 6 jobs"), e.g. the same counter across all rotated files.
 - **Labels & job search** — tag a submission with a label ("timeout spike
   investigation") at creation time and filter the job history by label,
   script, log, chain or free text — searched server-side (debounced) and
-  paged, so the history stays responsive as it grows.
+  paged, so the history stays responsive as it grows. Status chips
+  (Active / Completed / Failed / Cancelled) filter the same way.
 - **Log upload** — drag & drop log files straight into the browser (or
   click to browse); they land in the server's `logs/` directory ready to
   analyze. Collisions are rejected, sizes are capped
@@ -94,15 +103,20 @@ reuses it on every later start — it is never regenerated while it exists.
   (⇣ Tail is usually what you want); tail seeks backwards from EOF, so it
   is instant even on huge files.
 - **Table & diff views** — stdout that is a JSON array of objects renders
-  as a table (with a Raw toggle); any finished job can be diffed against
+  as a sortable table (click a header: ascending → descending → off) with a
+  CSV download of what's on screen; any finished job can be diffed against
   another with "⇄ Compare" (unified line diff, before/after at a glance).
-- **Script editor** — create, edit and delete scripts in the browser: code
-  textarea, manifest form (name, command, timeout, output file) and a JSON
-  parameter editor. Writes ordinary flat-style files into `scripts/`, so
-  hand-added scripts and UI-created ones are interchangeable. One-click
-  **backup** (tar.gz download) and code copy make deletes non-scary. The
-  bundled samples cover every editor language — Python, Bash, Node, Ruby
-  and Perl — and double as reference templates.
+- **Script editor** — create, edit, duplicate and delete scripts in the
+  browser: code textarea, manifest form (name, command, timeout, output file)
+  and a JSON parameter editor. Writes ordinary flat-style files into
+  `scripts/`, so hand-added scripts and UI-created ones are interchangeable.
+  One-click **backup** (tar.gz download) and code copy make deletes
+  non-scary. The bundled samples cover every editor language — Python, Bash
+  (`.sh`/`.bash`/`.zsh`), Node, Ruby and Perl — and double as reference
+  templates.
+- **Test-run from the editor** — ▶ Run… saves the script (even unsaved
+  edits), runs it with its default parameters on a log you pick, and jumps
+  straight to the live result.
 - **Brute-force protection** — failed logins are rate-limited per client
   (5 per minute) once `LOGSMITH_TOKEN` is set.
 - **Notifications** — enable the 🔔 button in the top bar to get a browser
@@ -110,7 +124,8 @@ reuses it on every later start — it is never regenerated while it exists.
 - **Parameter presets** — save/load named parameter combos per script
   (stored in your browser's localStorage).
 - **Test suite** — `backend/tests/` (pytest) locks in the chain invariants,
-  the API contract and the storage layer. See
+  the API contract and the storage layer; `frontend/` (vitest) locks in the
+  diff and table logic. See
   [ARCHITECTURE.md §11](ARCHITECTURE.md#11-testing).
 
 ## How it works
@@ -290,19 +305,22 @@ Example: `LOGSMITH_TOKEN=s3cret JOB_RETENTION_DAYS=14 ./run.sh`
 
 ```bash
 .venv/bin/pip install -r backend/requirements-dev.txt
-.venv/bin/python -m pytest backend/tests -q
+.venv/bin/python -m pytest backend/tests -q   # backend
+cd frontend && npm test                       # vitest (pure UI logic)
 ```
 
 The suite runs against the real sample scripts with temporary `logs/` and
 `data/` directories — it never touches your actual job history. Coverage:
 job store persistence/reconcile/prune (plus the parse cache), executor
-lifecycle (timeouts, cancel, decompression), chain advancement/cancel
-invariants, the full HTTP API (atomic validation, labels + search, paging,
-full and partial re-run), log preview (head/tail/compressed), upload
-sanitization and caps, and authentication incl. rate limiting. See
+lifecycle (timeouts, cancel, gz/bz2/xz decompression), chain advancement/cancel
+invariants, the full HTTP API (atomic validation, labels + search, status
+filtering, paging, SSE streaming, the step-input endpoint, full and partial
+re-run), log preview (head/tail/compressed), upload sanitization and caps,
+authentication incl. rate limiting and session expiry, plus the frontend's
+diff/table logic. See
 [ARCHITECTURE.md §11](ARCHITECTURE.md#11-testing) for the invariant → test
-mapping. CI runs the suite and the frontend build on every push
-(`.github/workflows/tests.yml`).
+mapping. CI installs the pinned `backend/requirements.lock`, runs both
+suites and the frontend build on every push (`.github/workflows/tests.yml`).
 
 ## Security notes
 

@@ -168,6 +168,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | `GET /api/jobs?status=…&q=…&limit=&offset=` | list jobs (newest first), optionally filtered by status (single value or comma-separated, e.g. `queued,waiting,running` for "active") and/or free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
 | `GET /api/jobs/{id}` | job detail incl. tails and `chain_steps` (§3) |
 | `GET /api/jobs/{id}/stdout` `/stderr` | full text (`text/plain`, 20 MB cap) |
+| `GET /api/jobs/{id}/input` | the exact input this job's script received — the selected log, or for chain steps the previous step's output (compressed sources served decompressed). `text/plain`, 20 MB cap; 404 when the source file is gone |
 | `GET /api/jobs/{id}/files/{name}` | download an artifact (name must be a single path segment) |
 | `GET /api/jobs/{id}/events` | SSE: `{"type":"status", status, error, exit_code, started_at, finished_at, stdout_size, stderr_size, output_files, stderr_tail}` and `{"type":"stdout","text"}` deltas; ends with `{"type":"gone"}` if the job is deleted. Stays open while `queued`/`running`/`waiting` |
 | `POST /api/jobs/{id}/cancel` | chain job → cancels whole chain; single job → kills it. 409 if nothing active |
