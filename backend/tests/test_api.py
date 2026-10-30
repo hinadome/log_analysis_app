@@ -173,6 +173,24 @@ def test_label_and_search(client):
     assert {j["id"] for j in chain_q} == {j["id"] for j in jobs}
 
 
+def test_status_filter(client):
+    jobs = submit(client, ERROR_STEPS, mode="chain")
+    wait_status(client, [j["id"] for j in jobs], ("completed",))
+
+    # single status
+    done = client.get("/api/jobs", params={"status": "completed"}).json()
+    assert {j["id"] for j in done["jobs"]} == {j["id"] for j in jobs}
+    assert done["total"] == len(jobs)
+
+    # comma-separated statuses (what the UI's "Active"/"Cancelled" chips send)
+    both = client.get("/api/jobs", params={"status": "completed,failed"}).json()
+    assert {j["id"] for j in both["jobs"]} == {j["id"] for j in jobs}
+
+    # a status nothing currently has
+    none_running = client.get("/api/jobs", params={"status": "running"}).json()
+    assert none_running["jobs"] == [] and none_running["total"] == 0
+
+
 def test_jobs_pagination(client):
     for i in range(5):
         submit(client, [{"script_id": "grep_search", "params": {"pattern": "ERROR"}}],
@@ -200,6 +218,8 @@ def test_jobs_pagination(client):
     assert found["total"] == 1 and len(found["jobs"]) == 1
 
     assert client.get("/api/jobs", params={"limit": 0}).status_code == 422
+    # the documented cap is 5000 — 1001 pins the boundary the old le=1000 broke
+    assert client.get("/api/jobs", params={"limit": 1001}).status_code == 200
     assert client.get("/api/jobs", params={"limit": 5001}).status_code == 422
 
 

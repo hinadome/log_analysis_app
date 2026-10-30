@@ -160,12 +160,13 @@ async def create_jobs(req: JobCreateRequest):
 def list_jobs(
     status: str | None = Query(None),
     q: str | None = Query(None),
-    limit: int = Query(200, ge=1, le=1000),
+    limit: int = Query(200, ge=1, le=5000),
     offset: int = Query(0, ge=0),
 ):
     jobs = store.list()
     if status:
-        jobs = [j for j in jobs if j.status == status]
+        wanted = {s.strip() for s in status.split(",") if s.strip()}
+        jobs = [j for j in jobs if j.status in wanted]
     if q and q.strip():
         needle = q.strip().lower()
         jobs = [j for j in jobs if needle in (

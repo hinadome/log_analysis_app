@@ -61,6 +61,8 @@ export default function App() {
   const jobsLimitRef = useRef(200);
   const [jobSearch, setJobSearch] = useState("");
   const jobQueryRef = useRef(""); // what refreshJobs should ask the server for
+  const [jobStatus, setJobStatus] = useState(""); // "" = all
+  const jobStatusRef = useRef("");
   const view = parseRoute(useHashRoute()); // hash is the source of truth for the view
   const openJob = useCallback((id) => { window.location.hash = `#/job/${id}`; }, []);
   const goHome = useCallback(() => { window.location.hash = "#/"; }, []);
@@ -83,7 +85,7 @@ export default function App() {
   }, []);
 
   const refreshJobs = useCallback(() => {
-    api.listJobs({ q: jobQueryRef.current, limit: jobsLimitRef.current })
+    api.listJobs({ q: jobQueryRef.current, status: jobStatusRef.current, limit: jobsLimitRef.current })
       .then((r) => {
         setJobs(r.jobs);
         setJobsTotal(r.total);
@@ -107,6 +109,13 @@ export default function App() {
     }, 250);
     return () => clearTimeout(t);
   }, [jobSearch, refreshJobs]);
+
+  // status chips: refetch immediately on change (no debounce needed)
+  useEffect(() => {
+    if (jobStatusRef.current === jobStatus) return;
+    jobStatusRef.current = jobStatus;
+    refreshJobs();
+  }, [jobStatus, refreshJobs]);
 
   // ---------- authentication ----------
   useEffect(() => {
@@ -548,6 +557,8 @@ export default function App() {
               onLoadMore={loadMoreJobs}
               query={jobSearch}
               onSearch={setJobSearch}
+              status={jobStatus}
+              onStatus={setJobStatus}
               onOpen={openJob}
               onCancel={cancelJob}
               onDelete={deleteJob}

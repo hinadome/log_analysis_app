@@ -3,7 +3,15 @@ import { StatusBadge } from "./ui.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
 
-export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, onOpen, onCancel, onDelete, onClearFinished, onPrune, dataSize }) {
+const STATUS_FILTERS = [
+  { value: "", label: "All" },
+  { value: "queued,waiting,running", label: "Active" },
+  { value: "completed", label: "Completed" },
+  { value: "failed", label: "Failed" },
+  { value: "cancelled,skipped", label: "Cancelled" },
+];
+
+export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, status, onStatus, onOpen, onCancel, onDelete, onClearFinished, onPrune, dataSize }) {
   const searching = Boolean(query && query.trim());
   const shown = jobs; // filtering + paging happen server-side (?q=, ?limit=)
   const hasFinished = jobs.some((j) => !ACTIVE.has(j.status));
@@ -30,6 +38,17 @@ export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, on
         value={query}
         onChange={(e) => onSearch(e.target.value)}
       />
+      <div className="status-chips" role="group" aria-label="Filter by status">
+        {STATUS_FILTERS.map((f) => (
+          <button
+            key={f.label}
+            className={cx("chip", status === f.value && "on")}
+            onClick={() => onStatus(f.value)}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
       <div className="jobs-list">
         {shown.length === 0 && (
           <div className="empty">

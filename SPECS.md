@@ -165,7 +165,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | Method & Path | Description |
 |---|---|
 | `POST /api/jobs` | submission (§4) → `{"jobs": [Job]}`. Errors: 404 unknown script / 404 unknown log / 400 path escapes `LOGS_DIR` / 422 bad params or empty list |
-| `GET /api/jobs?status=…&q=…&limit=&offset=` | list jobs (newest first), optionally filtered by status and/or free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
+| `GET /api/jobs?status=…&q=…&limit=&offset=` | list jobs (newest first), optionally filtered by status (single value or comma-separated, e.g. `queued,waiting,running` for "active") and/or free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
 | `GET /api/jobs/{id}` | job detail incl. tails and `chain_steps` (§3) |
 | `GET /api/jobs/{id}/stdout` `/stderr` | full text (`text/plain`, 20 MB cap) |
 | `GET /api/jobs/{id}/files/{name}` | download an artifact (name must be a single path segment) |

@@ -5,6 +5,8 @@ import { Modal } from "./ui.jsx";
 const LANGUAGES = [
   { ext: "py", label: "Python" },
   { ext: "sh", label: "Bash" },
+  { ext: "bash", label: "Bash" },
+  { ext: "zsh", label: "Zsh" },
   { ext: "js", label: "Node" },
   { ext: "rb", label: "Ruby" },
   { ext: "pl", label: "Perl" },
@@ -22,6 +24,18 @@ with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
         print(line, end="")
 `,
   sh: `#!/usr/bin/env bash
+# Describe what this script does.
+# The log (or the previous chain step's output) is $1.
+# Artifacts: write files into the current directory (the job's outputs/).
+cat "$1"
+`,
+  bash: `#!/usr/bin/env bash
+# Describe what this script does.
+# The log (or the previous chain step's output) is $1.
+# Artifacts: write files into the current directory (the job's outputs/).
+cat "$1"
+`,
+  zsh: `#!/usr/bin/env zsh
 # Describe what this script does.
 # The log (or the previous chain step's output) is $1.
 # Artifacts: write files into the current directory (the job's outputs/).
@@ -70,7 +84,10 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
   const [paramsError, setParamsError] = useState(null);
   const [busy, setBusy] = useState(scriptId ? true : false);
   const [saving, setSaving] = useState(false);
+  const [dup, setDup] = useState(false); // editing a copy that will be saved as a new script
+  const [origForm, setOrigForm] = useState(null); // the form as it was before duplicating
   const isNew = !scriptId;
+  const isCreate = isNew || dup;
 
   useEffect(() => {
     if (isNew) {
@@ -138,7 +155,7 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
           output_filename: form.output_filename.trim() || null,
         },
       };
-      const res = isNew
+      const res = isCreate
         ? await api.createScript(body)
         : await api.updateScript(scriptId, body);
       onSaved(res.script);
@@ -147,6 +164,22 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
     } finally {
       setSaving(false);
     }
+  };
+
+  const duplicate = () => {
+    setOrigForm(form);
+    setDup(true);
+    setForm((f) => ({
+      ...f,
+      id: `${f.id}_copy`.slice(0, 64),
+      name: f.name ? `${f.name} (copy)` : "",
+    }));
+  };
+
+  const undoDuplicate = () => {
+    setDup(false);
+    if (origForm) setForm(origForm);
+    setOrigForm(null);
   };
 
   const remove = async () => {
@@ -177,7 +210,7 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
   };
 
   return (
-    <Modal title={isNew ? "＋ New script" : `✏️ ${form.name || scriptId}`} onClose={onClose} wide>
+    <Modal title={isNew ? "＋ New script" : dup ? `⧉ Duplicate of ${form.name || scriptId}` : `✏️ ${form.name || scriptId}`} onClose={onClose} wide>
       <div className="script-editor">
         <div className="editor-grid">
           <label className="editor-field">
@@ -186,7 +219,7 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
               className="editor-input mono"
               value={form.id}
               onChange={set("id")}
-              disabled={!isNew}
+              disabled={!isCreate}
               placeholder="http_404_counter"
               maxLength={64}
             />
@@ -262,6 +295,14 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
           </label>
         </div>
         <div className="editor-actions">
+          {!isNew && !dup && (
+            <button className="btn ghost sm" onClick={duplicate}
+                    title="Prefill this script as a new one — original untouched">⧉ Duplicate</button>
+          )}
+          {dup && (
+            <button className="btn ghost sm" onClick={undoDuplicate}
+                    title="Back to editing the original script">↩ Editing original</button>
+          )}
           {!isNew && (
             <button className="btn danger sm" onClick={remove}>🗑 Delete script</button>
           )}
@@ -281,7 +322,7 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
           )}
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <button className="btn" onClick={save} disabled={busy || saving || !idOk || !form.code.trim()}>
-            {saving ? "Saving…" : (isNew ? "Create script" : "Save changes")}
+            {saving ? "Saving…" : (isCreate ? "Create script" : "Save changes")}
           </button>
         </div>
       </div>

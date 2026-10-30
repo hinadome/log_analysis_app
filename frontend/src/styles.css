@@ -230,6 +230,8 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent);
   position: sticky; top: 0; background: var(--panel2); color: var(--muted);
   font-weight: 600; z-index: 1;
 }
+.json-table th.sortable { cursor: pointer; user-select: none; }
+.json-table th.sortable:hover { color: var(--text); }
 .json-table tbody tr:hover { background: var(--panel2); }
 .json-table td.mono, .json-table th.mono { font-family: var(--mono); font-size: 12px; }
 
@@ -349,6 +351,16 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent);
   margin: 0 0 8px;
 }
 .search-input:focus { outline: none; border-color: var(--accent); }
+
+.status-chips { display: flex; gap: 4px; flex-wrap: wrap; margin: 0 0 8px; }
+.chip {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border2); border-radius: 999px;
+  padding: 2px 9px; font-size: 11px; font-family: inherit;
+  cursor: pointer; white-space: nowrap;
+}
+.chip:hover { color: var(--text); border-color: var(--accent); }
+.chip.on { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
 
 /* ---------- saved chains (pipeline presets) ---------- */
 .chain-presets {
