@@ -91,6 +91,11 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 - `parallel`: all jobs start immediately (bounded by the pool) and **overlap
   in execution**; each reads the selected log. A single job in `chain` mode
   behaves identically.
+- **Queueing has no limit**: the only constraint on a submission is that
+  `jobs` be non-empty. Jobs beyond the pool (`MAX_CONCURRENT_JOBS`,
+  default 4) are accepted and stay `queued` in submission order, starting
+  as pool slots free — there is no queue-depth limit and no cap on jobs
+  per request.
 - **Execution is async end-to-end**: scripts run as asyncio subprocesses
   with awaited I/O, so the API keeps serving requests — and both UIs keep
   live-updating (React via SSE + polling, python via its 2 s page refresh)

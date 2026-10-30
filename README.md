@@ -122,9 +122,11 @@ Vite proxy talks HTTPS to the backend.
   deep-linkable URL; the two are mutually exclusive at startup because the
   SPA owns a catch-all route.
 - **Async execution** — jobs get an ID immediately and run in a bounded pool
-  (`MAX_CONCURRENT_JOBS`, default 4), overlapping in wall-clock. The server
-  stays fully responsive while jobs run — execution is async end-to-end
-  (subprocesses with awaited I/O), and that is pinned by a regression test.
+  (`MAX_CONCURRENT_JOBS`, default 4), overlapping in wall-clock. Extra jobs
+  queue without limit (first-come-first-served, starting as slots free).
+  The server stays fully responsive while jobs run — execution is async
+  end-to-end (subprocesses with awaited I/O), and that is pinned by a
+  regression test.
 - **Self-diagnosing failures** — a job that cannot start says exactly why:
   a first token that is not executable, a missing shebang, or a missing
   interpreter — including the one named in a script's shebang
