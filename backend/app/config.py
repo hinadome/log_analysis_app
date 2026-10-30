@@ -33,5 +33,8 @@ AUTH_TOKEN = os.environ.get("LOGSMITH_TOKEN", "").strip()
 # Auto-delete jobs older than this many days (0 = keep forever).
 JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))
 
+# Upper bound for a single log file uploaded through the browser (MiB).
+MAX_LOG_UPLOAD_MB = int(os.environ.get("MAX_LOG_UPLOAD_MB", "512"))
+
 # Built frontend (served by the backend when present).
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"

@@ -1,16 +1,17 @@
-"""Log file listing and preview endpoints."""
+"""Log file listing, upload and preview endpoints."""
 from __future__ import annotations
 
 import bz2
 import gzip
 import lzma
 import os
+import re
 from collections import deque
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
-from ..config import LOGS_DIR, LOG_PREVIEW_LINES
+from ..config import LOGS_DIR, LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB
 from ..services.scanner import list_logs
 
 router = APIRouter(prefix="/logs", tags=["logs"])
@@ -20,6 +21,11 @@ _DECOMPRESSORS = {
     ".bz2": bz2.open,
     ".xz": lzma.open,
 }
+
+# Uploads land flat in LOGS_DIR. One path component, no leading dot, no
+# control characters — combined with the basename() call this means a
+# hostile client can never escape the logs directory.
+_SAFE_UPLOAD_NAME = re.compile(r"^[\w][\w.\- ]{0,254}$")
 
 # Same character budget in both directions so a preview can never blow up
 # the browser, regardless of line lengths.
@@ -43,6 +49,54 @@ def _resolve_log(user_path: str) -> Path:
 @router.get("")
 def get_logs():
     return {"logs": list_logs()}
+
+
+@router.post("/upload")
+async def upload_log(file: UploadFile = File(...)):
+    """Drop a log file into LOGS_DIR from the browser.
+
+    Streamed to disk with a size cap; the partial file is hidden (dot
+    prefix) until complete so it never appears half-written in listings.
+    """
+    if MAX_LOG_UPLOAD_MB <= 0:
+        raise HTTPException(status_code=403, detail="Log uploads are disabled on this server")
+
+    raw = (file.filename or "").replace("\\", "/")
+    name = raw.rsplit("/", 1)[-1].strip()
+    if not _SAFE_UPLOAD_NAME.match(name):
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid file name — use a simple name like 'app.log' (letters, digits, '.', '-', '_')",
+        )
+    target = LOGS_DIR / name
+    if target.exists():
+        raise HTTPException(status_code=409, detail=f"'{name}' already exists in the logs directory")
+
+    max_bytes = MAX_LOG_UPLOAD_MB * 1024 * 1024
+    temp = LOGS_DIR / f".{name}.part"  # dot prefix: invisible to listings
+    written = 0
+    try:
+        with temp.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"'{name}' exceeds the upload limit of {MAX_LOG_UPLOAD_MB} MiB",
+                    )
+                out.write(chunk)
+        if written == 0:
+            raise HTTPException(status_code=422, detail="The uploaded file is empty")
+        os.replace(temp, target)
+    except HTTPException:
+        temp.unlink(missing_ok=True)
+        raise
+    except OSError as exc:
+        temp.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Failed to store the file: {exc}")
+
+    entry = next((l for l in list_logs() if l.path == str(target)), None)
+    return {"saved": name, "size": written, "log": entry}
 
 
 def _head_lines(p: Path, opener, max_lines: int):

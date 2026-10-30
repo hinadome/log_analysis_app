@@ -1,13 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 import { cx, fmtBytes, fmtDate } from "../fmt.js";
 import { Modal, StepHead } from "./ui.jsx";
 
-export default function LogPicker({ logs, value, onSelect, logsDir }) {
+export default function LogPicker({ logs, value, onSelect, logsDir, onUploadFiles }) {
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState(null);
   const [tail, setTail] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -26,6 +28,10 @@ export default function LogPicker({ logs, value, onSelect, logsDir }) {
     }
   };
 
+  const handleFiles = (files) => {
+    if (files?.length) onUploadFiles(files);
+  };
+
   return (
     <section className="card step">
       <StepHead n={1} title="Log file" hint={logs.length ? `${logs.length} file(s) · ${logsDir}` : `No logs found in ${logsDir}`} />
@@ -35,6 +41,28 @@ export default function LogPicker({ logs, value, onSelect, logsDir }) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      <div
+        className={cx("dropzone", dragging && "over")}
+        onClick={() => fileInput.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          handleFiles(e.dataTransfer?.files);
+        }}
+        title="Uploaded files land in the server's logs directory"
+      >
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
+        />
+        ⬆ Drop log file{""}
+        <span className="muted">s here, or click to browse — they're saved to {logsDir}</span>
+      </div>
       <div className="log-list">
         {filtered.length === 0 && (
           <div className="empty">No log files match. Put files in the server's logs/ directory.</div>

@@ -263,6 +263,33 @@ export default function App() {
     setChainPresets(loadChainPresets());
   };
 
+  // ---------- log upload (dropzone) ----------
+  const uploadFiles = async (files) => {
+    const uploaded = [];
+    const failed = [];
+    for (const file of files) {
+      try {
+        uploaded.push(await api.uploadLog(file));
+      } catch (e) {
+        failed.push(`${file.name}: ${e.message}`);
+      }
+    }
+    if (uploaded.length) {
+      loadAll();
+      // convenient: selecting the first upload when nothing is selected yet
+      if (!selectedLog && uploaded.length >= 1 && uploaded[0].log) {
+        setSelectedLog(uploaded[0].log);
+      }
+    }
+    if (failed.length) {
+      setToast({ kind: "error", text: `Upload failed — ${failed.join(" · ")}` });
+    } else if (uploaded.length === 1) {
+      setToast({ kind: "ok", text: `Uploaded ${uploaded[0].saved} (${fmtBytes(uploaded[0].size)})` });
+    } else if (uploaded.length > 1) {
+      setToast({ kind: "ok", text: `Uploaded ${uploaded.length} files` });
+    }
+  };
+
   // ---------- script editor (create/edit/delete scripts in the browser) ----------
   const onScriptSaved = (script) => {
     loadAll();
@@ -373,6 +400,7 @@ export default function App() {
                 value={selectedLog}
                 onSelect={setSelectedLog}
                 logsDir={health?.logs_dir || "logs/"}
+                onUploadFiles={uploadFiles}
               />
               <ScriptPicker
                 scripts={scripts}

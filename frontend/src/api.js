@@ -41,6 +41,13 @@ export const api = {
   deleteScript: (id) => request(`/api/scripts/${id}`, { method: "DELETE" }),
   previewLog: (path, lines = 200, tail = false) =>
     request(`/api/logs/preview?path=${encodeURIComponent(path)}&lines=${lines}${tail ? "&tail=1" : ""}`),
+  uploadLog: (file) => {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    // headers: {} overrides the default JSON content-type — the browser
+    // sets the multipart boundary itself
+    return request("/api/logs/upload", { method: "POST", body, headers: {} });
+  },
   listScripts: () => request("/api/scripts"),
   createJobs: (body) =>
     request("/api/jobs", { method: "POST", body: JSON.stringify(body) }),
