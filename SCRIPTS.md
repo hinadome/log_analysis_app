@@ -419,6 +419,12 @@ Compressed intermediates are handled for you: if a step's output is a
   step can still see where the data came from
 - **`JOB_OUTPUT_DIR` / cwd**: its own `outputs/` directory, as usual
 
+One distinction worth spelling out: the hand-off is a **file path in
+argv — nothing is ever piped into the script's stdin** (it is not
+connected to the chain; `select` on it gets immediate EOF). Your script
+opens the input as a file and reads it, which is what every sample in
+this document does.
+
 Each step is a normal job — its own ID, page, stdout, artifacts — just
 waiting instead of queued until its predecessor finishes. A failed or
 cancelled step marks the remaining steps `skipped`; cancelling any step
