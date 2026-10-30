@@ -7,6 +7,7 @@ Or from the repo root after building the frontend:
     uvicorn --app-dir backend app.main:app
 """
 from contextlib import asynccontextmanager
+from shutil import which
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +16,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth
 from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
-                     DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING)
+                     DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING,
+                     DOCKER_SANDBOX, SANDBOX_IMAGE)
 from .routers import jobs, logs, scripts
 from .services.job_store import JobStore
 
@@ -37,6 +39,11 @@ async def lifespan(app: FastAPI):
         print(f"job retention: removed {removed} job(s) older than {JOB_RETENTION_DAYS} day(s)")
     if not auth.auth_required():
         print("WARNING: LOGSMITH_TOKEN is not set — running without authentication.")
+    if DOCKER_SANDBOX:
+        print(f"docker sandbox: enabled (image {SANDBOX_IMAGE}, no network)")
+        if which("docker") is None:
+            print("WARNING: LOGSMITH_DOCKER_SANDBOX=1 but the docker CLI is "
+                  "not on PATH — every job will fail until Docker is installed.")
     yield
     await jobs.executor.shutdown()
 
@@ -82,6 +89,8 @@ def health():
         "max_concurrent_jobs": MAX_CONCURRENT_JOBS,
         "auth_required": auth.auth_required(),
         "script_editing": ALLOW_SCRIPT_EDITING,
+        "docker_sandbox": DOCKER_SANDBOX,
+        "sandbox_image": SANDBOX_IMAGE if DOCKER_SANDBOX else None,
         "job_retention_days": JOB_RETENTION_DAYS,
         "data_dir_size": _dir_size(DATA_DIR),
     }

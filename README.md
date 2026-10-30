@@ -112,6 +112,13 @@ Vite proxy talks HTTPS to the backend.
   locks it down: creating, changing or deleting scripts answers 403 in both
   UIs while the scripts on disk stay runnable — "run the vetted analyses
   only".
+- **Docker sandbox** — `LOGSMITH_DOCKER_SANDBOX=1` runs every script inside
+  a throwaway container instead of directly on the host: no network, a
+  memory cap, and only the script, its input (read-only) and the output
+  directory mounted. The sandbox image (python3, bash, node, ruby, perl) is
+  built automatically from `sandbox.Dockerfile` on first start; extend that
+  image and point `LOGSMITH_SANDBOX_IMAGE` at your tag when scripts need
+  extra libraries.
 - **gzip logs** — `.gz`, `.bz2` and `.xz` logs are transparently decompressed
   before scripts run, and preview correctly in the UI.
 - **Job retention** — `JOB_RETENTION_DAYS` auto-deletes old jobs at startup
@@ -345,6 +352,9 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `LOGSMITH_TOKEN` | *(unset)* | password for the UI; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
 | `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` keeps a non-local server open with no password (not recommended) |
 | `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` locks the script editor: write endpoints answer 403 in both UIs, existing scripts stay runnable |
+| `LOGSMITH_DOCKER_SANDBOX` | `0` | `1` runs every script in a throwaway Docker container — no network, memory-capped, mounts limited to script + input + outputs |
+| `LOGSMITH_SANDBOX_IMAGE` | `logsmith-sandbox:latest` | image for sandboxed runs (built from `sandbox.Dockerfile` by run.sh; extend it for extra libraries) |
+| `LOGSMITH_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
 | `LOGSMITH_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |

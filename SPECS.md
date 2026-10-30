@@ -180,7 +180,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 
 | Method & Path | Description |
 |---|---|
-| `GET /api/health` | `{status, logs_dir, scripts_dir, data_dir, max_concurrent_jobs, auth_required, script_editing, job_retention_days, data_dir_size}` |
+| `GET /api/health` | `{status, logs_dir, scripts_dir, data_dir, max_concurrent_jobs, auth_required, script_editing, docker_sandbox, sandbox_image, job_retention_days, data_dir_size}` |
 
 Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
@@ -291,6 +291,29 @@ Artifacts: write to the `{output}` path, or write any files into
 In a chain, whatever the step leaves there (or its stdout) feeds the next
 step per §4.1 rule 2.
 
+### Docker sandbox (opt-in)
+
+`LOGSMITH_DOCKER_SANDBOX=1` changes only *where* the same argv runs: inside
+a `docker run --rm` container instead of a host process. The command
+template, placeholders, artifacts, chains, timeouts, cancel and the
+runtime contract above are unchanged, with these differences:
+
+- the script file, the resolved input and the original log are mounted
+  **read-only at their original paths**, the `outputs/` directory
+  read-write — nothing else of the host is visible
+- the container has **no network** (`--network none`), a memory cap
+  (`LOGSMITH_SANDBOX_MEMORY`, default `512m`) and `--pids-limit 256`
+- it runs as the host user's uid:gid, so artifacts stay owned by the
+  operator; it sees only the `JOB_*` variables above — **not** the server
+  environment
+- the image (`LOGSMITH_SANDBOX_IMAGE`, default `logsmith-sandbox:latest`,
+  built from `sandbox.Dockerfile` by run.sh) ships python3, bash, node,
+  ruby and perl; scripts needing more bake their own image
+- jobs fail loudly when Docker is missing — there is **no silent fallback**
+  to direct execution
+- timeout/cancel kill the container itself, not just the docker CLI;
+  container startup counts toward the script timeout
+
 ## 7. Retention
 
 - `JOB_RETENTION_DAYS` (default `0` = disabled) auto-deletes job records
@@ -340,6 +363,9 @@ UIs can adapt.
 | `LOGSMITH_TOKEN` | *(unset)* | UI password; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
 | `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` = non-local bind with no password (not recommended) |
 | `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` = script write endpoints answer 403 (§8.1); existing scripts stay runnable |
+| `LOGSMITH_DOCKER_SANDBOX` | `0` | `1` = scripts run in throwaway Docker containers (see "Docker sandbox" under the script runtime contract) |
+| `LOGSMITH_SANDBOX_IMAGE` | `logsmith-sandbox:latest` | sandbox image tag (run.sh builds it from `sandbox.Dockerfile`) |
+| `LOGSMITH_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
 | `LOGSMITH_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages, §5.1); same as `run.sh --ui` |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation |

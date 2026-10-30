@@ -17,6 +17,14 @@ Placeholders available in a manifest command template:
 Environment passed to every script:
   JOB_ID, JOB_LOG_PATH, JOB_OUTPUT_DIR, JOB_ORIGINAL_LOG
   (+ the server's environment)
+
+Docker sandbox (LOGSMITH_DOCKER_SANDBOX=1): the same command template runs
+inside a throwaway container instead of on the host. The script file, the
+input and the original log are mounted read-only at their original paths,
+the output directory read-write; the container gets no network, a memory
+cap and the host user's uid:gid so artifacts stay owned by this user. The
+container sees only the JOB_* variables above (not the server environment),
+and killing a job kills the container, not just the docker CLI.
 """
 from __future__ import annotations
 
@@ -30,7 +38,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..config import MAX_CONCURRENT_JOBS
+from ..config import MAX_CONCURRENT_JOBS, DOCKER_SANDBOX, SANDBOX_IMAGE, SANDBOX_MEMORY
 from ..models import Job, ScriptInfo
 from .job_store import JobStore, utcnow
 from .scanner import discover_scripts
@@ -42,6 +50,10 @@ _DECOMPRESSORS = {
     ".bz2": bz2.open,
     ".xz": lzma.open,
 }
+
+# Sandbox containers are named after their job so a timeout or cancel can
+# stop the container itself, not just the docker CLI (see _terminate).
+_CONTAINER_PREFIX = "logsmith-job-"
 
 
 def _is_compressed(path: str) -> bool:
@@ -266,6 +278,71 @@ class Executor:
                 touched = True
         return touched
 
+    # -- docker sandbox ------------------------------------------------------
+
+    def _sandbox_argv(self, job: Job, script: ScriptInfo,
+                       input_path: Path) -> list[str]:
+        """Wrap a job's command in `docker run` (see module docstring).
+
+        Mounts keep the original paths, so the command template rendered
+        with host paths is valid inside the container unchanged.
+        """
+        out_dir = self._store.outputs_dir(job.id)
+        mounts = [f"{script.script_path}:{script.script_path}:ro",
+                  f"{input_path}:{input_path}:ro"]
+        original = str(job.log_path)
+        if original and original != str(input_path):
+            mounts.append(f"{original}:{original}:ro")
+        mounts.append(f"{out_dir}:{out_dir}")
+
+        argv = [
+            "docker", "run", "--rm",
+            "--network", "none",
+            "--name", _CONTAINER_PREFIX + job.id,
+            "--user", f"{os.getuid()}:{os.getgid()}",
+            "--memory", SANDBOX_MEMORY,
+            "--pids-limit", "256",
+            "--workdir", str(out_dir),
+            "-e", "HOME=/tmp",
+            "-e", f"JOB_ID={job.id}",
+            "-e", f"JOB_LOG_PATH={input_path}",
+            "-e", f"JOB_ORIGINAL_LOG={job.log_path}",
+            "-e", f"JOB_OUTPUT_DIR={out_dir}",
+        ]
+        for mount in mounts:
+            argv += ["-v", mount]
+        argv += [SANDBOX_IMAGE, *job.command]
+        return argv
+
+    async def _terminate(self, job_id: str,
+                         proc: asyncio.subprocess.Process | None) -> None:
+        """Kill a job's process — and its container, when sandboxed.
+
+        Killing the `docker run` CLI alone can leave the container running
+        until it exits by itself, so the sandbox path stops the container
+        by name first. Both kills are best effort.
+        """
+        if DOCKER_SANDBOX:
+            killer = None
+            try:
+                killer = await asyncio.create_subprocess_exec(
+                    "docker", "kill", _CONTAINER_PREFIX + job_id,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(killer.wait(), timeout=15)
+            except Exception:
+                if killer is not None:  # wedged daemon — don't leak the CLI
+                    try:
+                        killer.kill()
+                    except ProcessLookupError:
+                        pass
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+
     async def cancel(self, job_id: str) -> bool:
         job = self._store.get(job_id)
         if job is None:
@@ -278,10 +355,7 @@ class Executor:
         self._cancelling.add(job_id)
         proc = self._procs.get(job_id)
         if proc is not None and proc.returncode is None:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
+            await self._terminate(job_id, proc)
         elif task is not None and not task.done():
             task.cancel()
         return True
@@ -292,12 +366,9 @@ class Executor:
         # by reconcile() on the next start, and no new tasks are spawned
         # after shutdown has already gathered.
         self._shutting_down = True
-        for proc in self._procs.values():
+        for job_id, proc in self._procs.items():
             if proc.returncode is None:
-                try:
-                    proc.kill()
-                except ProcessLookupError:
-                    pass
+                await self._terminate(job_id, proc)
         tasks = [t for t in self._tasks.values() if not t.done()]
         for t in tasks:
             t.cancel()
@@ -326,19 +397,34 @@ class Executor:
                     return
 
                 input_path = self.input_path(job)
+                if DOCKER_SANDBOX and shutil.which("docker") is None:
+                    job.status = "failed"
+                    job.error = ("Docker sandbox is enabled "
+                                 "(LOGSMITH_DOCKER_SANDBOX=1) but the docker "
+                                 "CLI is not on PATH — install Docker or unset "
+                                 "the flag")
+                    return
+                if DOCKER_SANDBOX:
+                    # The container only sees the -e variables in
+                    # _sandbox_argv — never the server's environment.
+                    argv = self._sandbox_argv(job, script, input_path)
+                    env = None
+                else:
+                    argv = job.command
+                    env = {
+                        **os.environ,
+                        "JOB_ID": job.id,
+                        "JOB_LOG_PATH": str(input_path),
+                        "JOB_ORIGINAL_LOG": job.log_path,
+                        "JOB_OUTPUT_DIR": str(out_dir),
+                    }
                 try:
                     proc = await asyncio.create_subprocess_exec(
-                        *job.command,
+                        *argv,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                         cwd=str(out_dir),
-                        env={
-                            **os.environ,
-                            "JOB_ID": job.id,
-                            "JOB_LOG_PATH": str(input_path),
-                            "JOB_ORIGINAL_LOG": job.log_path,
-                            "JOB_OUTPUT_DIR": str(out_dir),
-                        },
+                        env=env,
                     )
                 except Exception as exc:
                     job.status = "failed"
@@ -368,10 +454,7 @@ class Executor:
                     )
                 except asyncio.TimeoutError:
                     timed_out = True
-                    try:
-                        proc.kill()
-                    except ProcessLookupError:
-                        pass
+                    await self._terminate(job.id, proc)
 
                 exit_code = await proc.wait()
                 job.exit_code = exit_code
@@ -384,17 +467,24 @@ class Executor:
                     job.error = f"Timed out after {script.timeout} seconds"
                 elif exit_code == 0:
                     job.status = "completed"
+                elif DOCKER_SANDBOX and exit_code in (125, 127):
+                    job.status = "failed"
+                    job.error = (f"Docker could not run the container "
+                                 f"(exit {exit_code}) — check the sandbox "
+                                 f"image exists: docker image inspect "
+                                 f"{SANDBOX_IMAGE} (run.sh builds it when "
+                                 f"the sandbox is enabled)")
                 else:
                     job.status = "failed"
                     job.error = f"Exited with code {exit_code}"
 
         except asyncio.CancelledError:
             proc = self._procs.get(job.id)
+            await self._terminate(job.id, proc)
             if proc is not None and proc.returncode is None:
                 try:
-                    proc.kill()
                     await proc.wait()
-                except (ProcessLookupError, Exception):
+                except Exception:
                     pass
             job.status = "cancelled"
             job.error = ("Cancelled by server shutdown" if self._shutting_down

@@ -157,6 +157,10 @@ resolved, decompressed input), `JOB_OUTPUT_DIR`, and `JOB_ORIGINAL_LOG` (the
 originally selected file — chain steps can still reach it). Artifacts are
 whatever the script writes to `{output}` or into `$JOB_OUTPUT_DIR`.
 
+With `LOGSMITH_DOCKER_SANDBOX=1` the same argv runs inside a `docker run
+--rm` container instead: bind mounts keep the original paths, so template
+rendering is untouched (see §9 for the isolation details).
+
 ## 4. Chain (pipeline) engine
 
 Chains add sequencing and data hand-off on top of the plain job machinery —
@@ -417,10 +421,20 @@ deep-linkable URL. Design points:
   losing anything else — every write endpoint (API and both UIs) answers
   403, reads/export/job submission keep working, and `/api/health` reports
   `script_editing: false` so the UIs hide their editor entry points.
-- Trust boundary: scripts are **arbitrary code running as the server user**
-  by design — this is a trusted-operator tool, not multi-tenant. Anyone with
-  the password can run the scripts; with the lock on, that is all they can
-  do. Run the server under a dedicated non-admin account when in doubt.
+- **Docker sandbox** (`LOGSMITH_DOCKER_SANDBOX=1`): execution isolation
+  for the run side of the trust boundary. The executor wraps the same argv
+  in `docker run --rm --network none` with a memory cap, a pids limit, the
+  host user's uid:gid and three bind mounts (script and input read-only at
+  their original paths, the outputs dir read-write) — the command template
+  needs no rewriting. The container sees only the `JOB_*` variables, so
+  the server environment never leaks into scripts. Timeouts and cancels
+  kill the container by name, not just the docker CLI. There is no silent
+  fallback: if Docker is unavailable, jobs fail with an explicit error.
+- Trust boundary: without the sandbox, scripts are **arbitrary code running
+  as the server user** — a trusted-operator tool, not multi-tenant. With
+  the sandbox on, scripts can only read their input and write their
+  outputs. Run the server under a dedicated non-admin account when in
+  doubt.
 
 ## 10. Design invariants
 
@@ -477,6 +491,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
 | `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted) |
 | `test_security.py` | the script authoring lock: API writes 403 (nothing lands on disk), reads/export/job submission unaffected, python UI editor pages bounce and hide actions, health reports the flag, editor works when unlocked |
+| `test_sandbox.py` | the Docker sandbox: the `docker run` wrapper's shape (mounts, no network, uid:gid, JOB_* env, container name, image + command order), compressed-input mounts; e2e (skipped without Docker + image): completion, artifacts owned by the host user, no network, timeout kills the container, every interpreter |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 

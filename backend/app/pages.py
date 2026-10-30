@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from . import auth
-from .config import LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB, ALLOW_SCRIPT_EDITING
+from .config import LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB, ALLOW_SCRIPT_EDITING, DOCKER_SANDBOX
 from .models import Job, JobCreateRequest, JobSpecIn, ScriptManifest, ScriptUpsertRequest
 from .routers import jobs as jobs_api
 from .routers import logs as logs_api
@@ -138,6 +138,7 @@ def _safe_next(target: str | None) -> str:
 def _page(request: Request, name: str, status_code: int = 200, **ctx):
     context = {
         "auth_required": auth.auth_required(),
+        "docker_sandbox": DOCKER_SANDBOX,
         "msg": request.query_params.get("msg", ""),
         "err": request.query_params.get("err", ""),
     }

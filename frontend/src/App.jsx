@@ -419,6 +419,7 @@ export default function App() {
         <div className="muted topbar-sub">
           server-side log analysis workbench
           {health && ` · ${health.max_concurrent_jobs} parallel jobs`}
+          {health?.docker_sandbox && ` · 🐳 sandboxed`}
         </div>
         <div className="topbar-actions">
           {notifPerm === "default" && (

@@ -40,6 +40,14 @@ JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))
 # as the server user, so the editor is effectively remote code execution.
 ALLOW_SCRIPT_EDITING = os.environ.get("LOGSMITH_ALLOW_SCRIPT_EDITING", "1").strip().lower() not in ("0", "false", "no", "off")
 
+# Docker sandbox: run every script inside a throwaway container instead of
+# directly on the host — no network, a memory cap, and only the script,
+# its input and the output directory mounted (input read-only). Off by
+# default; see sandbox.Dockerfile for the image run.sh builds for it.
+DOCKER_SANDBOX = os.environ.get("LOGSMITH_DOCKER_SANDBOX", "0").strip().lower() in ("1", "true", "yes", "on")
+SANDBOX_IMAGE = os.environ.get("LOGSMITH_SANDBOX_IMAGE", "logsmith-sandbox:latest").strip()
+SANDBOX_MEMORY = os.environ.get("LOGSMITH_SANDBOX_MEMORY", "512m").strip()
+
 # Which frontend to serve: "react" (the built SPA in frontend/dist) or
 # "python" (server-rendered pages — see app/pages.py). run.sh exposes this
 # as `--ui python` / `--ui react`; the two frontends are mutually exclusive

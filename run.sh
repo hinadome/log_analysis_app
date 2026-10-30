@@ -20,6 +20,11 @@
 # to run open anyway (not recommended). LOGSMITH_ALLOW_SCRIPT_EDITING=0 also
 # locks script authoring while keeping the existing scripts runnable.
 #
+# LOGSMITH_DOCKER_SANDBOX=1 runs every script inside a throwaway Docker
+# container instead of directly on the host: no network, a memory cap, and
+# only the script + its input + the output directory mounted. The sandbox
+# image (sandbox.Dockerfile) is built automatically on first use.
+#
 # Anything else (e.g. './run.sh --port 8001') runs the foreground server with
 # the args passed through to uvicorn, exactly like before (except --ui,
 # which this script consumes).
@@ -41,7 +46,7 @@ HOST="${LOGSMITH_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 
 UI="${LOGSMITH_UI:-react}"        # frontend: react SPA or python pages (--ui)
 
 usage() {
-  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # --- small helpers ------------------------------------------------------
@@ -116,6 +121,52 @@ auth_report() {
     none)
       echo "Auth     ●  none (local bind only)" ;;
   esac
+}
+
+# Docker sandbox (LOGSMITH_DOCKER_SANDBOX=1): scripts run in throwaway
+# containers instead of directly on the host. Fails loudly — never silently
+# falls back to direct execution, which is exactly what the flag exists to
+# avoid.
+SANDBOX_ENABLED=0
+SANDBOX_IMAGE="${LOGSMITH_SANDBOX_IMAGE:-logsmith-sandbox:latest}"
+
+# `docker info` can hang for a long time when Docker Desktop is starting up
+# or half-quit; guard it with a watchdog so the launcher stays responsive.
+docker_daemon_ok() {
+  docker info >/dev/null 2>&1 &
+  local probe=$!
+  ( sleep 10 && kill "$probe" 2>/dev/null ) &
+  local watchdog=$!
+  local rc=0
+  wait "$probe" 2>/dev/null || rc=$?
+  kill "$watchdog" 2>/dev/null || true
+  wait "$watchdog" 2>/dev/null || true
+  [ "$rc" = "0" ]
+}
+
+ensure_sandbox() {
+  [ "${LOGSMITH_DOCKER_SANDBOX:-0}" = "1" ] || return 0
+  SANDBOX_ENABLED=1
+  export LOGSMITH_DOCKER_SANDBOX=1
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Error: LOGSMITH_DOCKER_SANDBOX=1 but docker is not installed." >&2
+    exit 1
+  fi
+  if ! docker_daemon_ok; then
+    echo "Error: LOGSMITH_DOCKER_SANDBOX=1 but the Docker daemon is not" >&2
+    echo "       reachable — start Docker Desktop first (or unset the flag" >&2
+    echo "       to run scripts directly)." >&2
+    exit 1
+  fi
+  if ! docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then
+    echo "Sandbox  ●  building image $SANDBOX_IMAGE (first time only)…"
+    docker build -f sandbox.Dockerfile -t "$SANDBOX_IMAGE" .
+  fi
+}
+
+sandbox_report() {
+  [ "$SANDBOX_ENABLED" = "1" ] || return 0
+  echo "Sandbox  ●  docker ($SANDBOX_IMAGE — no network, ${LOGSMITH_SANDBOX_MEMORY:-512m} RAM per job)"
 }
 
 # The TLS cert only covers localhost; other devices will see a browser warning.
@@ -268,6 +319,7 @@ cmd_start() { # args may contain --dev and --ui python|react
   ensure_backend_env
   already_running_or_busy "Backend" "$BACKEND_PID" "$BACKEND_PORT"
   ensure_auth
+  ensure_sandbox
   cert_hint
 
   local scheme="https"
@@ -287,6 +339,7 @@ cmd_start() { # args may contain --dev and --ui python|react
     echo "UI       ●  react (SPA from frontend/dist)"
   fi
   auth_report
+  sandbox_report
   local ip
   ip=$(lan_ip)
   if [ -n "$ip" ] && [ "$HOST" != "localhost" ] && [ "$HOST" != "127.0.0.1" ]; then
@@ -310,7 +363,7 @@ cmd_start() { # args may contain --dev and --ui python|react
       echo "           open $scheme://localhost:$BACKEND_PORT/api/health — Vite proxies /api to the backend"
     fi
   fi
-  echo "$mode, ui: $UI, auth: $AUTH_MODE" > "$RUN_DIR/mode"
+  echo "$mode, ui: $UI, auth: $AUTH_MODE, sandbox: $SANDBOX_ENABLED" > "$RUN_DIR/mode"
 }
 
 # --- stop ---------------------------------------------------------------
@@ -413,6 +466,7 @@ case "${1:-}" in
       exit 1
     fi
     ensure_auth
+    ensure_sandbox
     cert_hint
     if [ "$UI" = "python" ]; then
       echo "UI       ●  python (server-rendered pages — no build step)"
@@ -420,6 +474,7 @@ case "${1:-}" in
       echo "UI       ●  react (SPA from frontend/dist)"
     fi
     auth_report
+    sandbox_report
     # shellcheck disable=SC2086
     exec .venv/bin/uvicorn --app-dir backend app.main:app --host "$HOST" --port "$BACKEND_PORT" $(ssl_flags) ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
     ;;

@@ -27,6 +27,6 @@
 {% if err %}<div class="flash bad">{{ err }}</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
-<footer class="foot">LogSmith · server-rendered UI (LOGSMITH_UI=python)</footer>
+<footer class="foot">LogSmith · server-rendered UI (LOGSMITH_UI=python){% if docker_sandbox %} · 🐳 scripts run in the docker sandbox{% endif %}</footer>
 </body>
 </html>
