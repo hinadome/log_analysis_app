@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Scripts · LogSmith{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Scripts</h1>
+  <a class="btn primary sm" href="/scripts/new">＋ New script</a>
+</div>
+
+<table class="list">
+  <thead><tr><th>Script</th><th>Description</th><th>Params</th><th>Style</th><th></th></tr></thead>
+  <tbody>
+  {% for s in scripts %}
+  <tr>
+    <td><b>{{ s.name or s.id }}</b><br><span class="mono muted">{{ s.id }}</span></td>
+    <td>{% if s.error %}<span class="err-text">broken manifest: {{ s.error }}</span>{% else %}{{ s.description or '—' }}{% endif %}</td>
+    <td class="muted">{{ s.parameters | length }}</td>
+    <td class="muted">{{ s.style }}</td>
+    <td class="row-actions">
+      {% if s.style == 'flat' %}
+      <a class="btn sm" href="/scripts/{{ s.id }}/edit">Edit</a>
+      {% endif %}
+      <a class="btn ghost sm" href="/api/scripts/{{ s.id }}/export">Export</a>
+      {% if s.style == 'flat' %}
+      <form method="post" action="/scripts/{{ s.id }}/delete" class="inline"
+            onsubmit="return confirm('Delete script &quot;{{ s.id }}&quot;? The code and manifest files are permanently removed. Job history is kept, but jobs of this script can no longer be re-run.')">
+        <button class="btn danger sm" type="submit">Delete</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted">Directory-style scripts are managed on disk; flat scripts are editable here.</p>
+{% endblock %}

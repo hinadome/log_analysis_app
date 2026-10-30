@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Log in · LogSmith{% endblock %}
+{% block content %}
+<div class="login-card">
+  <h1>⚒ LogSmith</h1>
+  <p class="muted">This server requires a password.</p>
+  {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{ next }}">
+    <input type="password" name="password" placeholder="Password" autofocus required>
+    <button class="btn primary" type="submit">Log in</button>
+  </form>
+</div>
+{% endblock %}

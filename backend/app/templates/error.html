@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Error {{ status }} · LogSmith{% endblock %}
+
+{% block content %}
+<div class="card error-card">
+  <h1>{{ status }}</h1>
+  <p class="mono">{{ detail }}</p>
+  <a class="btn" href="{{ back }}">← Back</a>
+</div>
+{% endblock %}

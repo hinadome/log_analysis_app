@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Jobs · LogSmith{% endblock %}
+
+{% macro sortlink(col, label) %}
+{% if sort == col %}{% set ndir = 'asc' if dir == 'desc' else 'desc' %}
+{% else %}{% set ndir = 'desc' if col == 'created' else 'asc' %}{% endif %}
+<a href="{{ qs(sort=col, dir=ndir, offset=0) }}">{{ label }}{% if sort == col %}{{ ' ▲' if dir == 'asc' else ' ▼' }}{% endif %}</a>
+{% endmacro %}
+
+{% block refresh %}{% if has_active %}<meta http-equiv="refresh" content="2">{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Jobs</h1>
+  <div class="head-actions">
+    {% if has_finished %}
+    <form method="post" action="/jobs/clear-finished" class="inline">
+      <button class="btn ghost sm" type="submit">Clear finished</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/jobs/prune" class="inline">
+      <input type="number" name="days" min="1" max="3650" placeholder="days" required class="num">
+      <button class="btn ghost sm" type="submit">Prune older</button>
+    </form>
+  </div>
+</div>
+
+<form method="get" action="/jobs" class="searchbar">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search label, script, log, id…">
+  <input type="hidden" name="status" value="{{ status }}">
+  <button class="btn" type="submit">Search</button>
+</form>
+
+<div class="status-chips">
+  {% for f in status_filters %}
+  <a class="chip {{ 'on' if f.on }}" href="{{ qs(status=f.value, offset=0) }}">{{ f.label }} <span class="count">{{ f.count }}</span></a>
+  {% endfor %}
+</div>
+
+{% if jobs %}
+<table class="list">
+  <thead><tr>
+    <th>{{ sortlink('created', 'Created') }}</th>
+    <th>{{ sortlink('script', 'Script') }}</th>
+    <th>{{ sortlink('log', 'Log') }}</th>
+    <th>{{ sortlink('label', 'Label') }}</th>
+    <th>{{ sortlink('status', 'Status') }}</th>
+    <th>Duration</th>
+    <th></th>
+  </tr></thead>
+  <tbody>
+  {% for j in jobs %}
+  <tr class="st-{{ j.status }}">
+    <td class="mono muted">{{ j.created_at | dt }}</td>
+    <td>
+      <a href="/jobs/{{ j.id }}">{{ j.script_name }}</a>
+      {% if j.chain_id %}<span class="muted"> · step {{ j.chain_index + 1 }}/{{ j.chain_size }}</span>{% endif %}
+    </td>
+    <td class="mono">{{ j.log_name }}</td>
+    <td>{{ j.label or '' }}</td>
+    <td>
+      <span class="badge st-{{ j.status }}">{{ j.status }}</span>
+      {% if j.status == 'failed' and j.exit_code is not none %}<span class="muted">exit {{ j.exit_code }}</span>{% endif %}
+    </td>
+    <td class="muted">{{ duration(j) }}</td>
+    <td class="row-actions">
+      {% if j.status in ('queued', 'waiting', 'running') %}
+      <form method="post" action="/jobs/{{ j.id }}/cancel" class="inline">
+        <input type="hidden" name="back" value="/jobs">
+        <button class="btn ghost sm" type="submit">Cancel</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/jobs/{{ j.id }}/delete" class="inline">
+        <input type="hidden" name="back" value="/jobs">
+        <button class="btn danger sm" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted card">No jobs{% if q or status %} match{% else %} yet — start one from the <a href="/">Run page</a>{% endif %}.</p>
+{% endif %}
+
+<div class="pager">
+  {% if offset > 0 %}<a class="btn sm" href="{{ qs(offset=offset - page_size) }}">← Newer</a>{% endif %}
+  <span class="muted">{{ total }} job(s)</span>
+  {% if offset + page_size < total %}<a class="btn sm" href="{{ qs(offset=offset + page_size) }}">Older →</a>{% endif %}
+</div>
+{% endblock %}

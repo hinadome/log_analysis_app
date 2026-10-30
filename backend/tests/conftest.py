@@ -31,6 +31,9 @@ os.environ["DATA_DIR"] = str(DATA_TMP)
 os.environ["SCRIPTS_DIR"] = str(REPO / "scripts")
 os.environ["LOGSMITH_TOKEN"] = ""
 os.environ["JOB_RETENTION_DAYS"] = "0"
+# Test the python frontend: pages router mounted, no SPA catch-all. The API
+# routes are identical either way, so the rest of the suite is unaffected.
+os.environ["LOGSMITH_UI"] = "python"
 
 SAMPLE_LOG = LOGS_TMP / "app.log"
 SAMPLE_LOG.write_text(

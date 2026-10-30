@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ preview.name }} · LogSmith{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1 class="mono">{{ preview.name }}</h1>
+  <div class="head-actions">
+    <a class="btn ghost sm {{ 'on' if not tail }}" href="/logs/preview?path={{ req_path | urlencode }}&amp;lines={{ preview_lines }}">Head</a>
+    <a class="btn ghost sm {{ 'on' if tail }}" href="/logs/preview?path={{ req_path | urlencode }}&amp;lines={{ preview_lines }}&amp;tail=1">Tail</a>
+    <a class="btn ghost sm" href="/">← Logs</a>
+  </div>
+</div>
+<p class="muted">{{ preview.size | kb }}{% if preview.compressed %} · compressed{% endif %} ·
+{{ preview.lines | length }} line(s) shown{% if preview.truncated %} · truncated{% endif %}</p>
+<pre class="io">{% for line in preview.lines %}{{ line }}
+{% endfor %}</pre>
+{% endblock %}

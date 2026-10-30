@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Run · LogSmith{% endblock %}
+
+{% macro param_input(s, p) %}
+{% set fname = 'p::' ~ s.id ~ '::' ~ p.name %}
+{% if p.type == 'boolean' %}
+  <input type="hidden" name="{{ fname }}" value="false">
+  <input type="checkbox" name="{{ fname }}" value="true" {% if p.default %}checked{% endif %}>
+{% elif p.type == 'enum' %}
+  <select name="{{ fname }}">
+    <option value="" {% if not p.default %}selected{% endif %}>— default{% if p.default is not none %}: {{ p.default }}{% endif %} —</option>
+    {% for c in p.choices %}<option value="{{ c }}" {% if p.default == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+{% elif p.type in ('integer', 'float') %}
+  <input type="number" step="{{ 'any' if p.type == 'float' else '1' }}" name="{{ fname }}"
+         value="{{ p.default if p.default is not none else '' }}" placeholder="default">
+{% elif p.type == 'multi' %}
+  <input type="text" name="{{ fname }}"
+         value="{{ p.default | join(', ') if p.default is iterable and p.default is not string else (p.default or '') }}"
+         placeholder="comma-separated list">
+{% else %}
+  <input type="text" name="{{ fname }}" value="{{ p.default if p.default is not none else '' }}">
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1>Configure run</h1>
+{% if missing_logs %}
+<div class="flash bad">Log no longer available: <span class="mono">{{ missing_logs | join(', ') }}</span></div>
+{% endif %}
+
+{% if not selected_logs %}
+<p class="muted card">No logs selected. <a href="/">← Pick logs on the home page</a></p>
+{% else %}
+
+<div class="card">
+  <h2>Logs <a class="btn ghost sm" href="/">↺ change</a></h2>
+  <div class="chips">
+    {% for l in selected_logs %}<span class="chip static mono">{{ l }}</span>{% endfor %}
+  </div>
+</div>
+
+<form method="get" action="/run" class="card">
+  <h2>Scripts &amp; options</h2>
+  {% for l in selected_logs %}<input type="hidden" name="logs" value="{{ l }}">{% endfor %}
+  <table class="list">
+    <thead><tr><th class="cb"></th><th>Script</th><th>Description</th><th>Params</th></tr></thead>
+    <tbody>
+    {% for s in all_scripts %}
+      <tr>
+        <td class="cb"><input type="checkbox" name="scripts" value="{{ s.id }}" {% if s.id in chosen_ids %}checked{% endif %} {% if s.error %}disabled{% endif %}></td>
+        <td><b>{{ s.name or s.id }}</b><br><span class="mono muted">{{ s.id }}</span></td>
+        <td>{% if s.error %}<span class="err-text">broken manifest: {{ s.error }}</span>{% else %}{{ s.description or '—' }}{% endif %}</td>
+        <td class="muted">{{ s.parameters | length }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="run-options">
+    <label class="inline-opt"><input type="radio" name="mode" value="parallel" {% if mode != 'chain' %}checked{% endif %}> parallel</label>
+    <label class="inline-opt"><input type="radio" name="mode" value="chain" {% if mode == 'chain' %}checked{% endif %}> chain <span class="muted">(each step feeds the next)</span></label>
+    <label class="inline-opt">label <input type="text" name="label" value="{{ label }}" placeholder="optional tag" maxlength="80"></label>
+  </div>
+  <button class="btn" type="submit">Update</button>
+</form>
+
+{% if chosen_scripts %}
+<form method="post" action="/submit" class="card">
+  <h2>Parameters</h2>
+  {% for s in chosen_scripts %}
+  <fieldset>
+    <legend>{{ s.name or s.id }} <span class="mono muted">({{ s.id }})</span></legend>
+    {% if s.description %}<p class="muted">{{ s.description }}</p>{% endif %}
+    {% for p in s.parameters %}
+    <label class="param">
+      <span class="pname">{{ p.label or p.name }}{% if p.required %} <b class="req">*</b>{% endif %}
+        <span class="muted">[{{ p.type }}]</span></span>
+      {{ param_input(s, p) }}
+      {% if p.help %}<span class="phelp">{{ p.help }}</span>{% endif %}
+      {% if not p.required and p.default is not none and p.type != 'boolean' %}
+      <span class="phelp">default: {{ p.default | tojson }}</span>
+      {% endif %}
+    </label>
+    {% else %}
+    <p class="muted">No parameters.</p>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+
+  {% for l in selected_logs %}<input type="hidden" name="logs" value="{{ l }}">{% endfor %}
+  {% for s in chosen_scripts %}<input type="hidden" name="scripts" value="{{ s.id }}">{% endfor %}
+  <input type="hidden" name="mode" value="{{ mode }}">
+  <input type="hidden" name="label" value="{{ label }}">
+  <div class="run-summary">
+    {{ chosen_scripts | length }} script(s) × {{ selected_logs | length }} log(s) —
+    {% if mode == 'chain' %}chain{% else %}parallel{% endif %}
+    {% if label %} · label “{{ label }}”{% endif %}
+  </div>
+  <button class="btn primary lg" type="submit">▶ Run</button>
+</form>
+{% else %}
+<p class="muted">Check at least one script above, then “Update”.</p>
+{% endif %}
+
+{% endif %}
+{% endblock %}

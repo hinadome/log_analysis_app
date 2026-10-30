@@ -9,8 +9,13 @@
 #   ./run.sh status           show what is running
 #   ./run.sh restart [--dev]  stop, then start again
 #
+# Every mode also accepts --ui python|react (default react): which frontend
+# the backend serves — the built React SPA, or the server-rendered pages
+# (no build step). The LOGSMITH_UI environment variable does the same.
+#
 # Anything else (e.g. './run.sh --port 8001') runs the foreground server with
-# the args passed through to uvicorn, exactly like before.
+# the args passed through to uvicorn, exactly like before (except --ui,
+# which this script consumes).
 #
 # Background processes append logs to .run/*.log and their PIDs live in
 # .run/*.pid (both gitignored). `stop` only kills PIDs this script wrote —
@@ -26,9 +31,10 @@ FRONTEND_LOG="$RUN_DIR/frontend.log"
 FRONTEND_PORT=5173
 BACKEND_PORT=8000  # overridden by --port in start/foreground modes
 HOST="${LOGSMITH_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 to go back to local-only)
+UI="${LOGSMITH_UI:-react}"        # frontend: react SPA or python pages (--ui)
 
 usage() {
-  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # --- small helpers ------------------------------------------------------
@@ -132,6 +138,33 @@ scan_host() {
   done
 }
 
+# Pick up '--ui python|react' from the args (LOGSMITH_UI works too).
+scan_ui() {
+  local prev=""
+  for arg in "$@"; do
+    if [ "$prev" = "--ui" ]; then
+      case "$arg" in
+        python|react) UI="$arg" ;;
+        *) echo "Error: --ui must be 'python' or 'react' (got '$arg')." >&2; exit 1 ;;
+      esac
+    fi
+    prev="$arg"
+  done
+  export LOGSMITH_UI="$UI"
+}
+
+# The args left for uvicorn after '--ui X' pairs are removed (uvicorn would
+# reject the unknown flag). Bash 3.2-safe: fills the PASSTHROUGH array.
+strip_ui() {
+  PASSTHROUGH=()
+  local skip_next=0
+  for arg in "$@"; do
+    if [ "$skip_next" = "1" ]; then skip_next=0; continue; fi
+    if [ "$arg" = "--ui" ]; then skip_next=1; continue; fi
+    PASSTHROUGH+=("$arg")
+  done
+}
+
 # --- start --------------------------------------------------------------
 
 already_running_or_busy() { # $1 = "Backend"|"Frontend dev server", $2 = pid file, $3 = port
@@ -173,7 +206,7 @@ start_frontend() {
   echo $! > "$FRONTEND_PID"
 }
 
-cmd_start() { # args may contain --dev
+cmd_start() { # args may contain --dev and --ui python|react
   local mode="prod"
   local args=("$@")
   for arg in "$@"; do
@@ -181,6 +214,7 @@ cmd_start() { # args may contain --dev
   done
   scan_port "$@"
   scan_host "$@"
+  scan_ui "$@"
   mkdir -p "$RUN_DIR"
   ensure_backend_env
   already_running_or_busy "Backend" "$BACKEND_PID" "$BACKEND_PORT"
@@ -190,7 +224,7 @@ cmd_start() { # args may contain --dev
   local scheme="https"
   [ "${LOGSMITH_HTTP:-0}" = "1" ] && scheme="http"
 
-  if [ "$mode" = "prod" ] && [ ! -f frontend/dist/index.html ]; then
+  if [ "$mode" = "prod" ] && [ "$UI" = "react" ] && [ ! -f frontend/dist/index.html ]; then
     echo "Building the frontend (first start)…"
     (cd frontend && npm install --silent && npm run build >/dev/null)
   fi
@@ -198,6 +232,11 @@ cmd_start() { # args may contain --dev
   start_backend "$mode"
   wait_ready "$(health_url)" "backend" "$BACKEND_LOG"
   echo "Backend  ●  $scheme://localhost:$BACKEND_PORT  (PID $(pid_of "$BACKEND_PID"), log: $BACKEND_LOG)"
+  if [ "$UI" = "python" ]; then
+    echo "UI       ●  python (server-rendered pages — no build step)"
+  else
+    echo "UI       ●  react (SPA from frontend/dist)"
+  fi
   local ip
   ip=$(lan_ip)
   if [ -n "$ip" ] && [ "$HOST" != "localhost" ] && [ "$HOST" != "127.0.0.1" ]; then
@@ -205,19 +244,23 @@ cmd_start() { # args may contain --dev
   fi
 
   if [ "$mode" = "dev" ]; then
-    if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then
-      echo "  NOTE: LOGSMITH_HTTP=1 — the Vite proxy expects HTTPS (vite.config.js)." >&2
+    if [ "$UI" != "react" ]; then
+      echo "           dev mode with --ui python: backend auto-reload only, no Vite."
+    else
+      if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then
+        echo "  NOTE: LOGSMITH_HTTP=1 — the Vite proxy expects HTTPS (vite.config.js)." >&2
+      fi
+      if [ "$BACKEND_PORT" != "8000" ]; then
+        echo "  NOTE: Vite's proxy targets localhost:8000 (vite.config.js); --port $BACKEND_PORT breaks it." >&2
+      fi
+      already_running_or_busy "Frontend dev server" "$FRONTEND_PID" "$FRONTEND_PORT"
+      start_frontend
+      wait_ready "http://localhost:$FRONTEND_PORT/" "frontend dev server" "$FRONTEND_LOG"
+      echo "Frontend ●  http://localhost:$FRONTEND_PORT  (PID $(pid_of "$FRONTEND_PID"), log: $FRONTEND_LOG)"
+      echo "           open $scheme://localhost:$BACKEND_PORT/api/health — Vite proxies /api to the backend"
     fi
-    if [ "$BACKEND_PORT" != "8000" ]; then
-      echo "  NOTE: Vite's proxy targets localhost:8000 (vite.config.js); --port $BACKEND_PORT breaks it." >&2
-    fi
-    already_running_or_busy "Frontend dev server" "$FRONTEND_PID" "$FRONTEND_PORT"
-    start_frontend
-    wait_ready "http://localhost:$FRONTEND_PORT/" "frontend dev server" "$FRONTEND_LOG"
-    echo "Frontend ●  http://localhost:$FRONTEND_PORT  (PID $(pid_of "$FRONTEND_PID"), log: $FRONTEND_LOG)"
-    echo "           open $scheme://localhost:$BACKEND_PORT/api/health — Vite proxies /api to the backend"
   fi
-  echo "$mode" > "$RUN_DIR/mode"
+  echo "$mode, ui: $UI" > "$RUN_DIR/mode"
 }
 
 # --- stop ---------------------------------------------------------------
@@ -301,10 +344,13 @@ case "${1:-}" in
     ;;
   *)
     # Foreground production server, args passed through to uvicorn (old behavior).
+    # --ui is consumed by this script; everything else reaches uvicorn.
     scan_port "$@"
     scan_host "$@"
+    scan_ui "$@"
+    strip_ui "$@"
     ensure_backend_env
-    if [ ! -f frontend/dist/index.html ]; then
+    if [ "$UI" = "react" ] && [ ! -f frontend/dist/index.html ]; then
       (cd frontend && npm install --silent && npm run build >/dev/null)
     fi
     if command -v lsof >/dev/null 2>&1 && port_busy "$BACKEND_PORT"; then
@@ -318,7 +364,12 @@ case "${1:-}" in
     fi
     check_exposure
     cert_hint
+    if [ "$UI" = "python" ]; then
+      echo "UI       ●  python (server-rendered pages — no build step)"
+    else
+      echo "UI       ●  react (SPA from frontend/dist)"
+    fi
     # shellcheck disable=SC2086
-    exec .venv/bin/uvicorn --app-dir backend app.main:app --host "$HOST" --port "$BACKEND_PORT" $(ssl_flags) "$@"
+    exec .venv/bin/uvicorn --app-dir backend app.main:app --host "$HOST" --port "$BACKEND_PORT" $(ssl_flags) ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
     ;;
 esac

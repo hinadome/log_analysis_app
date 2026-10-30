@@ -33,6 +33,12 @@ AUTH_TOKEN = os.environ.get("LOGSMITH_TOKEN", "").strip()
 # Auto-delete jobs older than this many days (0 = keep forever).
 JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))
 
+# Which frontend to serve: "react" (the built SPA in frontend/dist) or
+# "python" (server-rendered pages — see app/pages.py). run.sh exposes this
+# as `--ui python` / `--ui react`; the two frontends are mutually exclusive
+# because the SPA owns a catch-all route.
+UI = os.environ.get("LOGSMITH_UI", "react").strip().lower()
+
 # Upper bound for a single log file uploaded through the browser (MiB).
 MAX_LOG_UPLOAD_MB = int(os.environ.get("MAX_LOG_UPLOAD_MB", "512"))
 

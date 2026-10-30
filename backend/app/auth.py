@@ -53,6 +53,45 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def check_password(request: Request, password: str) -> str:
+    """Rate-limited password check shared by the JSON login and the HTML form.
+
+    Returns the session cookie value ("" when auth is disabled); raises
+    HTTPException 401/429 on failure. A success clears the failure counter.
+    """
+    if not AUTH_TOKEN:
+        return ""
+    ip = _client_ip(request)
+    now = time.monotonic()
+    _prune_failures(ip, now)
+    attempts = _LOGIN_FAILURES.get(ip)
+    if attempts and len(attempts) >= LOGIN_MAX_FAILURES:
+        retry_after = max(1, round(LOGIN_FAILURE_WINDOW - (now - attempts[0])) + 1)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts — try again in {retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+    if not hmac.compare_digest(password, AUTH_TOKEN):
+        _record_failure(ip)
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    _LOGIN_FAILURES.pop(ip, None)  # success clears the slate
+    return _session_value()
+
+
+def apply_session_cookie(request: Request, response: Response) -> None:
+    """Set the session cookie on a response (7-day expiry, Secure on HTTPS)."""
+    response.set_cookie(
+        COOKIE_NAME,
+        _session_value(),
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        path="/",
+        max_age=SESSION_MAX_AGE,  # sessions expire; without this they live forever
+    )
+
+
 def _prune_failures(ip: str, now: float) -> None:
     """Drop expired timestamps for one IP; remove the entry when empty."""
     attempts = _LOGIN_FAILURES.get(ip)
@@ -87,36 +126,10 @@ def auth_status():
 
 @router.post("/login")
 def login(body: LoginBody, request: Request, response: Response):
-    if not AUTH_TOKEN:
-        return {"ok": True, "auth_required": False}
-
-    ip = _client_ip(request)
-    now = time.monotonic()
-    _prune_failures(ip, now)
-    attempts = _LOGIN_FAILURES.get(ip)
-    if attempts and len(attempts) >= LOGIN_MAX_FAILURES:
-        retry_after = max(1, round(LOGIN_FAILURE_WINDOW - (now - attempts[0])) + 1)
-        raise HTTPException(
-            status_code=429,
-            detail=f"Too many failed attempts — try again in {retry_after}s",
-            headers={"Retry-After": str(retry_after)},
-        )
-
-    if not hmac.compare_digest(body.password, AUTH_TOKEN):
-        _record_failure(ip)
-        raise HTTPException(status_code=401, detail="Incorrect password")
-
-    _LOGIN_FAILURES.pop(ip, None)  # success clears the slate
-    response.set_cookie(
-        COOKIE_NAME,
-        _session_value(),
-        httponly=True,
-        samesite="lax",
-        secure=request.url.scheme == "https",
-        path="/",
-        max_age=SESSION_MAX_AGE,  # sessions expire; without this they live forever
-    )
-    return {"ok": True, "auth_required": True}
+    value = check_password(request, body.password)
+    if value:
+        apply_session_cookie(request, response)
+    return {"ok": True, "auth_required": auth_required()}
 
 
 @router.post("/logout")

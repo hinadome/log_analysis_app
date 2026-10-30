@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Logs · LogSmith{% endblock %}
+{% block content %}
+<form method="get" action="/run" class="card">
+  <h2>Run scripts on logs</h2>
+  <table class="list">
+    <thead><tr><th class="cb"></th><th>Log file</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+    <tbody>
+    {% for l in logs %}
+      <tr>
+        <td class="cb"><input type="checkbox" name="logs" value="{{ l.name }}"></td>
+        <td class="mono">{{ l.name }}</td>
+        <td class="muted">{{ l.size | kb }}</td>
+        <td class="muted">{{ l.modified | dt }}</td>
+        <td class="row-actions">
+          <a class="btn sm" href="/run?log={{ l.name | urlencode }}">Run</a>
+          <a class="btn ghost sm" href="/logs/preview?path={{ l.name | urlencode }}">View</a>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No logs found — upload one below or drop files into the logs directory.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Scripts</h2>
+  <table class="list">
+    <thead><tr><th class="cb"></th><th>Script</th><th>Description</th><th>Params</th></tr></thead>
+    <tbody>
+    {% for s in scripts %}
+      <tr>
+        <td class="cb"><input type="checkbox" name="scripts" value="{{ s.id }}" {% if s.error %}disabled{% endif %}></td>
+        <td><b>{{ s.name or s.id }}</b><br><span class="mono muted">{{ s.id }}</span></td>
+        <td>{% if s.error %}<span class="err-text">broken manifest: {{ s.error }}</span>{% else %}{{ s.description or '—' }}{% endif %}</td>
+        <td class="muted">{{ s.parameters | length }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="run-options">
+    <label class="inline-opt"><input type="radio" name="mode" value="parallel" checked> parallel</label>
+    <label class="inline-opt"><input type="radio" name="mode" value="chain"> chain <span class="muted">(each step feeds the next)</span></label>
+    <label class="inline-opt">label <input type="text" name="label" placeholder="optional tag" maxlength="80"></label>
+  </div>
+  <button class="btn primary" type="submit">Configure run →</button>
+  <p class="muted">Check one or more logs (fan-out: one submission per log) and scripts — or use a
+  per-log “Run” link for a single log.</p>
+</form>
+
+{% if uploads_enabled %}
+<form method="post" action="/upload" enctype="multipart/form-data" class="card">
+  <h2>Upload a log</h2>
+  <input type="file" name="file" required>
+  <button class="btn" type="submit">Upload</button>
+  <p class="muted">Up to {{ upload_max_mb }} MiB, streamed to the logs directory. Simple names only
+  (letters, digits, '.', '-', '_', spaces) — the file must not already exist.</p>
+</form>
+{% endif %}
+{% endblock %}

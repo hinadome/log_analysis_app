@@ -8,8 +8,9 @@ setup see [README.md](README.md).
 
 ```
                           ┌───────────────────────────────────────────────┐
-                          │                 Browser (SPA)                 │
-                          │  React + Vite · polls jobs · SSE live stdout  │
+                          │            Browser (SPA or pages)             │
+                          │  React UI (default) or the python UI — both   │
+                          │  poll jobs; the SPA adds SSE live stdout      │
                           └───────────────┬───────────────────────────────┘
                                           │ HTTPS (cookie or Bearer token)
                                           ▼
@@ -49,14 +50,20 @@ semaphore; the UI is a static React bundle served by the same process.
 backend/app/
 ├── main.py            App assembly: auth middleware, routers, lifespan
 │                      (reconcile → prune on start; executor.shutdown on stop),
-│                      SPA serving from frontend/dist
+│                      and the frontend mount: the React SPA from frontend/dist
+│                      or the python pages router, per LOGSMITH_UI
 ├── config.py          All settings, read from environment variables once
 ├── models.py          Pydantic models: ParamSpec, ScriptManifest, ScriptInfo,
 │                      LogFile, JobSpecIn, JobCreateRequest, Job (incl. chain
 │                      fields), JobStatus literal
 ├── auth.py            Shared-password auth: HttpOnly cookie session +
 │                      Bearer token; constant-time comparisons; per-IP
-│                      login rate limiting (5 failures/60s → 429)
+│                      login rate limiting (5 failures/60s → 429);
+│                      check_password/apply_session_cookie shared by the
+│                      JSON API login and the HTML form login
+├── pages.py           The python UI (LOGSMITH_UI=python): Jinja2 pages that
+│                      call the routers' functions directly; templates in
+│                      app/templates/, styles in app/static/
 ├── routers/
 │   ├── logs.py        GET /api/logs, GET /api/logs/preview (head + tail,
 │   │                  transparent decompression for .gz/.bz2/.xz),
@@ -303,6 +310,13 @@ chain step stays open — it is not terminal). The frontend uses
 
 ## 8. Frontend architecture
 
+Two interchangeable frontends serve the same `/api` and the same session
+cookie; `LOGSMITH_UI` (`run.sh --ui`) picks one at import time in
+`main.py`. They are mutually exclusive because the SPA owns a catch-all
+route that would otherwise swallow the page routes.
+
+### React SPA (default)
+
 Single-page React app; state lives in `App.jsx`:
 
 - **Routing**: the URL hash is the source of truth — `#/` is home,
@@ -335,7 +349,44 @@ Single-page React app; state lives in `App.jsx`:
 - **LogPicker** includes a drag-and-drop upload zone (multiple files,
   streamed to `POST /api/logs/upload`) and Head/Tail preview toggles.
 - **Presets** (`presets.js`) store named parameter sets per script in
-  localStorage — client-side only.
+  localStorage — client-side only, so this (plus saved pipelines and
+  browser notifications) has no python-UI equivalent.
+
+### Python pages (`--ui python`)
+
+Server-rendered Jinja2 templates (`app/pages.py`, `app/templates/`,
+`app/static/style.css`) — no Node, no build step, every view a plain
+deep-linkable URL. Design points:
+
+- **Direct calls, not HTTP round-trips**: handlers call the API routers'
+  functions (`jobs_api.create_jobs`, `logs_api.upload_log`, …) directly.
+  Same validation, same behavior, one auth story — but an `HTTPException`
+  raised inside renders as the HTML error page with a back link, not JSON.
+- **Auth**: `/login` is an HTML form posting to the same rate-limited
+  `check_password`/`apply_session_cookie` pair the JSON API uses
+  (`auth.py`); pages redirect to `/login?next=…` when a session is missing.
+- **Forms over fetch**: state changes are POST forms that redirect (303)
+  — the run config (`/run?logs=&scripts=` is a shareable GET), the
+  submission fan-out (`/submit` posts one `JobCreateRequest` per selected
+  log), cancel/delete/rerun/prune on the jobs pages, and the editor with
+  two submit buttons (Save; "Save & test run" via HTML5 `formaction`).
+- **Parameter fields** are named `p::<script_id>::<param>`; booleans are a
+  hidden `false` plus a checkbox `true` (Starlette's `FormData.get` returns
+  the last value, so the checkbox wins when checked); multi values are
+  comma-separated; empty always means "manifest default".
+- **OutputView parity**: finished jobs render stdout through
+  `_output_view` exactly like the React component — a JSON array of flat
+  objects becomes a sortable table (server-side sort via `?sortcol=
+  &sortdir=`, cycling asc → desc → natural order), other JSON is
+  pretty-printed, text stays plain; the Table/Raw toggle is `?view=raw`
+  and `/jobs/{id}/result.csv` downloads the table sorted as shown.
+- **Liveness without SSE**: active job pages (and the jobs list with
+  active jobs) carry a `<meta http-equiv="refresh" content="2">`, so
+  running output tails itself every 2 s; raw endpoints stay one click
+  away (`/api/jobs/{id}/stdout` opens in a tab).
+- **Compare** (`/jobs/{id}/compare`) diffs two completed jobs' stdout with
+  `difflib.SequenceMatcher`, capped at 2000 lines per side like DiffView;
+  the other job defaults to the latest run of the same script.
 
 ## 9. Security model
 
@@ -392,7 +443,9 @@ cd frontend && npm test          # vitest — the diff/table pure logic
 
 `conftest.py` points `LOGS_DIR`/`DATA_DIR` at temp directories **before any
 `app.*` import** (settings are read once at import), sets `LOGSMITH_TOKEN=""`,
-and points `SCRIPTS_DIR` at the repository's real sample scripts — the suite
+pins `LOGSMITH_UI=python` (so the app under test serves the Jinja2 pages —
+the `/api` routes are identical either way), and points `SCRIPTS_DIR` at the
+repository's real sample scripts — the suite
 runs actual `grep`/`python3` subprocesses, so it exercises the real execution
 path. Executor-level tests fabricate `ScriptInfo` objects and patch the
 executor's script lookup so advancement can be driven deterministically;
@@ -413,6 +466,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
+| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted) |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 

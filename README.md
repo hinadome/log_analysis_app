@@ -25,12 +25,24 @@ cd frontend && npm install && npm run build && cd ..
 # 3b. Or dev mode with hot reload (frontend on :5173, proxies /api)
 ./run.sh start --dev                                # backend + Vite together
 
+# 3c. Or skip Node entirely: server-rendered pages, no build step
+./run.sh start --ui python                          # same workbench, plain HTML
+
 # Control (plain userland — no systemctl/root needed)
 ./run.sh stop                                       # stop everything it started
 ./run.sh status                                     # what's running
-./run.sh restart [--dev]                            # stop + start
+./run.sh restart [--dev] [--ui python|react]        # stop + start
 ./run.sh                                            # foreground server (Ctrl+C stops)
 ```
+
+`--ui` (or `LOGSMITH_UI`) picks the frontend: `react` — the default SPA
+built with Vite — or `python` — Jinja2 pages rendered by the backend with
+zero build tooling. Both serve the same `/api` and the same session
+cookie, so either can be pointed at the same data. See
+[ARCHITECTURE.md §8](ARCHITECTURE.md#8-frontend-architecture) for the
+differences (short version: presets, saved pipelines and notifications
+are React-only; the python UI trades them for deep-linkable URLs and no
+Node dependency).
 
 `start` runs in the background: logs append to `.run/*.log`, PIDs live in
 `.run/*.pid` (gitignored), and `stop` only kills processes this script
@@ -72,6 +84,11 @@ Vite proxy talks HTTPS to the backend.
 
 ## Features
 
+- **Two frontends, one app** — the default React SPA, or `--ui python`:
+  server-rendered pages with the same workbench (logs, runs, job history,
+  compare, the script editor) and no build step. Every view is a plain
+  deep-linkable URL; the two are mutually exclusive at startup because the
+  SPA owns a catch-all route.
 - **Async execution** — jobs get an ID immediately and run in a bounded pool
   (`MAX_CONCURRENT_JOBS`, default 4). Output streams live into the job view.
 - **Deep links** — every job has a URL (`#/job/<id>`); refresh, the browser
@@ -102,9 +119,9 @@ Vite proxy talks HTTPS to the backend.
 - **Step-input viewer** — the Input tab shows exactly what a script received:
   the selected log, or for chain steps the previous step's actual output
   (compressed sources shown decompressed).
-- **Saved pipelines** — save a whole ordered chain (scripts + parameters)
-  under a name and load it on any log, like parameter presets but for chains
-  (stored in your browser's localStorage).
+- **Saved pipelines** *(React UI)* — save a whole ordered chain (scripts +
+  parameters) under a name and load it on any log, like parameter presets
+  but for chains (stored in your browser's localStorage).
 - **Fan-out over logs** — arm extra logs with the ＋ toggle in the log list
   and one Run submits the same scripts against each of them ("3 logs × 2
   steps = 6 jobs"), e.g. the same counter across all rotated files.
@@ -114,9 +131,10 @@ Vite proxy talks HTTPS to the backend.
   paged, so the history stays responsive as it grows. Status chips
   (Active / Completed / Failed / Cancelled) filter the same way.
 - **Log upload** — drag & drop log files straight into the browser (or
-  click to browse); they land in the server's `logs/` directory ready to
-  analyze. Collisions are rejected, sizes are capped
-  (`MAX_LOG_UPLOAD_MB`), and partial uploads never show up half-written.
+  click to browse; the python UI has a plain upload form); they land in the
+  server's `logs/` directory ready to analyze. Collisions are rejected,
+  sizes are capped (`MAX_LOG_UPLOAD_MB`), and partial uploads never show
+  up half-written.
 - **Head & tail previews** — preview a log from the top or the bottom
   (⇣ Tail is usually what you want); tail seeks backwards from EOF, so it
   is instant even on huge files.
@@ -137,10 +155,11 @@ Vite proxy talks HTTPS to the backend.
   straight to the live result.
 - **Brute-force protection** — failed logins are rate-limited per client
   (5 per minute) once `LOGSMITH_TOKEN` is set.
-- **Notifications** — enable the 🔔 button in the top bar to get a browser
-  notification when a job finishes.
-- **Parameter presets** — save/load named parameter combos per script
-  (stored in your browser's localStorage).
+- **Notifications** *(React UI)* — enable the 🔔 button in the top bar to
+  get a browser notification when a job finishes (the python UI refreshes
+  the job page instead).
+- **Parameter presets** *(React UI)* — save/load named parameter combos per
+  script (stored in your browser's localStorage).
 - **Test suite** — `backend/tests/` (pytest) locks in the chain invariants,
   the API contract and the storage layer; `frontend/` (vitest) locks in the
   diff and table logic. See
@@ -161,7 +180,7 @@ Vite proxy talks HTTPS to the backend.
         │ 3. POST /api/jobs  {log, mode, jobs}          │ stderr.txt   │
         └──────────────┐                                │ outputs/…    │
                        ▼                                └──────────────┘
-              React UI (Vite)  ◄── 4. poll GET /api/jobs/{id} (live tail + SSE)
+              React UI (Vite) / python pages ◄── 4. poll GET /api/jobs/{id} (live tail + SSE)
 ```
 
 In **chain** mode the executor runs the steps sequentially and hands each
@@ -316,6 +335,7 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `LOGSMITH_TOKEN` | *(unset)* | password for the UI; unset disables auth (warns loudly when exposed to the network) |
 | `LOGSMITH_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
+| `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |
 | `JOB_RETENTION_DAYS` | `0` | auto-delete jobs older than N days at startup (0 = keep forever) |
 
@@ -336,8 +356,9 @@ lifecycle (timeouts, cancel, gz/bz2/xz decompression), chain advancement/cancel
 invariants, the full HTTP API (atomic validation, labels + search, status
 filtering, paging, SSE streaming, the step-input endpoint, full and partial
 re-run), log preview (head/tail/compressed), upload sanitization and caps,
-authentication incl. rate limiting and session expiry, plus the frontend's
-diff/table logic. See
+authentication incl. rate limiting and session expiry, the python UI's page
+flow (login, submission, fan-out, chains, compare, editor, the output table
++ CSV), plus the frontend's diff/table logic. See
 [ARCHITECTURE.md §11](ARCHITECTURE.md#11-testing) for the invariant → test
 mapping. CI installs the pinned `backend/requirements.lock`, runs both
 suites and the frontend build on every push (`.github/workflows/tests.yml`).

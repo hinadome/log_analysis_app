@@ -184,6 +184,31 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 
 Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
+### 5.1 Pages (python UI)
+
+When `LOGSMITH_UI=python`, the backend serves server-rendered HTML pages
+instead of the React SPA (`app/pages.py`; the two are mutually exclusive —
+the SPA owns a catch-all route). Pages call the same handlers as the API,
+share its session cookie, and redirect to `/login?next=…` when a session is
+missing.
+
+| Path | Description |
+|---|---|
+| `GET /` | home: log list, script checkboxes, upload form |
+| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default) |
+| `POST /submit` | form submission: one submission per selected log (fan-out), parallel or chain; single job → 303 to its page, else 303 to the jobs list |
+| `GET /jobs?q=&status=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page) |
+| `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |
+| `GET /jobs/{id}/result.csv?sortcol=&sortdir=` | the table view as CSV (`output.csv`), sorted as shown; 422 when the output is not a JSON table |
+| `GET /jobs/{id}/compare[?other=]` | unified line diff of two completed jobs' stdout (difflib, 2000 lines/side); defaults to the latest run of the same script |
+| `POST /jobs/{id}/cancel` `/delete` `/rerun[?from_step]`, `POST /jobs/clear-finished`, `POST /jobs/prune` | form-backed actions; each redirects back (303) |
+| `GET /logs/preview?path=&lines=&tail=1` | head/tail log preview page |
+| `GET /scripts`, `/scripts/new`, `/scripts/{id}/edit` | script list and editor |
+| `POST /scripts/save`, `/scripts/test-run` (log chosen in the form; runs with manifest defaults), `/scripts/{id}/delete` | editor actions; an id different from the edited one saves as a new script |
+| `GET /login` `POST /login` `POST /logout` | HTML form login against the same rate-limited password check; logout clears the cookie |
+| `GET /static/*` | the UI stylesheet (mounted before the pages router) |
+| anything else | an HTML 404 page |
+
 ## 6. Script manifest specification
 
 Scripts are discovered in two shapes:
@@ -300,6 +325,7 @@ step per §4.1 rule 2.
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `LOGSMITH_TOKEN` | *(unset)* | UI password; unset disables auth |
 | `LOGSMITH_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
+| `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages, §5.1); same as `run.sh --ui` |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation |
 | `JOB_RETENTION_DAYS` | `0` | startup auto-delete window (0 = keep forever) |
 

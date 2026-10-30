@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ ('Edit ' + values.id) if values.original_id else 'New script' }} · LogSmith{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ ('Edit: ' + (values.name or values.id)) if values.original_id else 'New script' }}</h1>
+  <a class="btn ghost sm" href="/scripts">← Scripts</a>
+</div>
+
+{% if form_error %}<div class="flash bad">{{ form_error }}</div>{% endif %}
+
+<form method="post" action="/scripts/save" class="card editor">
+  <input type="hidden" name="original_id" value="{{ values.original_id }}">
+  <div class="grid2">
+    <label>Script id <span class="muted">(letters, digits, '-', '_')</span>
+      <input type="text" name="id" value="{{ values.id }}" required
+             pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" title="letters, digits, '-' or '_'">
+    </label>
+    <label>Extension
+      <select name="extension">
+        {% for e in extensions %}<option value="{{ e }}" {% if e == values.extension %}selected{% endif %}>{{ e }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Name <input type="text" name="name" value="{{ values.name }}"></label>
+    <label>Timeout (seconds) <input type="number" name="timeout" value="{{ values.timeout }}" min="1" max="86400" required></label>
+  </div>
+  <label>Description <input type="text" name="description" value="{{ values.description }}"></label>
+  <label>Command <span class="muted">({{ '{script}' }}, {{ '{log}' }}, {{ '{output}' }} and {{ '{param}' }} placeholders; empty = the extension's default)</span>
+    <input type="text" name="command" value="{{ values.command }}" class="mono">
+  </label>
+  <label>Output filename <span class="muted">(optional — declares an {{ '{output}' }} artifact)</span>
+    <input type="text" name="output_filename" value="{{ values.output_filename }}" class="mono">
+  </label>
+  <label>Parameters <span class="muted">(JSON array: name, flag, type, required, default, choices, help)</span>
+    <textarea name="parameters" rows="8" class="mono" spellcheck="false">{{ values.parameters_text }}</textarea>
+  </label>
+  <label>Code
+    <textarea name="code" rows="16" class="mono" spellcheck="false">{{ values.code }}</textarea>
+  </label>
+
+  <button class="btn primary" type="submit">Save</button>
+  {% if logs %}
+  <span class="test-run">
+    <button class="btn" type="submit" formaction="/scripts/test-run"
+            title="Save, then run the saved version with manifest defaults on the chosen log">
+      Save &amp; test run</button>
+    <select name="log">
+      <option value="">— pick a log —</option>
+      {% for l in logs %}<option value="{{ l.name }}">{{ l.name }}</option>{% endfor %}
+    </select>
+  </span>
+  {% endif %}
+</form>
+{% endblock %}

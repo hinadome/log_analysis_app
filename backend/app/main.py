@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth
 from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
-                     DATA_DIR, JOB_RETENTION_DAYS)
+                     DATA_DIR, JOB_RETENTION_DAYS, UI)
 from .routers import jobs, logs, scripts
 from .services.job_store import JobStore
 
@@ -97,8 +97,18 @@ def _dir_size(path) -> int:
     return total
 
 
-# Serve the built React app when frontend/dist exists (dev mode uses Vite).
-if (FRONTEND_DIST / "index.html").is_file():
+# --- frontend ------------------------------------------------------------
+# Two interchangeable frontends, selected at startup via LOGSMITH_UI (run.sh
+# --ui): the server-rendered python pages or the built React SPA. They are
+# mutually exclusive — the SPA owns a catch-all route.
+if UI == "python":
+    from . import pages
+
+    # mount before the pages router: its catch-all must not swallow /static
+    app.mount("/static", StaticFiles(directory=pages.STATIC_DIR), name="static")
+    app.include_router(pages.router)
+elif (FRONTEND_DIST / "index.html").is_file():
+    # Serve the built React app when frontend/dist exists (dev mode uses Vite).
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)

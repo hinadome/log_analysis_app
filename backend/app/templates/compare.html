@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Compare · LogSmith{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>⇄ Compare job outputs</h1>
+  <a class="btn ghost sm" href="/jobs/{{ job.id }}">← back to job</a>
+</div>
+
+<form method="get" action="/jobs/{{ job.id }}/compare" class="card">
+  <label>Compare with
+    <select name="other">
+      {% for c in candidates %}
+      <option value="{{ c.id }}" {% if c.id == other_id %}selected{% endif %}>
+        {{ c.script_name }}{% if c.label %} · {{ c.label }}{% endif %} · {{ c.created_at | dt }} · {{ c.id }}
+      </option>
+      {% else %}
+      <option value="">(no other completed jobs)</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button class="btn sm" type="submit">Compare</button>
+</form>
+
+{% if diff %}
+<div class="diff-head">
+  <div class="diff-side">− this job: <span class="mono">{{ job.script_name }} · {{ job.created_at | dt }}</span></div>
+  <div class="diff-side">+ other: <span class="mono">{{ other.script_name }} · {{ other.created_at | dt }}</span></div>
+</div>
+<p class="muted">+{{ diff.added }} added · −{{ diff.removed }} removed{% if diff.truncated %} · showing the first {{ max_diff_lines }} lines per side{% endif %}</p>
+<pre class="io diff">{% for row in diff.rows %}<span class="d-{{ row.type }}">{{ ' ' if row.type == 'same' else ('+' if row.type == 'add' else '-') }}{{ row.text }}
+</span>{% endfor %}</pre>
+{% elif candidates %}
+<p class="muted">Pick a completed job above to diff its stdout against this one.</p>
+{% else %}
+<p class="muted card">No other completed jobs to compare with yet.</p>
+{% endif %}
+{% endblock %}
