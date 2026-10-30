@@ -214,7 +214,7 @@ def test_export_restores_to_a_working_script(client, scripts_dir):
         for member in tar:
             if member.name == "RESTORE.txt":
                 continue
-            tar.extract(member, restored)
+            tar.extract(member, restored, filter="data")
 
     monkey = pytest.MonkeyPatch()
     monkey.setattr(scanner_module, "SCRIPTS_DIR", restored)
