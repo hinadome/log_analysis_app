@@ -247,6 +247,9 @@ broken manifest surfaces the script with an `error` field instead of hiding
 it (and submitting it is rejected with 422 — but it can be fixed in the UI
 editor, which rewrites a clean manifest on save).
 
+One script implemented in every supported language (python, bash, node,
+ruby, perl), manifest and code side by side: [SCRIPTS.md](SCRIPTS.md).
+
 Scripts can also be authored through the API/UI editor (`POST/PUT/DELETE
 /api/scripts`): it writes ordinary flat-style files (code + sidecar
 manifest), so UI-created and hand-added scripts are interchangeable. The

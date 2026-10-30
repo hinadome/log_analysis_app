@@ -6,7 +6,8 @@ execute asynchronously with live output streaming, and results (including
 artifact files) are viewable in the browser.
 
 **Docs:** [SPECS.md](SPECS.md) — normative functional/API spec ·
-[ARCHITECTURE.md](ARCHITECTURE.md) — system design and chain-engine internals
+[ARCHITECTURE.md](ARCHITECTURE.md) — system design and chain-engine internals ·
+[SCRIPTS.md](SCRIPTS.md) — writing analysis scripts, with per-language samples
 
 ## Quick start
 
@@ -256,7 +257,9 @@ engine internals.
 
 ## Script manifest reference
 
-Scripts are discovered in two shapes:
+Ready-to-adapt samples of the same script in all five languages (python,
+bash, node, ruby, perl) live in [SCRIPTS.md](SCRIPTS.md); this section is
+the full reference. Scripts are discovered in two shapes:
 
 1. **Flat**: `scripts/name.py` + sidecar `scripts/name.json`
 2. **Directory**: `scripts/name/manifest.json` + entry file (named via `entry`,
@@ -362,6 +365,9 @@ Direct-execution variant: with a shebang in the code
 (`#!/usr/bin/env python3`) and command `{script} {log} {args}`, the script
 file itself is argv[0] — same placeholders, same parameter contract, one
 fewer file in the command line.
+
+This same script written out in every supported language — python, bash,
+node, ruby and perl — is in [SCRIPTS.md](SCRIPTS.md).
 
 ### Command placeholders
 
