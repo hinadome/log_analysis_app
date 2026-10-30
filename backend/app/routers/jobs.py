@@ -388,7 +388,9 @@ async def job_events(job_id: str):
                     if chunk:
                         offset += len(chunk)
                         text = chunk.decode(errors="replace")
-                        yield f'{{"type": "stdout", "text": {json.dumps(text)}}}\n\n'
+                        # "data: " prefix is required — without it EventSource
+                        # silently drops the frame and the UI never sees stdout
+                        yield f"data: {json.dumps({'type': 'stdout', 'text': text})}\n\n"
                 except OSError:
                     pass
 

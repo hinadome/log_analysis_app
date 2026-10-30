@@ -239,6 +239,30 @@ def test_job_input_404_when_source_gone(client):
     assert res.status_code == 404
 
 
+def test_job_events_stream(client):
+    """The SSE stream must carry stdout deltas AND status changes as real
+    `data:` frames — anything else is silently dropped by EventSource."""
+    import json as jsonlib
+
+    job = submit(client, [{"script_id": "slow_scan",
+                           "params": {"seconds": 3, "interval": 0.4}}])[0]
+    events = []
+    with client.stream("GET", f"/api/jobs/{job['id']}/events") as res:
+        assert res.status_code == 200
+        assert res.headers["content-type"].startswith("text/event-stream")
+        for line in res.iter_lines():
+            if line.startswith("data: "):
+                events.append(jsonlib.loads(line[len("data: "):]))
+
+    types = {e.get("type") for e in events}
+    assert "stdout" in types
+    streamed = "".join(e["text"] for e in events if e.get("type") == "stdout")
+    assert "scanned" in streamed  # slow_scan's progress lines arrived live
+    finals = [e for e in events if e.get("type") == "status" and e.get("status") == "completed"]
+    assert finals, "the stream should end with a terminal status frame"
+    assert finals[-1]["exit_code"] == 0
+
+
 def test_jobs_pagination(client):
     for i in range(5):
         submit(client, [{"script_id": "grep_search", "params": {"pattern": "ERROR"}}],

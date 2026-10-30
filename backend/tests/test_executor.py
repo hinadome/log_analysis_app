@@ -6,10 +6,26 @@ all tasks share a single event loop (the semaphore binds to it).
 from __future__ import annotations
 
 import asyncio
+import bz2
 import gzip
+import lzma
 import time
 
+import pytest
+
 from conftest import make_job, make_script
+
+
+def write_compressed(path, payload: str) -> None:
+    """Write payload through the compressor matching the file suffix."""
+    if path.suffix == ".gz":
+        opener = gzip.open
+    elif path.suffix == ".bz2":
+        opener = bz2.open
+    else:
+        opener = lzma.open
+    with opener(path, "wt") as fh:
+        fh.write(payload)
 
 
 async def wait_for(store, job_id, statuses, timeout=15.0):
@@ -95,14 +111,14 @@ def test_cancel_finished_job_returns_false(store, executor, tmp_path):
     asyncio.run(main())
 
 
-def test_compressed_log_is_decompressed(store, executor, tmp_path):
+@pytest.mark.parametrize("suffix", ["gz", "bz2", "xz"])
+def test_compressed_log_is_decompressed(store, executor, tmp_path, suffix):
     async def main():
         payload = "line-one\nline-two\nline-three\n"
-        gz = tmp_path / "in.log.gz"
-        with gzip.open(gz, "wt") as fh:
-            fh.write(payload)
+        compressed = tmp_path / f"in.log.{suffix}"
+        write_compressed(compressed, payload)
         script = make_script("cat", "cat {log}")
-        job = make_job(store, script, str(gz))
+        job = make_job(store, script, str(compressed))
         executor.submit(job, script)
         done = await wait_for(store, job.id, ("completed", "failed"))
         assert done.status == "completed", done.error

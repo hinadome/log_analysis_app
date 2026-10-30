@@ -1,7 +1,11 @@
 """Preview endpoint: head and tail modes, plain and compressed files."""
 from __future__ import annotations
 
+import bz2
 import gzip
+import lzma
+
+import pytest
 
 from conftest import LOGS_TMP
 
@@ -57,16 +61,18 @@ def test_tail_without_trailing_newline(client):
     assert res["truncated"] is True
 
 
-def test_tail_compressed(client):
-    gz = LOGS_TMP / "tailcase.log.gz"
-    with gzip.open(gz, "wt", encoding="utf-8") as fh:
+@pytest.mark.parametrize("suffix", ["gz", "bz2", "xz"])
+def test_tail_compressed(client, suffix):
+    compressed = LOGS_TMP / f"tailcase.log.{suffix}"
+    opener = {"gz": gzip.open, "bz2": bz2.open, "xz": lzma.open}[suffix]
+    with opener(compressed, "wt", encoding="utf-8") as fh:
         fh.write("".join(f"line {i}\n" for i in range(100)))
-    res = client.get(_url(str(gz), lines=3, tail=1)).json()
+    res = client.get(_url(str(compressed), lines=3, tail=1)).json()
     assert res["compressed"] is True
     assert res["lines"] == ["line 97", "line 98", "line 99"]
     assert res["truncated"] is True
 
-    res = client.get(_url(str(gz), lines=200, tail=1)).json()
+    res = client.get(_url(str(compressed), lines=200, tail=1)).json()
     assert len(res["lines"]) == 100
     assert res["truncated"] is False
 
