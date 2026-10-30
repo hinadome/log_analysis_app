@@ -59,6 +59,8 @@ export const api = {
   },
   getJob: (id) => request(`/api/jobs/${id}`),
   getJobStdout: (id) => fetch(`/api/jobs/${id}/stdout`).then((r) => r.text()),
+  getJobInput: (id) =>
+    fetch(`/api/jobs/${id}/input`).then((r) => (r.ok ? r.text() : null)),
   cancelJob: (id) => request(`/api/jobs/${id}/cancel`, { method: "POST" }),
   deleteJob: (id) => request(`/api/jobs/${id}`, { method: "DELETE" }),
   rerunJob: (id, fromStep) =>

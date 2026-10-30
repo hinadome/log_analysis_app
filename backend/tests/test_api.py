@@ -191,6 +191,54 @@ def test_status_filter(client):
     assert none_running["jobs"] == [] and none_running["total"] == 0
 
 
+def test_job_input_endpoint(client):
+    # a plain job's input is the selected log itself
+    job = submit(client, [{"script_id": "grep_search", "params": {"pattern": "ERROR"}}])[0]
+    wait_status(client, [job["id"]], ("completed",))
+    res = client.get(f"/api/jobs/{job['id']}/input")
+    assert res.status_code == 200
+    assert "ERROR db connection lost" in res.text
+
+    # a chained step's input is exactly the previous step's stdout
+    steps = submit(client, ERROR_STEPS, mode="chain")
+    wait_status(client, [j["id"] for j in steps], ("completed",))
+    step1_stdout = client.get(f"/api/jobs/{steps[0]['id']}/stdout").text
+    step2_input = client.get(f"/api/jobs/{steps[1]['id']}/input")
+    assert step2_input.status_code == 200
+    assert step2_input.text == step1_stdout
+
+
+def test_job_input_serves_decompressed_copy(client):
+    import gzip
+
+    from conftest import LOGS_TMP
+
+    gz_path = LOGS_TMP / "gz_input.log.gz"
+    gz_path.write_bytes(gzip.compress(b"2026-10-29 10:00:05 ERROR gz trouble\n"))
+    job = submit(client, [{"script_id": "grep_search", "params": {"pattern": "ERROR"}}],
+                 log=gz_path.name)[0]
+    wait_status(client, [job["id"]], ("completed",))
+
+    # the endpoint serves the decompressed input.log, never the raw .gz bytes
+    res = client.get(f"/api/jobs/{job['id']}/input")
+    assert res.status_code == 200
+    assert "gz trouble" in res.text
+
+
+def test_job_input_404_when_source_gone(client):
+    from conftest import LOGS_TMP
+
+    log = LOGS_TMP / "input_gone_test.log"
+    log.write_text("2026-10-29 10:00:05 ERROR disappearing act\n")
+    job = submit(client, [{"script_id": "grep_search", "params": {"pattern": "ERROR"}}],
+                 log=log.name)[0]
+    wait_status(client, [job["id"]], ("completed",))
+    log.unlink()
+
+    res = client.get(f"/api/jobs/{job['id']}/input")
+    assert res.status_code == 404
+
+
 def test_jobs_pagination(client):
     for i in range(5):
         submit(client, [{"script_id": "grep_search", "params": {"pattern": "ERROR"}}],

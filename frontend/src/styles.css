@@ -219,6 +219,7 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent);
 
 /* ---------- JSON table output ---------- */
 .output-wrap { display: flex; flex-direction: column; min-width: 0; }
+.input-src { margin: 0 0 8px; }
 .table-scroll { overflow: auto; max-height: 640px; border: 1px solid var(--border); border-radius: 8px; }
 .json-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 .json-table th, .json-table td {

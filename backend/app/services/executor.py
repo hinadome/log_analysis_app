@@ -123,7 +123,7 @@ class Executor:
         if "{output}" in script.command:
             output_path = out_dir / (script.output_filename or "output.txt")
             job.output_file = str(output_path)
-        log_arg = str(self._input_path(job))
+        log_arg = str(self.input_path(job))
         job.command = render_command(script, log_arg, job.params, output_path)
         self._store.save(job)
         self._tasks[job.id] = asyncio.create_task(self._run(job, script))
@@ -150,7 +150,7 @@ class Executor:
             self._store.save(job)
         self.submit(steps[0][0], steps[0][1])
 
-    def _input_path(self, job: Job) -> Path:
+    def input_path(self, job: Job) -> Path:
         """Path scripts should read: chained input, decompressed copy, or the log.
 
         Both the selected log and a previous step's chained output are
@@ -325,7 +325,7 @@ class Executor:
                     job.error = f"Failed to decompress input: {exc}"
                     return
 
-                input_path = self._input_path(job)
+                input_path = self.input_path(job)
                 try:
                     proc = await asyncio.create_subprocess_exec(
                         *job.command,

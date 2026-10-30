@@ -149,8 +149,13 @@ class JobStore:
 
     def read(self, job_id: str, which: str, max_bytes: int = 20 * 1024 * 1024) -> str:
         path = self.stdout_path(job_id) if which == "stdout" else self.stderr_path(job_id)
+        return self.read_path(path, max_bytes) or ""
+
+    @staticmethod
+    def read_path(path: Path, max_bytes: int = 20 * 1024 * 1024) -> str | None:
+        """Read a text file, capped; None when it does not exist."""
         if not path.is_file():
-            return ""
+            return None
         with path.open("rb") as fh:
             data = fh.read(max_bytes + 1)
         if len(data) > max_bytes:

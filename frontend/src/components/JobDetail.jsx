@@ -22,6 +22,12 @@ const STEP_ICON = {
   cancelled: "—",
 };
 
+const INPUT_SOURCE_LABEL = {
+  log: "the selected log file",
+  prev_output: "the previous step's output file",
+  prev_stdout: "the previous step's stdout",
+};
+
 function shellQuote(token) {
   return /^[A-Za-z0-9_@%+=:,./-]*$/.test(token) ? token : `'${token.replace(/'/g, "'\\''")}'`;
 }
@@ -36,6 +42,7 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
   const [tab, setTab] = useState("result");
   const [fileViews, setFileViews] = useState({});
   const [fileModes, setFileModes] = useState({}); // name -> "rendered" | "raw"
+  const [inputText, setInputText] = useState(undefined); // undefined = not loaded, null = unavailable
   const [copied, setCopied] = useState(false);
   const [compare, setCompare] = useState(false);
   const tailRef = useRef(null);
@@ -58,6 +65,7 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
     setTab("result");
     setFileViews({});
     setFileModes({});
+    setInputText(undefined);
     load();
   }, [id, load]);
 
@@ -165,6 +173,16 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
     if (isMd(name)) setFileModes((m) => ({ ...m, [name]: "rendered" }));
   };
 
+  // The Input tab loads lazily, once per job (waiting steps have no input yet).
+  useEffect(() => {
+    if (tab !== "input" || !job || job.status === "waiting" || inputText !== undefined) {
+      return undefined;
+    }
+    let cancelled = false;
+    api.getJobInput(id).then((t) => !cancelled && setInputText(t));
+    return () => { cancelled = true; };
+  }, [tab, id, job, inputText]);
+
   const copyCommand = async () => {
     const text = `$ ${job.command.map(shellQuote).join(" ")}`;
     try {
@@ -252,6 +270,7 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
 
       <div className="tabs">
         <Tab name="result" tab={tab} setTab={setTab}>Result</Tab>
+        <Tab name="input" tab={tab} setTab={setTab} title="What this script received as its input">Input</Tab>
         <Tab name="files" tab={tab} setTab={setTab}>
           Files {job.output_files.length > 0 && <span className="chip">{job.output_files.length}</span>}
         </Tab>
@@ -278,6 +297,30 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
           >{stdout}</pre>
         ) : (
           <OutputView text={fullOut ?? liveStdout ?? "Loading…"} />
+        )
+      )}
+
+      {tab === "input" && (
+        job.status === "waiting" ? (
+          <div className="card empty">
+            This step has not started yet — its input will be the previous step's
+            output, available once that step finishes.
+          </div>
+        ) : inputText === undefined ? (
+          <div className="card empty">Loading input…</div>
+        ) : inputText === null ? (
+          <div className="card empty">
+            The input file is not available — the source log may have been deleted,
+            or this step's input was never materialized.
+          </div>
+        ) : (
+          <div className="card">
+            <div className="muted sm input-src">
+              What this script received as input —{" "}
+              {INPUT_SOURCE_LABEL[job.input_source] || "the selected log file"}:
+            </div>
+            <OutputView text={inputText} />
+          </div>
         )
       )}
 
@@ -358,9 +401,9 @@ function Meta({ label, value }) {
   );
 }
 
-function Tab({ name, tab, setTab, children }) {
+function Tab({ name, tab, setTab, title, children }) {
   return (
-    <button className={cx("tab", { active: tab === name })} onClick={() => setTab(name)}>
+    <button className={cx("tab", { active: tab === name })} onClick={() => setTab(name)} title={title}>
       {children}
     </button>
   );

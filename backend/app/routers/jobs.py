@@ -195,6 +195,22 @@ def get_job_stderr(job_id: str):
     return PlainTextResponse(store.read(job_id, "stderr"), media_type="text/plain")
 
 
+@router.get("/{job_id}/input", response_class=PlainTextResponse)
+def get_job_input(job_id: str):
+    """What the script actually received: the log, or the previous chain step's output.
+
+    Capped like stdout (20 MB); 404 when the source file is gone (deleted log,
+    pruned job data).
+    """
+    job = _get_job_or_404(job_id)
+    path = executor.input_path(job)
+    text = store.read_path(path) if path else None
+    if text is None:
+        # waiting steps have no input yet; a deleted log or pruned data is gone forever
+        raise HTTPException(status_code=404, detail="Input file is not available")
+    return PlainTextResponse(text, media_type="text/plain")
+
+
 @router.get("/{job_id}/files/{filename}")
 def get_job_file(job_id: str, filename: str):
     _get_job_or_404(job_id)
