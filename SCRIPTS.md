@@ -346,14 +346,114 @@ shebang quoted in the error.
    with open(args.out, "w") as fh: …
    ```
 
-## Chains work for free
+## Chains
+
+On the run page, switch the mode from parallel to **chain** (the
+⚡ Parallel / 🔗 Chain toggle in the react UI, the parallel/chain radio in
+the python UI). The steps then run **in order**, and each step's input
+slot — the `{log}` placeholder — receives the **previous step's output**
+instead of the selected log. Everything else about a step is unchanged:
+same parameters, same artifacts, same exit-code rules.
+
+Both examples below were run for real against the sample data.
+
+### Example 1 — filter, then count (app.log)
+
+Steps: `grep_search --pattern timeout` → `error_counter --level ERROR`.
+
+Step 1 keeps the lines containing "timeout"; step 2 counts ERROR lines
+— but only among what step 1 kept. Step 2's rendered command, from the
+live run:
+
+```
+python3 …/scripts/error_counter.py …/data/jobs/<step-1>/stdout.txt --level ERROR
+                                    └── the previous step's output, in the {log} slot
+```
+
+Step 1 printed 5 matching lines (all ERROR) plus its own trailer line
+(`-- 5 matching line(s) for pattern 'timeout' --`), so error_counter
+reported **7 total lines, 5 at ERROR** — one data point worth internalizing:
+when a step has no artifact, its **entire stdout** is chained, trailers
+and progress lines included.
+
+### Example 2 — filter, then report (access.log)
+
+Steps: `grep_search --pattern " 500 "` → `access_report --top 3`.
+
+The second step is an `{output}` script (its command is
+`python3 {script} {log} --output {output}`), so both placeholders
+resolve in the same render — `{log}` is the chained input, `{output}`
+is this step's own artifact:
+
+```
+python3 …/scripts/access_report.py …/data/jobs/<step-1>/stdout.txt --output …/data/jobs/<step-2>/outputs/report.md --top 3
+```
+
+The artifact it produced (live run): *Requests analyzed: 4 · 5xx server
+error: 4 · `500`: 4* — a Markdown report built from just the 500
+responses.
+
+### What gets passed to the next step
+
+A completed step hands its successor one file, chosen in this order:
+
+| Order | The step passes on … | Condition |
+|---|---|---|
+| 1 | its declared artifact | the command has `{output}` and the file exists |
+| 2 | the one file it wrote into `outputs/` | exactly one file was written |
+| 3 | everything it printed to stdout | no artifact at all |
+
+So if a step's payload should chain cleanly, write it as a file —
+tiers 1 and 2 — rather than printing it mixed with progress chatter.
+A step that produces nothing at all fails the next one with
+*"Previous step produced no output to chain"*.
+
+Compressed intermediates are handled for you: if a step's output is a
+`.gz`/`.bz2`/`.xz` file, it is decompressed before the next step reads it.
+
+### What each step sees
+
+- **argv / `$1` / `JOB_LOG_PATH`**: the previous step's output (the
+  selected log for step 1)
+- **`JOB_ORIGINAL_LOG`**: the log the submission started from — every
+  step can still see where the data came from
+- **`JOB_OUTPUT_DIR` / cwd**: its own `outputs/` directory, as usual
+
+Each step is a normal job — its own ID, page, stdout, artifacts — just
+waiting instead of queued until its predecessor finishes. A failed or
+cancelled step marks the remaining steps `skipped`; cancelling any step
+cancels the rest. A single-step chain behaves like a plain run.
+
+### Chains work for free
 
 A script that reads its input argument needs **zero changes** to join a
-chain: step 2+ receives the previous step's output in the same slot — the
-file named by `$1` / `sys.argv[1]` / `process.argv[2]` / `ARGV[0]` /
-`$ARGV[0]`, and `JOB_LOG_PATH`. `JOB_ORIGINAL_LOG` still points at the
-log the submission started from. Compressed inputs (`.gz`/`.bz2`/`.xz`)
-are decompressed before your script runs — you always read plain text.
+chain: the previous step's output arrives in the same slot — `$1` /
+`sys.argv[1]` / `process.argv[2]` / `ARGV[0]` / `$ARGV[0]` — and in
+`JOB_LOG_PATH`. Any two scripts in this file compose: `grep_search` →
+`level_report --min-count 5` is a threshold alert over the filtered
+stream, with no new code.
+
+### Running chains
+
+- **UI**: pick the log, add the scripts as steps (numbered in chain
+  mode), fill parameters per step, submit. The react UI can also save a
+  pipeline (script + parameters per step) to reuse later; every job page
+  shows the whole chain as a step strip, and a chain can be re-run in
+  full or just from a given step onward.
+- **API**: the same submission body with `mode` flipped:
+
+```json
+{
+  "log_path": "app.log",
+  "mode": "chain",
+  "jobs": [
+    {"script_id": "grep_search", "params": {"pattern": "timeout"}},
+    {"script_id": "error_counter", "params": {"level": "ERROR"}}
+  ]
+}
+```
+
+Steps execute in array order.
 
 ## The shipped samples
 
@@ -365,6 +465,7 @@ are decompressed before your script runs — you always read plain text.
 | `hourly_rate.rb` | Ruby option parsing, bucketed histogram with a bar chart |
 | `status_breakdown.pl` | Perl option parsing, aggregation into hashes |
 | `top_ips.py` | JSON array-of-objects output — renders as a sortable table + CSV in the UI |
+| `access_report.py` | the `{output}` placeholder — a Markdown report written to the artifact path |
 | `slow_scan.py` | long-running job with progress lines (live tail), an artifact, an intentional-fail parameter |
 
 Drop any of them on a log from the Run page, or open them in the editor
