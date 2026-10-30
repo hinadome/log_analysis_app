@@ -5,6 +5,10 @@ touch the repository's real sample scripts.
 """
 from __future__ import annotations
 
+import io
+import json
+import tarfile
+
 import pytest
 
 import app.routers.scripts as scripts_router
@@ -162,3 +166,61 @@ def test_delete_script(client, scripts_dir):
 def test_unknown_script_404(client, scripts_dir):
     assert client.get("/api/scripts/nope").status_code == 404
     assert client.delete("/api/scripts/nope").status_code == 404
+    assert client.get("/api/scripts/nope/export").status_code == 404
+
+
+def test_export_flat_script(client, scripts_dir):
+    client.post("/api/scripts", json=_body())
+
+    res = client.get("/api/scripts/shout/export")
+    assert res.status_code == 200, res.text
+    assert res.headers["content-type"] == "application/gzip"
+    assert res.headers["content-disposition"] == 'attachment; filename="shout.tar.gz"'
+
+    with tarfile.open(fileobj=io.BytesIO(res.content)) as tar:
+        names = set(tar.getnames())
+        assert names == {"shout.sh", "shout.json", "RESTORE.txt"}
+        code = tar.extractfile("shout.sh").read().decode()
+        assert code == 'tr a-z A-Z < "$1"'
+        manifest = json.loads(tar.extractfile("shout.json").read().decode())
+        assert manifest["name"] == "Shout"
+
+
+def test_export_directory_script(client, scripts_dir):
+    (scripts_dir / "bundle").mkdir()
+    (scripts_dir / "bundle" / "manifest.json").write_text(
+        json.dumps({"name": "Bundle", "command": "python3 {script} {log} {args}"}),
+        encoding="utf-8",
+    )
+    (scripts_dir / "bundle" / "main.py").write_text(
+        "import sys\nprint(open(sys.argv[1]).read(), end='')\n", encoding="utf-8")
+    assert any(s["id"] == "bundle" for s in client.get("/api/scripts").json()["scripts"])
+
+    res = client.get("/api/scripts/bundle/export")
+    assert res.status_code == 200
+    with tarfile.open(fileobj=io.BytesIO(res.content)) as tar:
+        assert {"manifest.json", "main.py", "RESTORE.txt"} == set(tar.getnames())
+
+
+def test_export_restores_to_a_working_script(client, scripts_dir):
+    """The export is a real backup: extract it into a fresh scripts dir and
+    the script works there."""
+    client.post("/api/scripts", json=_body())
+    archive = client.get("/api/scripts/shout/export").content
+
+    restored = scripts_dir.parent / "restored-scripts"
+    restored.mkdir(exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        for member in tar:
+            if member.name == "RESTORE.txt":
+                continue
+            tar.extract(member, restored)
+
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(scanner_module, "SCRIPTS_DIR", restored)
+    monkey.setattr(scripts_router, "SCRIPTS_DIR", restored)
+    try:
+        listed = client.get("/api/scripts").json()["scripts"]
+        assert any(s["id"] == "shout" for s in listed)
+    finally:
+        monkey.undo()

@@ -165,6 +165,17 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
   const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
   const idOk = idPattern.test(form.id.trim());
 
+  const [copied, setCopied] = useState(false);
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(form.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — the download button is the fallback */
+    }
+  };
+
   return (
     <Modal title={isNew ? "＋ New script" : `✏️ ${form.name || scriptId}`} onClose={onClose} wide>
       <div className="script-editor">
@@ -255,6 +266,19 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
             <button className="btn danger sm" onClick={remove}>🗑 Delete script</button>
           )}
           <span className="spacer" />
+          <button className="btn ghost" onClick={copyCode} disabled={!form.code.trim()}>
+            {copied ? "Copied ✓" : "⧉ Copy code"}
+          </button>
+          {!isNew && (
+            <a
+              className="btn ghost"
+              href={`/api/scripts/${scriptId}/export`}
+              download
+              title="Download code + manifest as a tar.gz — your backup before deleting"
+            >
+              ⬇ Backup
+            </a>
+          )}
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <button className="btn" onClick={save} disabled={busy || saving || !idOk || !form.code.trim()}>
             {saving ? "Saving…" : (isNew ? "Create script" : "Save changes")}
