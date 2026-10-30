@@ -3,14 +3,17 @@ import { StatusBadge } from "./ui.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
 
-export default function JobsPanel({ jobs, query, onSearch, onOpen, onCancel, onDelete, onClearFinished, onPrune, dataSize }) {
+export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, onOpen, onCancel, onDelete, onClearFinished, onPrune, dataSize }) {
   const searching = Boolean(query && query.trim());
-  const shown = jobs; // filtering happens server-side (?q=), debounced in App
+  const shown = jobs; // filtering + paging happen server-side (?q=, ?limit=)
   const hasFinished = jobs.some((j) => !ACTIVE.has(j.status));
+  const more = total > jobs.length;
   return (
     <aside className="jobs-panel">
       <div className="jobs-head">
-        <h2>Jobs <span className="muted">({shown.length})</span></h2>
+        <h2>
+          Jobs <span className="muted">({jobs.length}{more ? ` of ${total}` : ""})</span>
+        </h2>
         <div className="jobs-head-actions">
           {hasFinished && (
             <button className="btn ghost sm" onClick={onClearFinished}>Clear finished</button>
@@ -75,6 +78,11 @@ export default function JobsPanel({ jobs, query, onSearch, onOpen, onCancel, onD
           </div>
         ))}
       </div>
+      {more && (
+        <button className="btn ghost load-more" onClick={onLoadMore}>
+          Load more — showing {jobs.length} of {total}
+        </button>
+      )}
       {dataSize != null && (
         <div className="jobs-foot muted sm">
           storage: {fmtBytes(dataSize)} in job history

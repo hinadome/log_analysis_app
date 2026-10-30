@@ -204,6 +204,7 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent);
 .jobs-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .jobs-head h2 { margin: 0; font-size: 15px; }
 .jobs-list { display: flex; flex-direction: column; gap: 8px; }
+.load-more { margin: 4px 0; }
 .job-row {
   display: flex; gap: 10px; align-items: center;
   padding: 9px 10px;

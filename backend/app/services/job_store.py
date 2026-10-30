@@ -26,6 +26,11 @@ class JobStore:
     def __init__(self, root: Path = JOBS_DIR) -> None:
         self._root = root
         self._root.mkdir(parents=True, exist_ok=True)
+        # Parsed-job cache: job_id -> (mtime_ns, size, Job). The directory
+        # listing in list() stays the source of truth, so deleted or wiped
+        # jobs can never leak from the cache; a changed mtime or size (every
+        # save() rewrites job.json) forces a re-parse.
+        self._cache: dict[str, tuple[int, int, Job]] = {}
 
     # -- paths ---------------------------------------------------------
     def job_dir(self, job_id: str) -> Path:
@@ -79,13 +84,39 @@ class JobStore:
             return None
 
     def list(self) -> list[Job]:
+        """All jobs, newest first.
+
+        Parsed job.json files are cached by (mtime, size); polling costs one
+        directory scan plus stat() per job instead of N JSON parses.
+        """
         jobs: list[Job] = []
+        seen: set[str] = set()
         if self._root.is_dir():
             for directory in self._root.iterdir():
-                if directory.is_dir():
-                    job = self.get(directory.name)
-                    if job is not None:
-                        jobs.append(job)
+                if not directory.is_dir():
+                    continue
+                job_id = directory.name
+                if not _SAFE_ID.match(job_id):
+                    continue
+                meta = directory / "job.json"
+                try:
+                    stat = meta.stat()
+                except OSError:
+                    continue  # disappeared between iterdir and stat
+                cached = self._cache.get(job_id)
+                if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+                    job = cached[2]
+                else:
+                    job = self.get(job_id)
+                    if job is None:
+                        continue  # unreadable/corrupt job.json — same as before
+                    self._cache[job_id] = (stat.st_mtime_ns, stat.st_size, job)
+                # copy-on-return: callers may mutate freely (like a fresh
+                # parse) without corrupting what the cache holds
+                jobs.append(job.model_copy())
+                seen.add(job_id)
+        if len(seen) != len(self._cache):
+            self._cache = {k: v for k, v in self._cache.items() if k in seen}
         jobs.sort(key=lambda j: j.id, reverse=True)
         return jobs
 

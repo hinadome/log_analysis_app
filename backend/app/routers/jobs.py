@@ -157,7 +157,12 @@ async def create_jobs(req: JobCreateRequest):
 
 
 @router.get("")
-def list_jobs(status: str | None = Query(None), q: str | None = Query(None)):
+def list_jobs(
+    status: str | None = Query(None),
+    q: str | None = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
     jobs = store.list()
     if status:
         jobs = [j for j in jobs if j.status == status]
@@ -167,7 +172,9 @@ def list_jobs(status: str | None = Query(None), q: str | None = Query(None)):
             f"{j.label or ''} {j.script_name} {j.script_id} {j.log_name} "
             f"{j.id} {j.chain_id or ''}"
         ).lower()]
-    return {"jobs": jobs}
+    # total is post-filter so "x of y" stays honest while paging a search
+    total = len(jobs)
+    return {"jobs": jobs[offset:offset + limit], "total": total}
 
 
 @router.get("/{job_id}")

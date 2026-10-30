@@ -48,6 +48,9 @@ export default function App() {
   const [label, setLabel] = useState("");      // optional tag for a submission
   const [chainPresets, setChainPresets] = useState(() => loadChainPresets());
   const [jobs, setJobs] = useState([]);
+  const [jobsTotal, setJobsTotal] = useState(0);
+  const [jobsLimit, setJobsLimit] = useState(200); // how much of the history to fetch
+  const jobsLimitRef = useRef(200);
   const [jobSearch, setJobSearch] = useState("");
   const jobQueryRef = useRef(""); // what refreshJobs should ask the server for
   const [view, setView] = useState({ name: "home" });
@@ -70,8 +73,19 @@ export default function App() {
   }, []);
 
   const refreshJobs = useCallback(() => {
-    api.listJobs({ q: jobQueryRef.current }).then((r) => setJobs(r.jobs)).catch(() => {});
+    api.listJobs({ q: jobQueryRef.current, limit: jobsLimitRef.current })
+      .then((r) => {
+        setJobs(r.jobs);
+        setJobsTotal(r.total);
+      })
+      .catch(() => {});
   }, []);
+
+  const loadMoreJobs = () => {
+    jobsLimitRef.current += 200;
+    setJobsLimit(jobsLimitRef.current);
+    refreshJobs();
+  };
 
   // debounce the search box: one request per pause, not one per keystroke
   useEffect(() => {
@@ -492,6 +506,8 @@ export default function App() {
 
             <JobsPanel
               jobs={jobs}
+              total={jobsTotal}
+              onLoadMore={loadMoreJobs}
               query={jobSearch}
               onSearch={setJobSearch}
               onOpen={(id) => setView({ name: "job", id })}

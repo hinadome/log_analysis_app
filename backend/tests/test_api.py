@@ -173,6 +173,36 @@ def test_label_and_search(client):
     assert {j["id"] for j in chain_q} == {j["id"] for j in jobs}
 
 
+def test_jobs_pagination(client):
+    for i in range(5):
+        submit(client, [{"script_id": "grep_search", "params": {"pattern": "ERROR"}}],
+               label=f"page-{i}")
+
+    res = client.get("/api/jobs").json()
+    assert res["total"] == 5
+    ids = [j["id"] for j in res["jobs"]]
+
+    page1 = client.get("/api/jobs", params={"limit": 2}).json()
+    assert [j["id"] for j in page1["jobs"]] == ids[:2]
+    assert page1["total"] == 5
+
+    page2 = client.get("/api/jobs", params={"limit": 2, "offset": 2}).json()
+    assert [j["id"] for j in page2["jobs"]] == ids[2:4]
+
+    page3 = client.get("/api/jobs", params={"limit": 2, "offset": 4}).json()
+    assert [j["id"] for j in page3["jobs"]] == ids[4:]
+
+    # offset past the end is empty, not an error
+    assert client.get("/api/jobs", params={"offset": 99}).json()["jobs"] == []
+
+    # total is post-filter, so counts stay honest while paging a search
+    found = client.get("/api/jobs", params={"q": "page-3"}).json()
+    assert found["total"] == 1 and len(found["jobs"]) == 1
+
+    assert client.get("/api/jobs", params={"limit": 0}).status_code == 422
+    assert client.get("/api/jobs", params={"limit": 5001}).status_code == 422
+
+
 def test_rerun_single_job(client):
     jobs = submit(client, [{"script_id": "grep_search", "params": {"pattern": "WARN"}}])
     wait_status(client, [jobs[0]["id"]], ("completed",))
