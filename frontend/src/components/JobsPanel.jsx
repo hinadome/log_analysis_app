@@ -1,21 +1,16 @@
-import { useState } from "react";
 import { cx, elapsed, fmtBytes, fmtTime } from "../fmt.js";
 import { StatusBadge } from "./ui.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
 
-export default function JobsPanel({ jobs, onOpen, onCancel, onDelete, onClearFinished, onPrune, dataSize }) {
-  const [query, setQuery] = useState("");
-  const needle = query.trim().toLowerCase();
-  const shown = needle
-    ? jobs.filter((j) => `${j.label || ""} ${j.script_name} ${j.script_id} ${j.log_name} ${j.id}`
-        .toLowerCase().includes(needle))
-    : jobs;
+export default function JobsPanel({ jobs, query, onSearch, onOpen, onCancel, onDelete, onClearFinished, onPrune, dataSize }) {
+  const searching = Boolean(query && query.trim());
+  const shown = jobs; // filtering happens server-side (?q=), debounced in App
   const hasFinished = jobs.some((j) => !ACTIVE.has(j.status));
   return (
     <aside className="jobs-panel">
       <div className="jobs-head">
-        <h2>Jobs <span className="muted">({shown.length}{needle ? ` of ${jobs.length}` : ""})</span></h2>
+        <h2>Jobs <span className="muted">({shown.length})</span></h2>
         <div className="jobs-head-actions">
           {hasFinished && (
             <button className="btn ghost sm" onClick={onClearFinished}>Clear finished</button>
@@ -30,12 +25,12 @@ export default function JobsPanel({ jobs, onOpen, onCancel, onDelete, onClearFin
         type="search"
         placeholder="Search label, script, log…"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => onSearch(e.target.value)}
       />
       <div className="jobs-list">
         {shown.length === 0 && (
           <div className="empty">
-            {needle
+            {searching
               ? <>No jobs match your search.</>
               : <>No jobs yet.<br />Pick a log and scripts, then hit Run.</>}
           </div>

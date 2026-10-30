@@ -44,7 +44,12 @@ export const api = {
   listScripts: () => request("/api/scripts"),
   createJobs: (body) =>
     request("/api/jobs", { method: "POST", body: JSON.stringify(body) }),
-  listJobs: () => request("/api/jobs"),
+  listJobs: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    ).toString();
+    return request(`/api/jobs${qs ? `?${qs}` : ""}`);
+  },
   getJob: (id) => request(`/api/jobs/${id}`),
   getJobStdout: (id) => fetch(`/api/jobs/${id}/stdout`).then((r) => r.text()),
   cancelJob: (id) => request(`/api/jobs/${id}/cancel`, { method: "POST" }),

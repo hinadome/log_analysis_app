@@ -48,6 +48,8 @@ export default function App() {
   const [label, setLabel] = useState("");      // optional tag for a submission
   const [chainPresets, setChainPresets] = useState(() => loadChainPresets());
   const [jobs, setJobs] = useState([]);
+  const [jobSearch, setJobSearch] = useState("");
+  const jobQueryRef = useRef(""); // what refreshJobs should ask the server for
   const [view, setView] = useState({ name: "home" });
   const [toast, setToast] = useState(null);
   const [scriptEditor, setScriptEditor] = useState(null); // null | "new" | script id
@@ -68,8 +70,19 @@ export default function App() {
   }, []);
 
   const refreshJobs = useCallback(() => {
-    api.listJobs().then((r) => setJobs(r.jobs)).catch(() => {});
+    api.listJobs({ q: jobQueryRef.current }).then((r) => setJobs(r.jobs)).catch(() => {});
   }, []);
+
+  // debounce the search box: one request per pause, not one per keystroke
+  useEffect(() => {
+    const next = jobSearch.trim();
+    const t = setTimeout(() => {
+      if (jobQueryRef.current === next) return;
+      jobQueryRef.current = next;
+      refreshJobs();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [jobSearch, refreshJobs]);
 
   // ---------- authentication ----------
   useEffect(() => {
@@ -479,6 +492,8 @@ export default function App() {
 
             <JobsPanel
               jobs={jobs}
+              query={jobSearch}
+              onSearch={setJobSearch}
               onOpen={(id) => setView({ name: "job", id })}
               onCancel={cancelJob}
               onDelete={deleteJob}

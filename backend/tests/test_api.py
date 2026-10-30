@@ -168,6 +168,10 @@ def test_label_and_search(client):
     assert len(client.get("/api/jobs", params={"q": "regex"}).json()["jobs"]) == 1
     assert client.get("/api/jobs", params={"q": "nosuchthing"}).json()["jobs"] == []
 
+    # the server-side search the UI now uses also matches chain ids
+    chain_q = client.get("/api/jobs", params={"q": jobs[0]["chain_id"]}).json()["jobs"]
+    assert {j["id"] for j in chain_q} == {j["id"] for j in jobs}
+
 
 def test_rerun_single_job(client):
     jobs = submit(client, [{"script_id": "grep_search", "params": {"pattern": "WARN"}}])
