@@ -1,0 +1,400 @@
+2026-10-28 14:00:00 INFO    [scheduler] cache warmed, 459 entries
+2026-10-28 14:00:05 FATAL   [auth] unrecoverable state: aborting task 2
+2026-10-28 14:00:10 DEBUG   [api] heap usage 75%
+2026-10-28 14:00:27 INFO    [api] job picked up by worker-2
+2026-10-28 14:00:24 INFO    [api] job picked up by worker-5
+2026-10-28 14:00:35 DEBUG   [worker] gc pause 409ms
+2026-10-28 14:00:48 ERROR   [worker] unable to acquire lock on resource 133
+2026-10-28 14:01:03 DEBUG   [scheduler] heap usage 95%
+2026-10-28 14:00:16 INFO    [scheduler] session refreshed for grace
+2026-10-28 14:01:03 WARN    [scheduler] connection reset by peer
+2026-10-28 14:00:40 INFO    [api] response sent to heidi
+2026-10-28 14:01:28 INFO    [api] user login succeeded (user=alice)
+2026-10-28 14:01:48 INFO    [scheduler] cache warmed, 262 entries
+2026-10-28 14:01:57 INFO    [api] cache warmed, 470 entries
+2026-10-28 14:01:10 DEBUG   [cache] connection pool: 373 active
+2026-10-28 14:02:00 INFO    [auth] user login succeeded (user=dave)
+2026-10-28 14:01:04 INFO    [db] user login succeeded (user=heidi)
+2026-10-28 14:01:42 INFO    [db] response sent to alice
+2026-10-28 14:01:12 INFO    [cache] cache warmed, 369 entries
+2026-10-28 14:01:35 DEBUG   [worker] connection pool: 214 active
+2026-10-28 14:00:20 INFO    [auth] job picked up by worker-4
+2026-10-28 14:00:21 INFO    [auth] user login succeeded (user=alice)
+2026-10-28 14:00:44 DEBUG   [cache] gc pause 700ms
+2026-10-28 14:02:18 DEBUG   [cache] retry policy: next backoff 158ms
+2026-10-28 14:01:12 DEBUG   [auth] connection pool: 205 active
+2026-10-28 14:00:25 WARN    [db] rate limit approaching for alice (90%)
+2026-10-28 14:01:18 WARN    [cache] rate limit approaching for dave (90%)
+2026-10-28 14:01:21 INFO    [api] job picked up by worker-7
+2026-10-28 14:03:44 INFO    [db] cache warmed, 400 entries
+2026-10-28 14:01:56 INFO    [db] response sent to heidi
+2026-10-28 14:01:30 INFO    [auth] user login succeeded (user=heidi)
+2026-10-28 14:02:35 INFO    [worker] request handled in 576ms
+2026-10-28 14:02:40 ERROR   [auth] failed to process message: invalid payload
+2026-10-28 14:01:39 DEBUG   [scheduler] connection pool: 31 active
+2026-10-28 14:03:24 WARN    [db] slow query 284ms: SELECT * FROM events
+2026-10-28 14:00:35 INFO    [auth] cache warmed, 211 entries
+2026-10-28 14:05:24 INFO    [worker] request handled in 318ms
+2026-10-28 14:03:42 INFO    [worker] cache warmed, 321 entries
+2026-10-28 14:03:48 INFO    [worker] response sent to heidi
+2026-10-28 14:04:33 WARN    [auth] disk usage at 53%
+2026-10-28 14:04:40 INFO    [api] session refreshed for frank
+2026-10-28 14:01:22 DEBUG   [db] heap usage 96%
+2026-10-28 14:03:30 DEBUG   [auth] heap usage 88%
+2026-10-28 14:02:52 INFO    [cache] response sent to carol
+2026-10-28 14:06:36 WARN    [scheduler] retrying request after transient error (attempt 278)
+2026-10-28 14:00:45 DEBUG   [api] gc pause 806ms
+2026-10-28 14:01:32 DEBUG   [db] gc pause 271ms
+2026-10-28 14:00:47 DEBUG   [scheduler] heap usage 53%
+2026-10-28 14:05:36 INFO    [scheduler] job picked up by worker-3
+2026-10-28 14:04:54 INFO    [cache] request handled in 352ms
+2026-10-28 14:02:30 WARN    [scheduler] connection reset by peer
+2026-10-28 14:05:57 INFO    [auth] request handled in 6ms
+2026-10-28 14:01:44 WARN    [auth] retrying request after transient error (attempt 191)
+2026-10-28 14:07:57 DEBUG   [worker] connection pool: 23 active
+2026-10-28 14:08:06 WARN    [api] retrying request after transient error (attempt 73)
+2026-10-28 14:08:15 INFO    [api] user login succeeded (user=dave)
+2026-10-28 14:07:28 INFO    [cache] request handled in 194ms
+2026-10-28 14:05:42 INFO    [worker] response sent to carol
+2026-10-28 14:01:56 INFO    [api] request handled in 120ms
+2026-10-28 14:01:58 INFO    [api] request handled in 614ms
+2026-10-28 14:02:00 DEBUG   [api] heap usage 91%
+2026-10-28 14:08:08 DEBUG   [worker] gc pause 569ms
+2026-10-28 14:05:10 INFO    [api] user login succeeded (user=bob)
+2026-10-28 14:08:24 ERROR   [cache] failed to process message: invalid payload
+2026-10-28 14:06:24 INFO    [api] request handled in 826ms
+2026-10-28 14:03:15 INFO    [cache] response sent to grace
+2026-10-28 14:03:18 INFO    [worker] cache warmed, 137 entries
+2026-10-28 14:02:14 WARN    [api] disk usage at 85%
+2026-10-28 14:10:12 INFO    [scheduler] response sent to heidi
+2026-10-28 14:10:21 INFO    [worker] session refreshed for grace
+2026-10-28 14:03:30 INFO    [auth] job picked up by worker-1
+2026-10-28 14:09:28 INFO    [cache] response sent to eve
+2026-10-28 14:06:00 INFO    [api] user login succeeded (user=alice)
+2026-10-28 14:10:57 INFO    [scheduler] request handled in 528ms
+2026-10-28 14:09:52 INFO    [db] response sent to alice
+2026-10-28 14:11:15 DEBUG   [scheduler] connection pool: 291 active
+2026-10-28 14:01:16 DEBUG   [db] retry policy: next backoff 111ms
+2026-10-28 14:07:42 DEBUG   [api] retry policy: next backoff 483ms
+2026-10-28 14:01:18 DEBUG   [scheduler] gc pause 501ms
+2026-10-28 14:10:32 DEBUG   [db] connection pool: 415 active
+2026-10-28 14:02:40 INFO    [scheduler] cache warmed, 112 entries
+2026-10-28 14:08:06 ERROR   [scheduler] upstream service returned 503 (attempt 47)
+2026-10-28 14:06:50 INFO    [worker] cache warmed, 288 entries
+2026-10-28 14:05:32 DEBUG   [db] gc pause 624ms
+2026-10-28 14:11:12 INFO    [db] response sent to carol
+2026-10-28 14:12:45 DEBUG   [scheduler] query plan: index scan on idx_users
+2026-10-28 14:01:26 INFO    [api] session refreshed for carol
+2026-10-28 14:11:36 INFO    [db] request handled in 274ms
+2026-10-28 14:11:44 INFO    [worker] session refreshed for alice
+2026-10-28 14:10:23 INFO    [db] cache warmed, 187 entries
+2026-10-28 14:09:00 INFO    [worker] request handled in 483ms
+2026-10-28 14:06:04 WARN    [auth] disk usage at 82%
+2026-10-28 14:06:08 INFO    [scheduler] session refreshed for grace
+2026-10-28 14:10:51 DEBUG   [cache] connection pool: 275 active
+2026-10-28 14:12:32 INFO    [auth] session refreshed for dave
+2026-10-28 14:04:45 INFO    [auth] session refreshed for dave
+2026-10-28 14:14:24 INFO    [db] request handled in 194ms
+2026-10-28 14:12:56 WARN    [worker] disk usage at 50%
+2026-10-28 14:14:42 DEBUG   [db] query plan: index scan on idx_users
+2026-10-28 14:14:51 INFO    [api] job picked up by worker-1
+2026-10-28 14:15:00 ERROR   [worker] upstream service returned 503 (attempt 240)
+2026-10-28 14:15:09 INFO    [cache] cache warmed, 42 entries
+2026-10-28 14:13:36 DEBUG   [worker] heap usage 89%
+2026-10-28 14:03:26 INFO    [db] request handled in 138ms
+2026-10-28 14:15:36 DEBUG   [auth] query plan: index scan on idx_users
+2026-10-28 14:10:30 ERROR   [scheduler] upstream service returned 503 (attempt 491)
+2026-10-28 14:01:46 DEBUG   [cache] connection pool: 264 active
+2026-10-28 14:14:16 INFO    [worker] response sent to carol
+2026-10-28 14:01:48 INFO    [worker] job picked up by worker-4
+2026-10-28 14:12:43 DEBUG   [scheduler] connection pool: 441 active
+2026-10-28 14:03:40 DEBUG   [worker] heap usage 83%
+2026-10-28 14:03:42 INFO    [auth] request handled in 568ms
+2026-10-28 14:05:36 INFO    [worker] job picked up by worker-1
+2026-10-28 14:16:57 INFO    [auth] cache warmed, 86 entries
+2026-10-28 14:01:54 DEBUG   [db] retry policy: next backoff 365ms
+2026-10-28 14:03:50 WARN    [api] connection reset by peer
+2026-10-28 14:09:40 INFO    [auth] user login succeeded (user=eve)
+2026-10-28 14:01:57 WARN    [worker] rate limit approaching for carol (90%)
+2026-10-28 14:01:58 INFO    [cache] request handled in 476ms
+2026-10-28 14:07:56 INFO    [db] response sent to bob
+2026-10-28 14:04:00 DEBUG   [auth] connection pool: 143 active
+2026-10-28 14:06:03 INFO    [scheduler] user login succeeded (user=carol)
+2026-10-28 14:14:14 INFO    [auth] request handled in 564ms
+2026-10-28 14:12:18 WARN    [auth] connection reset by peer
+2026-10-28 14:10:20 ERROR   [worker] database connection lost: timeout after 5000ms
+2026-10-28 14:12:30 WARN    [scheduler] rate limit approaching for carol (90%)
+2026-10-28 14:16:48 INFO    [db] session refreshed for heidi
+2026-10-28 14:19:03 DEBUG   [api] retry policy: next backoff 116ms
+2026-10-28 14:14:56 INFO    [scheduler] job picked up by worker-5
+2026-10-28 14:12:54 WARN    [cache] slow query 602ms: SELECT * FROM events
+2026-10-28 14:10:50 INFO    [api] job picked up by worker-8
+2026-10-28 14:04:22 DEBUG   [worker] retry policy: next backoff 481ms
+2026-10-28 14:15:24 DEBUG   [db] heap usage 95%
+2026-10-28 14:06:39 WARN    [worker] disk usage at 74%
+2026-10-28 14:20:06 INFO    [cache] session refreshed for grace
+2026-10-28 14:06:45 WARN    [worker] disk usage at 65%
+2026-10-28 14:06:48 INFO    [cache] user login succeeded (user=dave)
+2026-10-28 14:02:17 INFO    [worker] session refreshed for heidi
+2026-10-28 14:20:42 DEBUG   [worker] query plan: index scan on idx_users
+2026-10-28 14:09:16 INFO    [auth] session refreshed for frank
+2026-10-28 14:21:00 INFO    [worker] response sent to grace
+2026-10-28 14:18:48 INFO    [worker] cache warmed, 121 entries
+2026-10-28 14:02:22 INFO    [worker] job picked up by worker-4
+2026-10-28 14:14:18 INFO    [scheduler] user login succeeded (user=bob)
+2026-10-28 14:04:48 DEBUG   [auth] heap usage 50%
+2026-10-28 14:04:50 ERROR   [db] upstream service returned 503 (attempt 322)
+2026-10-28 14:14:36 DEBUG   [db] gc pause 609ms
+2026-10-28 14:17:09 INFO    [db] job picked up by worker-2
+2026-10-28 14:19:44 INFO    [auth] user login succeeded (user=heidi)
+2026-10-28 14:07:27 DEBUG   [cache] gc pause 766ms
+2026-10-28 14:05:00 WARN    [api] slow query 730ms: SELECT * FROM events
+2026-10-28 14:17:37 INFO    [auth] user login succeeded (user=carol)
+2026-10-28 14:05:04 WARN    [worker] retrying request after transient error (attempt 39)
+2026-10-28 14:22:57 ERROR   [db] upstream service returned 503 (attempt 440)
+2026-10-28 14:20:32 DEBUG   [api] gc pause 35ms
+2026-10-28 14:15:30 INFO    [worker] session refreshed for eve
+2026-10-28 14:10:24 INFO    [worker] cache warmed, 447 entries
+2026-10-28 14:15:42 DEBUG   [cache] query plan: index scan on idx_users
+2026-10-28 14:18:26 WARN    [scheduler] connection reset by peer
+2026-10-28 14:15:54 DEBUG   [cache] retry policy: next backoff 584ms
+2026-10-28 14:18:40 ERROR   [cache] upstream service returned 503 (attempt 246)
+2026-10-28 14:24:09 INFO    [auth] response sent to alice
+2026-10-28 14:13:30 INFO    [auth] cache warmed, 197 entries
+2026-10-28 14:16:18 INFO    [worker] request handled in 80ms
+2026-10-28 14:08:12 DEBUG   [auth] gc pause 693ms
+2026-10-28 14:19:15 INFO    [auth] request handled in 712ms
+2026-10-28 14:16:36 INFO    [worker] job picked up by worker-5
+2026-10-28 14:13:55 WARN    [scheduler] connection reset by peer
+2026-10-28 14:19:36 DEBUG   [cache] connection pool: 25 active
+2026-10-28 14:19:43 DEBUG   [db] connection pool: 399 active
+2026-10-28 14:17:00 INFO    [db] session refreshed for heidi
+2026-10-28 14:05:42 ERROR   [api] upstream service returned 503 (attempt 99)
+2026-10-28 14:25:48 INFO    [db] user login succeeded (user=alice)
+2026-10-28 14:05:46 INFO    [scheduler] cache warmed, 156 entries
+2026-10-28 14:08:42 INFO    [db] job picked up by worker-3
+2026-10-28 14:11:40 DEBUG   [db] query plan: index scan on idx_users
+2026-10-28 14:14:40 ERROR   [worker] failed to process message: invalid payload
+2026-10-28 14:14:45 INFO    [cache] response sent to frank
+2026-10-28 14:05:56 WARN    [db] slow query 156ms: SELECT * FROM events
+2026-10-28 14:23:52 INFO    [api] user login succeeded (user=eve)
+2026-10-28 14:15:00 INFO    [cache] cache warmed, 467 entries
+2026-10-28 14:12:04 INFO    [auth] request handled in 554ms
+2026-10-28 14:18:12 WARN    [worker] disk usage at 93%
+2026-10-28 14:24:24 ERROR   [scheduler] failed to process message: invalid payload
+2026-10-28 14:15:20 INFO    [worker] user login succeeded (user=frank)
+2026-10-28 14:03:05 WARN    [cache] rate limit approaching for frank (90%)
+2026-10-28 14:06:12 DEBUG   [scheduler] heap usage 75%
+2026-10-28 14:12:28 WARN    [scheduler] disk usage at 77%
+2026-10-28 14:03:08 INFO    [scheduler] cache warmed, 490 entries
+2026-10-28 14:15:45 DEBUG   [db] gc pause 177ms
+2026-10-28 14:22:10 INFO    [db] job picked up by worker-7
+2026-10-28 14:28:39 INFO    [scheduler] job picked up by worker-4
+2026-10-28 14:12:48 DEBUG   [scheduler] retry policy: next backoff 269ms
+2026-10-28 14:06:26 ERROR   [cache] upstream service returned 503 (attempt 100)
+2026-10-28 14:25:52 INFO    [auth] request handled in 317ms
+2026-10-28 14:26:00 INFO    [api] session refreshed for eve
+2026-10-28 14:19:36 WARN    [cache] slow query 538ms: SELECT * FROM events
+2026-10-28 14:09:51 INFO    [db] user login succeeded (user=eve)
+2026-10-28 14:16:30 INFO    [db] response sent to frank
+2026-10-28 14:29:51 DEBUG   [db] query plan: index scan on idx_users
+2026-10-28 14:20:00 INFO    [cache] cache warmed, 92 entries
+2026-10-28 14:03:21 ERROR   [scheduler] database connection lost: timeout after 5000ms
+2026-10-28 14:03:22 INFO    [worker] session refreshed for carol
+2026-10-28 14:13:32 INFO    [db] job picked up by worker-3
+2026-10-28 14:30:36 INFO    [worker] cache warmed, 103 entries
+2026-10-28 14:06:50 DEBUG   [api] gc pause 431ms
+2026-10-28 14:03:26 INFO    [db] request handled in 86ms
+2026-10-28 14:13:48 DEBUG   [auth] connection pool: 436 active
+2026-10-28 14:24:16 INFO    [cache] cache warmed, 101 entries
+2026-10-28 14:06:58 INFO    [db] cache warmed, 417 entries
+2026-10-28 14:28:00 INFO    [cache] job picked up by worker-2
+2026-10-28 14:10:33 INFO    [db] cache warmed, 370 entries
+2026-10-28 14:28:16 DEBUG   [auth] retry policy: next backoff 753ms
+2026-10-28 14:31:57 INFO    [auth] job picked up by worker-2
+2026-10-28 14:24:58 INFO    [cache] response sent to bob
+2026-10-28 14:25:05 INFO    [cache] cache warmed, 463 entries
+2026-10-28 14:10:48 INFO    [api] cache warmed, 256 entries
+2026-10-28 14:18:05 DEBUG   [auth] gc pause 261ms
+2026-10-28 14:10:54 DEBUG   [worker] connection pool: 115 active
+2026-10-28 14:32:51 INFO    [scheduler] response sent to alice
+2026-10-28 14:18:20 WARN    [db] retrying request after transient error (attempt 324)
+2026-10-28 14:22:06 INFO    [auth] request handled in 479ms
+2026-10-28 14:18:30 INFO    [auth] user login succeeded (user=bob)
+2026-10-28 14:14:52 INFO    [scheduler] user login succeeded (user=heidi)
+2026-10-28 14:22:24 WARN    [scheduler] retrying request after transient error (attempt 92)
+2026-10-28 14:26:15 DEBUG   [scheduler] connection pool: 482 active
+2026-10-28 14:07:32 INFO    [db] session refreshed for carol
+2026-10-28 14:03:47 INFO    [db] request handled in 412ms
+2026-10-28 14:22:48 INFO    [db] request handled in 781ms
+2026-10-28 14:22:54 INFO    [auth] request handled in 503ms
+2026-10-28 14:15:20 INFO    [scheduler] request handled in 123ms
+2026-10-28 14:19:15 DEBUG   [db] heap usage 60%
+2026-10-28 14:23:12 INFO    [auth] session refreshed for frank
+2026-10-28 14:19:25 DEBUG   [db] retry policy: next backoff 559ms
+2026-10-28 14:11:42 INFO    [api] job picked up by worker-1
+2026-10-28 14:23:30 INFO    [scheduler] request handled in 363ms
+2026-10-28 14:19:40 INFO    [auth] user login succeeded (user=eve)
+2026-10-28 14:11:51 DEBUG   [db] connection pool: 291 active
+2026-10-28 14:07:56 DEBUG   [scheduler] gc pause 846ms
+2026-10-28 14:31:52 INFO    [worker] request handled in 222ms
+2026-10-28 14:20:00 DEBUG   [db] gc pause 48ms
+2026-10-28 14:12:03 INFO    [cache] job picked up by worker-3
+2026-10-28 14:32:16 DEBUG   [api] query plan: index scan on idx_users
+2026-10-28 14:32:24 INFO    [auth] session refreshed for heidi
+2026-10-28 14:24:24 INFO    [api] response sent to dave
+2026-10-28 14:28:35 INFO    [auth] cache warmed, 486 entries
+2026-10-28 14:36:54 INFO    [cache] job picked up by worker-4
+2026-10-28 14:08:14 WARN    [auth] rate limit approaching for carol (90%)
+2026-10-28 14:20:40 DEBUG   [auth] retry policy: next backoff 289ms
+2026-10-28 14:16:36 INFO    [db] job picked up by worker-7
+2026-10-28 14:29:10 INFO    [api] job picked up by worker-7
+2026-10-28 14:37:39 INFO    [db] job picked up by worker-8
+2026-10-28 14:04:12 INFO    [worker] session refreshed for dave
+2026-10-28 14:33:44 WARN    [auth] rate limit approaching for heidi (90%)
+2026-10-28 14:04:14 INFO    [auth] user login succeeded (user=alice)
+2026-10-28 14:04:15 INFO    [auth] response sent to carol
+2026-10-28 14:12:48 WARN    [cache] connection reset by peer
+2026-10-28 14:21:25 DEBUG   [db] connection pool: 195 active
+2026-10-28 14:17:12 INFO    [db] job picked up by worker-7
+2026-10-28 14:34:32 WARN    [worker] retrying request after transient error (attempt 358)
+2026-10-28 14:21:40 INFO    [api] user login succeeded (user=eve)
+2026-10-28 14:08:42 DEBUG   [worker] retry policy: next backoff 450ms
+2026-10-28 14:08:44 DEBUG   [db] retry policy: next backoff 817ms
+2026-10-28 14:35:04 ERROR   [auth] unable to acquire lock on resource 214
+2026-10-28 14:22:00 INFO    [scheduler] response sent to dave
+2026-10-28 14:26:30 DEBUG   [db] heap usage 90%
+2026-10-28 14:31:02 DEBUG   [api] connection pool: 151 active
+2026-10-28 14:31:09 DEBUG   [db] retry policy: next backoff 481ms
+2026-10-28 14:31:16 INFO    [scheduler] cache warmed, 441 entries
+2026-10-28 14:26:54 INFO    [worker] cache warmed, 37 entries
+2026-10-28 14:40:30 ERROR   [api] upstream service returned 503 (attempt 424)
+2026-10-28 14:40:39 INFO    [api] session refreshed for alice
+2026-10-28 14:09:04 INFO    [api] cache warmed, 58 entries
+2026-10-28 14:18:12 INFO    [cache] user login succeeded (user=eve)
+2026-10-28 14:04:34 DEBUG   [auth] heap usage 54%
+2026-10-28 14:22:55 INFO    [cache] user login succeeded (user=frank)
+2026-10-28 14:18:24 INFO    [worker] cache warmed, 480 entries
+2026-10-28 14:23:05 WARN    [worker] retrying request after transient error (attempt 343)
+2026-10-28 14:41:42 ERROR   [worker] database connection lost: timeout after 5000ms
+2026-10-28 14:09:18 ERROR   [api] database connection lost: timeout after 5000ms
+2026-10-28 14:32:40 INFO    [scheduler] request handled in 642ms
+2026-10-28 14:28:06 DEBUG   [api] gc pause 875ms
+2026-10-28 14:23:30 INFO    [worker] cache warmed, 136 entries
+2026-10-28 14:14:09 DEBUG   [api] heap usage 77%
+2026-10-28 14:42:36 INFO    [cache] response sent to eve
+2026-10-28 14:09:30 WARN    [db] retrying request after transient error (attempt 331)
+2026-10-28 14:33:22 INFO    [scheduler] job picked up by worker-5
+2026-10-28 14:09:34 INFO    [cache] session refreshed for bob
+2026-10-28 14:24:00 DEBUG   [cache] heap usage 81%
+2026-10-28 14:09:38 DEBUG   [worker] gc pause 200ms
+2026-10-28 14:19:20 INFO    [scheduler] cache warmed, 267 entries
+2026-10-28 14:19:24 WARN    [auth] disk usage at 77%
+2026-10-28 14:09:44 INFO    [worker] request handled in 283ms
+2026-10-28 14:43:57 INFO    [auth] session refreshed for heidi
+2026-10-28 14:09:48 DEBUG   [db] connection pool: 199 active
+2026-10-28 14:29:30 INFO    [db] user login succeeded (user=carol)
+2026-10-28 14:39:28 WARN    [worker] disk usage at 90%
+2026-10-28 14:44:33 WARN    [cache] connection reset by peer
+2026-10-28 14:39:44 DEBUG   [worker] query plan: index scan on idx_users
+2026-10-28 14:04:59 WARN    [scheduler] disk usage at 77%
+2026-10-28 14:35:00 INFO    [cache] cache warmed, 271 entries
+2026-10-28 14:35:07 INFO    [db] response sent to heidi
+2026-10-28 14:45:18 INFO    [db] cache warmed, 251 entries
+2026-10-28 14:05:03 INFO    [auth] session refreshed for eve
+2026-10-28 14:05:04 DEBUG   [db] heap usage 89%
+2026-10-28 14:05:05 ERROR   [cache] upstream service returned 503 (attempt 17)
+2026-10-28 14:10:12 DEBUG   [auth] gc pause 711ms
+2026-10-28 14:40:56 INFO    [auth] job picked up by worker-4
+2026-10-28 14:30:48 DEBUG   [auth] query plan: index scan on idx_users
+2026-10-28 14:36:03 INFO    [cache] cache warmed, 326 entries
+2026-10-28 14:15:30 DEBUG   [db] query plan: index scan on idx_users
+2026-10-28 14:10:22 INFO    [db] request handled in 380ms
+2026-10-28 14:20:48 INFO    [auth] session refreshed for heidi
+2026-10-28 14:20:52 DEBUG   [auth] gc pause 178ms
+2026-10-28 14:20:56 INFO    [worker] request handled in 345ms
+2026-10-28 14:26:15 INFO    [api] session refreshed for eve
+2026-10-28 14:15:48 INFO    [api] cache warmed, 87 entries
+2026-10-28 14:15:51 WARN    [cache] retrying request after transient error (attempt 369)
+2026-10-28 14:37:06 INFO    [worker] user login succeeded (user=bob)
+2026-10-28 14:42:32 INFO    [auth] response sent to dave
+2026-10-28 14:26:40 INFO    [cache] session refreshed for frank
+2026-10-28 14:05:21 INFO    [scheduler] cache warmed, 498 entries
+2026-10-28 14:32:12 INFO    [api] job picked up by worker-7
+2026-10-28 14:48:27 DEBUG   [worker] connection pool: 434 active
+2026-10-28 14:05:24 INFO    [worker] user login succeeded (user=carol)
+2026-10-28 14:05:25 DEBUG   [api] retry policy: next backoff 226ms
+2026-10-28 14:43:28 DEBUG   [api] heap usage 59%
+2026-10-28 14:27:15 INFO    [cache] request handled in 319ms
+2026-10-28 14:32:48 INFO    [worker] cache warmed, 308 entries
+2026-10-28 14:05:29 WARN    [scheduler] retrying request after transient error (attempt 460)
+2026-10-28 14:49:30 INFO    [cache] session refreshed for grace
+2026-10-28 14:49:39 INFO    [auth] user login succeeded (user=dave)
+2026-10-28 14:49:48 INFO    [db] job picked up by worker-2
+2026-10-28 14:49:57 FATAL   [scheduler] unrecoverable state: aborting task 75
+2026-10-28 14:05:34 INFO    [scheduler] cache warmed, 354 entries
+2026-10-28 14:05:35 ERROR   [worker] unable to acquire lock on resource 257
+2026-10-28 14:28:00 INFO    [api] request handled in 479ms
+2026-10-28 14:50:33 INFO    [auth] request handled in 302ms
+2026-10-28 14:16:54 INFO    [cache] request handled in 47ms
+2026-10-28 14:16:57 INFO    [auth] cache warmed, 172 entries
+2026-10-28 14:34:00 INFO    [scheduler] session refreshed for frank
+2026-10-28 14:51:09 INFO    [scheduler] job picked up by worker-2
+2026-10-28 14:05:42 INFO    [cache] response sent to dave
+2026-10-28 14:34:18 DEBUG   [cache] heap usage 78%
+2026-10-28 14:40:08 INFO    [api] job picked up by worker-7
+2026-10-28 14:51:45 INFO    [worker] job picked up by worker-8
+2026-10-28 14:05:46 WARN    [db] slow query 754ms: SELECT * FROM events
+2026-10-28 14:40:29 INFO    [auth] request handled in 399ms
+2026-10-28 14:46:24 INFO    [api] job picked up by worker-5
+2026-10-28 14:23:16 INFO    [cache] cache warmed, 244 entries
+2026-10-28 14:23:20 INFO    [auth] session refreshed for dave
+2026-10-28 14:52:39 INFO    [db] cache warmed, 287 entries
+2026-10-28 14:29:20 INFO    [auth] user login succeeded (user=heidi)
+2026-10-28 14:41:11 WARN    [scheduler] disk usage at 56%
+2026-10-28 14:23:36 DEBUG   [scheduler] gc pause 479ms
+2026-10-28 14:11:50 ERROR   [db] database connection lost: timeout after 5000ms
+2026-10-28 14:41:32 ERROR   [api] unable to acquire lock on resource 180
+2026-10-28 14:41:39 INFO    [auth] job picked up by worker-3
+2026-10-28 14:41:46 INFO    [db] user login succeeded (user=carol)
+2026-10-28 14:41:53 DEBUG   [cache] retry policy: next backoff 214ms
+2026-10-28 14:48:00 INFO    [db] response sent to heidi
+2026-10-28 14:54:09 INFO    [scheduler] job picked up by worker-2
+2026-10-28 14:48:16 INFO    [api] user login succeeded (user=dave)
+2026-10-28 14:06:03 DEBUG   [auth] gc pause 140ms
+2026-10-28 14:54:36 INFO    [auth] job picked up by worker-5
+2026-10-28 14:06:05 DEBUG   [api] retry policy: next backoff 422ms
+2026-10-28 14:18:18 INFO    [api] response sent to heidi
+2026-10-28 14:55:03 INFO    [cache] user login succeeded (user=grace)
+2026-10-28 14:49:04 INFO    [auth] request handled in 114ms
+2026-10-28 14:36:54 DEBUG   [auth] gc pause 842ms
+2026-10-28 14:18:30 INFO    [scheduler] response sent to heidi
+2026-10-28 14:49:28 INFO    [scheduler] job picked up by worker-3
+2026-10-28 14:18:36 INFO    [worker] job picked up by worker-5
+2026-10-28 14:37:18 WARN    [auth] disk usage at 91%
+2026-10-28 14:49:52 WARN    [cache] disk usage at 86%
+2026-10-28 14:18:45 INFO    [auth] cache warmed, 107 entries
+2026-10-28 14:56:24 INFO    [auth] response sent to dave
+2026-10-28 14:56:33 ERROR   [auth] unable to acquire lock on resource 468
+2026-10-28 14:56:42 INFO    [cache] request handled in 835ms
+2026-10-28 14:50:32 INFO    [scheduler] request handled in 34ms
+2026-10-28 14:12:40 ERROR   [auth] unable to acquire lock on resource 158
+2026-10-28 14:25:24 WARN    [db] slow query 517ms: SELECT * FROM events
+2026-10-28 14:50:56 INFO    [cache] response sent to dave
+2026-10-28 14:57:27 INFO    [scheduler] request handled in 509ms
+2026-10-28 14:25:36 DEBUG   [auth] connection pool: 137 active
+2026-10-28 14:25:40 INFO    [cache] user login succeeded (user=bob)
+2026-10-28 14:19:18 INFO    [scheduler] user login succeeded (user=alice)
+2026-10-28 14:19:21 INFO    [auth] session refreshed for grace
+2026-10-28 14:19:24 WARN    [worker] disk usage at 95%
+2026-10-28 14:32:25 INFO    [cache] cache warmed, 345 entries
+2026-10-28 14:19:30 INFO    [api] job picked up by worker-7
+2026-10-28 14:32:35 DEBUG   [scheduler] heap usage 57%
+2026-10-28 14:58:48 WARN    [worker] connection reset by peer
+2026-10-28 14:26:12 INFO    [db] session refreshed for carol
+2026-10-28 14:32:50 DEBUG   [scheduler] connection pool: 20 active
+2026-10-28 14:26:20 DEBUG   [auth] connection pool: 82 active
+2026-10-28 14:06:36 INFO    [worker] cache warmed, 242 entries
+2026-10-28 14:39:42 INFO    [db] session refreshed for frank
+2026-10-28 14:13:16 INFO    [auth] response sent to frank
+2026-10-28 14:39:54 FATAL   [api] out of memory: worker terminated

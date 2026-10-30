@@ -1,0 +1,208 @@
+2026-10-28 14:00:00.000 ERROR [worker-1] Unhandled exception in task-1000
+Traceback (most recent call last):
+  File "/app/jobs/task_1000.py", line 95, in run
+    result = handler(payload)
+kafka.errors.NotLeaderError: partition leader changed mid-request
+2026-10-28 14:00:00.000 FATAL [supervisor] worker-1 exited unexpectedly, restarting
+2026-10-28 14:00:03.000 ERROR [worker-2] Unhandled exception in task-1001
+Traceback (most recent call last):
+  File "/app/jobs/task_1001.py", line 197, in run
+    result = handler(payload)
+kafka.errors.NotLeaderError: partition leader changed mid-request
+2026-10-28 14:00:06.000 ERROR [worker-3] Unhandled exception in task-1002
+Traceback (most recent call last):
+  File "/app/jobs/task_1002.py", line 150, in run
+    result = handler(payload)
+kafka.errors.NotLeaderError: partition leader changed mid-request
+2026-10-28 14:00:09.000 ERROR [worker-4] Unhandled exception in task-1003
+Traceback (most recent call last):
+  File "/app/jobs/task_1003.py", line 76, in run
+    result = handler(payload)
+ValueError: invalid literal for int() with base 10: 'NaN'
+2026-10-28 14:00:12.000 ERROR [worker-1] Unhandled exception in task-1004
+Traceback (most recent call last):
+  File "/app/jobs/task_1004.py", line 23, in run
+    result = handler(payload)
+ValueError: invalid literal for int() with base 10: 'NaN'
+2026-10-28 14:00:15.000 ERROR [worker-2] Unhandled exception in task-1005
+Traceback (most recent call last):
+  File "/app/jobs/task_1005.py", line 66, in run
+    result = handler(payload)
+kafka.errors.NotLeaderError: partition leader changed mid-request
+2026-10-28 14:00:15.000 FATAL [supervisor] worker-2 exited unexpectedly, restarting
+2026-10-28 14:00:18.000 ERROR [worker-3] Unhandled exception in task-1006
+Traceback (most recent call last):
+  File "/app/jobs/task_1006.py", line 174, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:00:21.000 ERROR [worker-4] Unhandled exception in task-1007
+Traceback (most recent call last):
+  File "/app/jobs/task_1007.py", line 125, in run
+    result = handler(payload)
+java.sql.SQLException: Connection is not available, request timed out
+2026-10-28 14:00:24.000 ERROR [worker-1] Unhandled exception in task-1008
+Traceback (most recent call last):
+  File "/app/jobs/task_1008.py", line 29, in run
+    result = handler(payload)
+kafka.errors.NotLeaderError: partition leader changed mid-request
+2026-10-28 14:00:27.000 ERROR [worker-2] Unhandled exception in task-1009
+Traceback (most recent call last):
+  File "/app/jobs/task_1009.py", line 148, in run
+    result = handler(payload)
+java.sql.SQLException: Connection is not available, request timed out
+2026-10-28 14:00:30.000 ERROR [worker-3] Unhandled exception in task-1010
+Traceback (most recent call last):
+  File "/app/jobs/task_1010.py", line 197, in run
+    result = handler(payload)
+java.sql.SQLException: Connection is not available, request timed out
+2026-10-28 14:00:30.000 FATAL [supervisor] worker-3 exited unexpectedly, restarting
+2026-10-28 14:00:33.000 ERROR [worker-4] Unhandled exception in task-1011
+Traceback (most recent call last):
+  File "/app/jobs/task_1011.py", line 61, in run
+    result = handler(payload)
+java.sql.SQLException: Connection is not available, request timed out
+2026-10-28 14:00:36.000 ERROR [worker-1] Unhandled exception in task-1012
+Traceback (most recent call last):
+  File "/app/jobs/task_1012.py", line 127, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:00:39.000 ERROR [worker-2] Unhandled exception in task-1013
+Traceback (most recent call last):
+  File "/app/jobs/task_1013.py", line 140, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:00:42.000 ERROR [worker-3] Unhandled exception in task-1014
+Traceback (most recent call last):
+  File "/app/jobs/task_1014.py", line 85, in run
+    result = handler(payload)
+httpx.ConnectError: upstream api-gateway:443 refused connection
+2026-10-28 14:00:45.000 ERROR [worker-4] Unhandled exception in task-1015
+Traceback (most recent call last):
+  File "/app/jobs/task_1015.py", line 157, in run
+    result = handler(payload)
+httpx.ConnectError: upstream api-gateway:443 refused connection
+2026-10-28 14:00:45.000 FATAL [supervisor] worker-4 exited unexpectedly, restarting
+2026-10-28 14:00:48.000 ERROR [worker-1] Unhandled exception in task-1016
+Traceback (most recent call last):
+  File "/app/jobs/task_1016.py", line 138, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:00:51.000 ERROR [worker-2] Unhandled exception in task-1017
+Traceback (most recent call last):
+  File "/app/jobs/task_1017.py", line 134, in run
+    result = handler(payload)
+java.sql.SQLException: Connection is not available, request timed out
+2026-10-28 14:00:54.000 ERROR [worker-3] Unhandled exception in task-1018
+Traceback (most recent call last):
+  File "/app/jobs/task_1018.py", line 37, in run
+    result = handler(payload)
+java.sql.SQLException: Connection is not available, request timed out
+2026-10-28 14:00:57.000 ERROR [worker-4] Unhandled exception in task-1019
+Traceback (most recent call last):
+  File "/app/jobs/task_1019.py", line 127, in run
+    result = handler(payload)
+httpx.ConnectError: upstream api-gateway:443 refused connection
+2026-10-28 14:01:00.000 ERROR [worker-1] Unhandled exception in task-1020
+Traceback (most recent call last):
+  File "/app/jobs/task_1020.py", line 172, in run
+    result = handler(payload)
+java.sql.SQLException: Connection is not available, request timed out
+2026-10-28 14:01:00.000 FATAL [supervisor] worker-1 exited unexpectedly, restarting
+2026-10-28 14:01:03.000 ERROR [worker-2] Unhandled exception in task-1021
+Traceback (most recent call last):
+  File "/app/jobs/task_1021.py", line 138, in run
+    result = handler(payload)
+kafka.errors.NotLeaderError: partition leader changed mid-request
+2026-10-28 14:01:06.000 ERROR [worker-3] Unhandled exception in task-1022
+Traceback (most recent call last):
+  File "/app/jobs/task_1022.py", line 126, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:01:09.000 ERROR [worker-4] Unhandled exception in task-1023
+Traceback (most recent call last):
+  File "/app/jobs/task_1023.py", line 117, in run
+    result = handler(payload)
+httpx.ConnectError: upstream api-gateway:443 refused connection
+2026-10-28 14:01:12.000 ERROR [worker-1] Unhandled exception in task-1024
+Traceback (most recent call last):
+  File "/app/jobs/task_1024.py", line 70, in run
+    result = handler(payload)
+ValueError: invalid literal for int() with base 10: 'NaN'
+2026-10-28 14:01:15.000 ERROR [worker-2] Unhandled exception in task-1025
+Traceback (most recent call last):
+  File "/app/jobs/task_1025.py", line 91, in run
+    result = handler(payload)
+httpx.ConnectError: upstream api-gateway:443 refused connection
+2026-10-28 14:01:15.000 FATAL [supervisor] worker-2 exited unexpectedly, restarting
+2026-10-28 14:01:18.000 ERROR [worker-3] Unhandled exception in task-1026
+Traceback (most recent call last):
+  File "/app/jobs/task_1026.py", line 61, in run
+    result = handler(payload)
+java.sql.SQLException: Connection is not available, request timed out
+2026-10-28 14:01:21.000 ERROR [worker-4] Unhandled exception in task-1027
+Traceback (most recent call last):
+  File "/app/jobs/task_1027.py", line 104, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:01:24.000 ERROR [worker-1] Unhandled exception in task-1028
+Traceback (most recent call last):
+  File "/app/jobs/task_1028.py", line 67, in run
+    result = handler(payload)
+kafka.errors.NotLeaderError: partition leader changed mid-request
+2026-10-28 14:01:27.000 ERROR [worker-2] Unhandled exception in task-1029
+Traceback (most recent call last):
+  File "/app/jobs/task_1029.py", line 112, in run
+    result = handler(payload)
+ValueError: invalid literal for int() with base 10: 'NaN'
+2026-10-28 14:01:30.000 ERROR [worker-3] Unhandled exception in task-1030
+Traceback (most recent call last):
+  File "/app/jobs/task_1030.py", line 185, in run
+    result = handler(payload)
+ValueError: invalid literal for int() with base 10: 'NaN'
+2026-10-28 14:01:30.000 FATAL [supervisor] worker-3 exited unexpectedly, restarting
+2026-10-28 14:01:33.000 ERROR [worker-4] Unhandled exception in task-1031
+Traceback (most recent call last):
+  File "/app/jobs/task_1031.py", line 15, in run
+    result = handler(payload)
+kafka.errors.NotLeaderError: partition leader changed mid-request
+2026-10-28 14:01:36.000 ERROR [worker-1] Unhandled exception in task-1032
+Traceback (most recent call last):
+  File "/app/jobs/task_1032.py", line 143, in run
+    result = handler(payload)
+ValueError: invalid literal for int() with base 10: 'NaN'
+2026-10-28 14:01:39.000 ERROR [worker-2] Unhandled exception in task-1033
+Traceback (most recent call last):
+  File "/app/jobs/task_1033.py", line 54, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:01:42.000 ERROR [worker-3] Unhandled exception in task-1034
+Traceback (most recent call last):
+  File "/app/jobs/task_1034.py", line 30, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:01:45.000 ERROR [worker-4] Unhandled exception in task-1035
+Traceback (most recent call last):
+  File "/app/jobs/task_1035.py", line 187, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:01:45.000 FATAL [supervisor] worker-4 exited unexpectedly, restarting
+2026-10-28 14:01:48.000 ERROR [worker-1] Unhandled exception in task-1036
+Traceback (most recent call last):
+  File "/app/jobs/task_1036.py", line 69, in run
+    result = handler(payload)
+httpx.ConnectError: upstream api-gateway:443 refused connection
+2026-10-28 14:01:51.000 ERROR [worker-2] Unhandled exception in task-1037
+Traceback (most recent call last):
+  File "/app/jobs/task_1037.py", line 166, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:01:54.000 ERROR [worker-3] Unhandled exception in task-1038
+Traceback (most recent call last):
+  File "/app/jobs/task_1038.py", line 53, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379
+2026-10-28 14:01:57.000 ERROR [worker-4] Unhandled exception in task-1039
+Traceback (most recent call last):
+  File "/app/jobs/task_1039.py", line 160, in run
+    result = handler(payload)
+redis.exceptions.TimeoutError: Timeout connecting to redis://cache:6379

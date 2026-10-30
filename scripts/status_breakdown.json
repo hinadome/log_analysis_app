@@ -1,0 +1,24 @@
+{
+  "name": "Status Breakdown",
+  "description": "Perl — requests and transferred bytes per HTTP status code, with bar chart",
+  "command": "perl {script} {log} {args}",
+  "timeout": 120,
+  "parameters": [
+    {
+      "name": "top",
+      "flag": "--top",
+      "label": "Top N",
+      "type": "integer",
+      "default": 10,
+      "help": "How many status codes to show"
+    },
+    {
+      "name": "by_bytes",
+      "flag": "--by-bytes",
+      "label": "Sort by bytes",
+      "type": "boolean",
+      "default": false,
+      "help": "Rank by transferred bytes instead of request count"
+    }
+  ]
+}

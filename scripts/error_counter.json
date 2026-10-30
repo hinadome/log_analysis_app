@@ -1,0 +1,33 @@
+{
+  "name": "Error Counter",
+  "description": "Count lines by severity level, with optional substring filter",
+  "command": "python3 {script} {log} {args}",
+  "timeout": 120,
+  "parameters": [
+    {
+      "name": "level",
+      "flag": "--level",
+      "label": "Severity",
+      "type": "enum",
+      "choices": ["ERROR", "WARN", "INFO", "DEBUG", "FATAL", "ALL"],
+      "default": "ERROR",
+      "help": "Level to count"
+    },
+    {
+      "name": "pattern",
+      "flag": "--pattern",
+      "label": "Filter substring",
+      "type": "string",
+      "default": "",
+      "help": "Only count lines containing this text (empty = no filter)"
+    },
+    {
+      "name": "json",
+      "flag": "--json",
+      "label": "JSON output",
+      "type": "boolean",
+      "default": false,
+      "help": "Print the result as JSON"
+    }
+  ]
+}

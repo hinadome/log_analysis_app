@@ -1,0 +1,24 @@
+{
+  "name": "Endpoint Stats",
+  "description": "Node.js — hits, transferred bytes and error rate per endpoint, from a common-format access log",
+  "command": "node {script} {log} {args}",
+  "timeout": 120,
+  "parameters": [
+    {
+      "name": "top",
+      "flag": "--top",
+      "label": "Top N",
+      "type": "integer",
+      "default": 10,
+      "help": "How many endpoints to show"
+    },
+    {
+      "name": "errors_only",
+      "flag": "--errors-only",
+      "label": "Errors only",
+      "type": "boolean",
+      "default": false,
+      "help": "Only endpoints that returned 4xx/5xx"
+    }
+  ]
+}

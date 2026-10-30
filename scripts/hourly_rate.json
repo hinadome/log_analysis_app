@@ -1,0 +1,25 @@
+{
+  "name": "Event Rate Histogram",
+  "description": "Ruby — events per minute/hour from a timestamped log, drawn as a bar chart",
+  "command": "ruby {script} {log} {args}",
+  "timeout": 120,
+  "parameters": [
+    {
+      "name": "interval",
+      "flag": "--interval",
+      "label": "Bucket",
+      "type": "enum",
+      "choices": ["minute", "hour"],
+      "default": "minute",
+      "help": "Bucket size"
+    },
+    {
+      "name": "level",
+      "flag": "--level",
+      "label": "Filter",
+      "type": "string",
+      "default": "",
+      "help": "Only count lines containing this text (e.g. ERROR)"
+    }
+  ]
+}

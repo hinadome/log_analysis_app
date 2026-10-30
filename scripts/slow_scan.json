@@ -1,0 +1,32 @@
+{
+  "name": "Slow Scan (demo)",
+  "description": "Simulated long-running analysis — live progress, writes an artifact, can fail on purpose",
+  "command": "python3 {script} {log} {args}",
+  "timeout": 300,
+  "parameters": [
+    {
+      "name": "seconds",
+      "flag": "--seconds",
+      "label": "Duration (s)",
+      "type": "integer",
+      "default": 15,
+      "help": "How long the scan takes"
+    },
+    {
+      "name": "interval",
+      "flag": "--interval",
+      "label": "Update every (s)",
+      "type": "float",
+      "default": 1.0,
+      "help": "Seconds between progress lines"
+    },
+    {
+      "name": "fail",
+      "flag": "--fail",
+      "label": "Fail on purpose",
+      "type": "boolean",
+      "default": false,
+      "help": "Exit with code 1 when done (demo of a failed job)"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime data (jobs, results)
+data/
+
+# TLS certificates (never commit private keys)
+certs/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Python tooling caches
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+.rocketride/
+.env

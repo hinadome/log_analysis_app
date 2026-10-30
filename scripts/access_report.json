@@ -1,0 +1,17 @@
+{
+  "name": "Access Report",
+  "description": "Markdown report from an nginx-style access log (status codes, top paths, top IPs) — demonstrates file output",
+  "command": "python3 {script} {log} --output {output} {args}",
+  "timeout": 120,
+  "output_filename": "report.md",
+  "parameters": [
+    {
+      "name": "top",
+      "flag": "--top",
+      "label": "Top N",
+      "type": "integer",
+      "default": 10,
+      "help": "Rows per top-list"
+    }
+  ]
+}

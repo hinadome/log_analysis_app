@@ -1,0 +1,25 @@
+{
+  "name": "Top IPs",
+  "description": "Rank the most active client IPs found in the log",
+  "command": "python3 {script} {log} {args}",
+  "timeout": 120,
+  "parameters": [
+    {
+      "name": "top",
+      "flag": "--top",
+      "label": "Top N",
+      "type": "integer",
+      "default": 10,
+      "help": "How many IPs to show"
+    },
+    {
+      "name": "format",
+      "flag": "--format",
+      "label": "Output",
+      "type": "enum",
+      "choices": ["text", "json"],
+      "default": "text",
+      "help": "Text table or JSON"
+    }
+  ]
+}

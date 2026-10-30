@@ -1,0 +1,41 @@
+{
+  "name": "Regex Search",
+  "description": "Shell script — grep a pattern with optional context lines and match cap",
+  "command": "bash {script} {log} {args}",
+  "timeout": 60,
+  "parameters": [
+    {
+      "name": "pattern",
+      "flag": "--pattern",
+      "label": "Regex",
+      "type": "string",
+      "required": true,
+      "default": "",
+      "help": "Extended regular expression to search for"
+    },
+    {
+      "name": "ignore_case",
+      "flag": "--ignore-case",
+      "label": "Ignore case",
+      "type": "boolean",
+      "default": false,
+      "help": "Case-insensitive matching"
+    },
+    {
+      "name": "context",
+      "flag": "--context",
+      "label": "Context lines",
+      "type": "integer",
+      "default": 0,
+      "help": "Lines of context around each match"
+    },
+    {
+      "name": "max_count",
+      "flag": "--max-count",
+      "label": "Max matches",
+      "type": "integer",
+      "default": 0,
+      "help": "Stop after this many matches (0 = unlimited)"
+    }
+  ]
+}
