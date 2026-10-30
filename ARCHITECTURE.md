@@ -344,8 +344,9 @@ Single-page React app; state lives in `App.jsx`:
   automation uses `Authorization: Bearer`. Comparisons are constant-time.
   Failed logins are rate-limited per client IP (5 per 60 s sliding window →
   429 with `Retry-After`); a successful login clears the counter, and the
-  Bearer path is unaffected. When unset, the server warns and runs open —
-  acceptable only because it binds to 127.0.0.1.
+  Bearer path is unaffected. When unset, the server warns and runs open;
+  `run.sh` binds to all interfaces by default (`LOGSMITH_HOST` restores
+  local-only) and prints a loud exposure warning when no token is set.
 - **No shell**: commands are tokenized with `shlex` but executed via `exec`
   — parameter values are literal argv tokens and can never inject syntax.
 - **Path containment**: log paths resolve strictly inside `LOGS_DIR`.

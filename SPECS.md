@@ -280,8 +280,9 @@ step per §4.1 rule 2.
   - session cookie `logsmith_session` (HttpOnly, SameSite=Lax, Secure on
     HTTPS) obtained via `POST /api/auth/login`
   - `Authorization: Bearer <LOGSMITH_TOKEN>` for automation
-- `LOGSMITH_TOKEN` unset → auth disabled; the server logs a warning. Only
-  acceptable for localhost use.
+- `LOGSMITH_TOKEN` unset → auth disabled; the server logs a warning. The
+  launcher binds to all interfaces by default (`LOGSMITH_HOST` overrides) and
+  warns loudly when exposed without a token — set one for any network use.
 - The SPA serves without a token; API calls failing with 401 raise a global
   event that switches the UI to the login screen.
 
@@ -298,6 +299,8 @@ step per §4.1 rule 2.
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `LOGSMITH_TOKEN` | *(unset)* | UI password; unset disables auth |
+| `LOGSMITH_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
+| `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation |
 | `JOB_RETENTION_DAYS` | `0` | startup auto-delete window (0 = keep forever) |
 
 All variables are read once at process start; restart to apply changes.

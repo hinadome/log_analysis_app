@@ -25,6 +25,7 @@ BACKEND_LOG="$RUN_DIR/backend.log"
 FRONTEND_LOG="$RUN_DIR/frontend.log"
 FRONTEND_PORT=5173
 BACKEND_PORT=8000  # overridden by --port in start/foreground modes
+HOST="${LOGSMITH_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 to go back to local-only)
 
 usage() {
   sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
@@ -41,6 +42,41 @@ is_running() { # $1 = pid file
 }
 
 port_busy() { lsof -ti ":$1" >/dev/null 2>&1; }
+
+# Best-effort LAN address, to show a URL other devices can reach.
+lan_ip() {
+  local ip=""
+  if command -v ipconfig >/dev/null 2>&1; then
+    ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+  fi
+  if [ -z "$ip" ] && command -v hostname >/dev/null 2>&1; then
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+  fi
+  echo "$ip"
+}
+
+# Warn loudly when the app is exposed beyond this machine with no password —
+# LogSmith runs scripts with the permissions of this user.
+check_exposure() {
+  if [ "$HOST" != "localhost" ] && [ "$HOST" != "127.0.0.1" ] && [ -z "${LOGSMITH_TOKEN:-}" ]; then
+    echo "  ⚠  WARNING: binding to $HOST with no LOGSMITH_TOKEN —" >&2
+    echo "     anyone who can reach this machine can run scripts as you." >&2
+    echo "     Set a password:  LOGSMITH_TOKEN='choose-one' ./run.sh start" >&2
+  fi
+}
+
+# The TLS cert only covers localhost; other devices will see a browser warning.
+cert_hint() {
+  if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then return 0; fi
+  if [ "$HOST" = "localhost" ] || [ "$HOST" = "127.0.0.1" ]; then return 0; fi
+  local example="my-machine.local"
+  local ip
+  ip=$(lan_ip)
+  [ -n "$ip" ] && example="$ip,my-machine.local"
+  echo "  Note: the TLS certificate only covers localhost — other devices" >&2
+  echo "  will show a browser warning. To include them: delete certs/ and" >&2
+  echo "  rerun with LOGSMITH_CERT_HOSTS='$example'" >&2
+}
 
 # Backend health URL for readiness checks (honors --port and LOGSMITH_HTTP).
 health_url() {
@@ -78,12 +114,20 @@ ssl_flags() {
   echo "--ssl-certfile certs/localhost.pem --ssl-keyfile certs/localhost-key.pem"
 }
 
-# Pick up '--port N' from the args so checks use the real port.
+# Pick up '--port N' and '--host H' from the args so checks use the real values.
 scan_port() {
   BACKEND_PORT=8000
   local prev=""
   for arg in "$@"; do
     if [ "$prev" = "--port" ]; then BACKEND_PORT="$arg"; fi
+    prev="$arg"
+  done
+}
+
+scan_host() {
+  local prev=""
+  for arg in "$@"; do
+    if [ "$prev" = "--host" ]; then HOST="$arg"; fi
     prev="$arg"
   done
 }
@@ -114,7 +158,7 @@ start_backend() { # $1 = "dev" | "prod"
   [ "$1" = "dev" ] && reload="--reload --reload-dir backend"
   # shellcheck disable=SC2086  # flags must word-split
   nohup .venv/bin/uvicorn --app-dir backend app.main:app \
-    --host 127.0.0.1 --port "$BACKEND_PORT" $(ssl_flags) $reload \
+    --host "$HOST" --port "$BACKEND_PORT" $(ssl_flags) $reload \
     >> "$BACKEND_LOG" 2>&1 &
   echo $! > "$BACKEND_PID"
 }
@@ -136,9 +180,12 @@ cmd_start() { # args may contain --dev
     [ "$arg" = "--dev" ] && mode="dev"
   done
   scan_port "$@"
+  scan_host "$@"
   mkdir -p "$RUN_DIR"
   ensure_backend_env
   already_running_or_busy "Backend" "$BACKEND_PID" "$BACKEND_PORT"
+  check_exposure
+  cert_hint
 
   local scheme="https"
   [ "${LOGSMITH_HTTP:-0}" = "1" ] && scheme="http"
@@ -151,6 +198,11 @@ cmd_start() { # args may contain --dev
   start_backend "$mode"
   wait_ready "$(health_url)" "backend" "$BACKEND_LOG"
   echo "Backend  ●  $scheme://localhost:$BACKEND_PORT  (PID $(pid_of "$BACKEND_PID"), log: $BACKEND_LOG)"
+  local ip
+  ip=$(lan_ip)
+  if [ -n "$ip" ] && [ "$HOST" != "localhost" ] && [ "$HOST" != "127.0.0.1" ]; then
+    echo "           reachable as $scheme://$ip:$BACKEND_PORT from other devices (bound to $HOST)"
+  fi
 
   if [ "$mode" = "dev" ]; then
     if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then
@@ -250,6 +302,7 @@ case "${1:-}" in
   *)
     # Foreground production server, args passed through to uvicorn (old behavior).
     scan_port "$@"
+    scan_host "$@"
     ensure_backend_env
     if [ ! -f frontend/dist/index.html ]; then
       (cd frontend && npm install --silent && npm run build >/dev/null)
@@ -263,7 +316,9 @@ case "${1:-}" in
       echo "  ./run.sh --port 8001" >&2
       exit 1
     fi
+    check_exposure
+    cert_hint
     # shellcheck disable=SC2086
-    exec .venv/bin/uvicorn --app-dir backend app.main:app --host 127.0.0.1 --port "$BACKEND_PORT" $(ssl_flags) "$@"
+    exec .venv/bin/uvicorn --app-dir backend app.main:app --host "$HOST" --port "$BACKEND_PORT" $(ssl_flags) "$@"
     ;;
 esac

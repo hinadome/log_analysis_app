@@ -52,6 +52,10 @@ Vite proxy talks HTTPS to the backend.
 - **Without mkcert**: a self-signed certificate (SANs: `localhost`,
   `127.0.0.1`, `::1`, valid 825 days) is generated with openssl. Browsers show
   a one-time "not private" warning — proceed or install mkcert.
+- **From other devices** (the server binds all interfaces by default): the
+  certificate only covers `localhost`, so other machines see a browser
+  warning. To include them, delete `certs/` and regenerate with their address:
+  `LOGSMITH_CERT_HOSTS='192.168.1.50,my-mac.local' ./run.sh start`.
 - Plain HTTP is disabled when HTTPS is on. Set `LOGSMITH_HTTP=1 ./run.sh` to
   fall back to HTTP.
 - Running uvicorn manually with TLS:
@@ -79,7 +83,9 @@ Vite proxy talks HTTPS to the backend.
   viewable/downloadable in the browser; Markdown files render nicely.
 - **Authentication** — set `LOGSMITH_TOKEN` to require a password for the UI
   (browser login screen, HttpOnly session cookie). Automation can send
-  `Authorization: Bearer <token>`. Unset = no auth (localhost only!).
+  `Authorization: Bearer <token>`. Unset = no auth — fine on a private
+  machine, but the app listens on **all interfaces** by default, so set a
+  token (or `LOGSMITH_HOST=127.0.0.1`) whenever other devices can reach it.
 - **gzip logs** — `.gz`, `.bz2` and `.xz` logs are transparently decompressed
   before scripts run, and preview correctly in the UI.
 - **Job retention** — `JOB_RETENTION_DAYS` auto-deletes old jobs at startup
@@ -308,7 +314,9 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `LOG_PREVIEW_LINES` | `200` | default lines in the log preview modal |
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
-| `LOGSMITH_TOKEN` | *(unset)* | password for the UI; unset disables auth (localhost only) |
+| `LOGSMITH_TOKEN` | *(unset)* | password for the UI; unset disables auth (warns loudly when exposed to the network) |
+| `LOGSMITH_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
+| `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |
 | `JOB_RETENTION_DAYS` | `0` | auto-delete jobs older than N days at startup (0 = keep forever) |
 
 Example: `LOGSMITH_TOKEN=s3cret JOB_RETENTION_DAYS=14 ./run.sh`
@@ -344,7 +352,9 @@ inside `LOGS_DIR`, but the scripts themselves are arbitrary code.
 Mitigations built in:
 
 - **Authentication** via `LOGSMITH_TOKEN` (recommended before any LAN exposure)
-- Server binds to `127.0.0.1` only; HTTPS with a local certificate
+- Bind address configurable via `LOGSMITH_HOST` (default `0.0.0.0` — all
+  interfaces; the start script warns loudly when exposed with no token);
+  HTTPS with a local certificate
 - Markdown artifacts are sanitized with DOMPurify before rendering
 
 Still do not expose it directly to the internet — put it behind a VPN or a
