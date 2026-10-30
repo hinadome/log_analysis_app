@@ -39,8 +39,8 @@ export const api = {
   updateScript: (id, body) =>
     request(`/api/scripts/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteScript: (id) => request(`/api/scripts/${id}`, { method: "DELETE" }),
-  previewLog: (path, lines = 200) =>
-    request(`/api/logs/preview?path=${encodeURIComponent(path)}&lines=${lines}`),
+  previewLog: (path, lines = 200, tail = false) =>
+    request(`/api/logs/preview?path=${encodeURIComponent(path)}&lines=${lines}${tail ? "&tail=1" : ""}`),
   listScripts: () => request("/api/scripts"),
   createJobs: (body) =>
     request("/api/jobs", { method: "POST", body: JSON.stringify(body) }),

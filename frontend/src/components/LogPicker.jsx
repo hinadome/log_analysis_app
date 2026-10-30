@@ -6,6 +6,7 @@ import { Modal, StepHead } from "./ui.jsx";
 export default function LogPicker({ logs, value, onSelect, logsDir }) {
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState(null);
+  const [tail, setTail] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const filtered = useMemo(() => {
@@ -13,10 +14,10 @@ export default function LogPicker({ logs, value, onSelect, logsDir }) {
     return q ? logs.filter((l) => l.name.toLowerCase().includes(q)) : logs;
   }, [logs, query]);
 
-  const openPreview = async (log) => {
+  const openPreview = async (log, fromEnd = tail) => {
     setLoading(true);
     try {
-      const data = await api.previewLog(log.path);
+      const data = await api.previewLog(log.path, 200, fromEnd);
       setPreview({ ...data, size: log.size });
     } catch (e) {
       setPreview({ name: log.name, lines: [String(e.message || e)], error: true });
@@ -63,7 +64,23 @@ export default function LogPicker({ logs, value, onSelect, logsDir }) {
         <Modal title={preview.name} onClose={() => setPreview(null)}>
           <div className="preview-meta muted">
             {fmtBytes(preview.size)}
-            {preview.truncated && " · truncated preview"}
+            {preview.truncated && (tail ? " · earlier lines not shown" : " · truncated preview")}
+          </div>
+          <div className="preview-toolbar">
+            <button
+              className={cx("btn ghost sm", !tail && "active")}
+              disabled={loading || preview.error}
+              onClick={() => { setTail(false); openPreview({ name: preview.name, path: preview.path, size: preview.size }, false); }}
+            >
+              ⇡ Head
+            </button>
+            <button
+              className={cx("btn ghost sm", tail && "active")}
+              disabled={loading || preview.error}
+              onClick={() => { setTail(true); openPreview({ name: preview.name, path: preview.path, size: preview.size }, true); }}
+            >
+              ⇣ Tail
+            </button>
           </div>
           <pre className="output log-preview">
             {preview.lines.join("\n")}
