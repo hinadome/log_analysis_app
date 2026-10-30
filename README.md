@@ -98,11 +98,20 @@ Vite proxy talks HTTPS to the backend.
   with automatic fallback to polling.
 - **File artifacts** — anything a script writes to its `outputs/` directory is
   viewable/downloadable in the browser; Markdown files render nicely.
-- **Authentication** — set `LOGSMITH_TOKEN` to require a password for the UI
+- **Authentication** — `LOGSMITH_TOKEN` requires a password for the UI
   (browser login screen, HttpOnly session cookie). Automation can send
-  `Authorization: Bearer <token>`. Unset = no auth — fine on a private
-  machine, but the app listens on **all interfaces** by default, so set a
-  token (or `LOGSMITH_HOST=127.0.0.1`) whenever other devices can reach it.
+  `Authorization: Bearer <token>`. The server listens on **all interfaces**
+  by default, and scripts run as your user — so the launcher is secure by
+  default: binding a non-local address with no token set generates a strong
+  password (printed once, stored in `.run/authtoken`, reused across
+  restarts). `LOGSMITH_INSECURE=1` keeps it open, `LOGSMITH_HOST=127.0.0.1`
+  makes it local-only with no auth.
+- **Script authoring lock** — scripts are code that runs on the server, so
+  the editor is remote code execution by design (trusted-operator tool).
+  When other people have the password, `LOGSMITH_ALLOW_SCRIPT_EDITING=0`
+  locks it down: creating, changing or deleting scripts answers 403 in both
+  UIs while the scripts on disk stay runnable — "run the vetted analyses
+  only".
 - **gzip logs** — `.gz`, `.bz2` and `.xz` logs are transparently decompressed
   before scripts run, and preview correctly in the UI.
 - **Job retention** — `JOB_RETENTION_DAYS` auto-deletes old jobs at startup
@@ -333,7 +342,9 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `LOG_PREVIEW_LINES` | `200` | default lines in the log preview modal |
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
-| `LOGSMITH_TOKEN` | *(unset)* | password for the UI; unset disables auth (warns loudly when exposed to the network) |
+| `LOGSMITH_TOKEN` | *(unset)* | password for the UI; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
+| `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` keeps a non-local server open with no password (not recommended) |
+| `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` locks the script editor: write endpoints answer 403 in both UIs, existing scripts stay runnable |
 | `LOGSMITH_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |

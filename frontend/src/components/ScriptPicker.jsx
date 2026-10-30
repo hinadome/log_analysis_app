@@ -1,6 +1,6 @@
 import { StepHead } from "./ui.jsx";
 
-export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEditScript }) {
+export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEditScript, canEditScripts = true }) {
   return (
     <section className="card step">
       <StepHead
@@ -8,10 +8,16 @@ export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEd
         title="Analysis scripts"
         hint={scripts.length ? `${scripts.length} available · click to add` : "No scripts found in scripts/"}
         action={
-          <button className="btn ghost sm" onClick={onNewScript}
-                  title="Create a new script in the browser editor">
-            ＋ New script
-          </button>
+          canEditScripts ? (
+            <button className="btn ghost sm" onClick={onNewScript}
+                    title="Create a new script in the browser editor">
+              ＋ New script
+            </button>
+          ) : (
+            <span className="muted sm" title="Script authoring is disabled on this server">
+              🔒 editing disabled
+            </span>
+          )
         }
       />
       <div className="script-grid">
@@ -22,11 +28,13 @@ export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEd
               <span className="script-name">{s.name}</span>
               {counts[s.id] > 0 && <span className="chip accent">×{counts[s.id]}</span>}
               {s.error && <span className="badge failed">broken</span>}
-              <button
-                className="icon-btn"
-                title={s.error ? "Fix in the editor" : "Edit in the editor"}
-                onClick={(e) => { e.stopPropagation(); onEditScript(s); }}
-              >✏️</button>
+              {canEditScripts && (
+                <button
+                  className="icon-btn"
+                  title={s.error ? "Fix in the editor" : "Edit in the editor"}
+                  onClick={(e) => { e.stopPropagation(); onEditScript(s); }}
+                >✏️</button>
+              )}
             </div>
             <div className="muted sm">{s.error || s.description}</div>
             <div className="script-meta">

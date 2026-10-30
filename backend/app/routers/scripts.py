@@ -5,6 +5,10 @@ manifest) into SCRIPTS_DIR — the same files a user could create by hand.
 Writing scripts is within the trust model: scripts are arbitrary code running
 as the server user by design (see ARCHITECTURE.md §9), and ids/extensions
 are constrained so a request can never escape SCRIPTS_DIR.
+
+When that trust is not shared — other people have the password — set
+LOGSMITH_ALLOW_SCRIPT_EDITING=0: the write endpoints below then answer 403,
+and reads (list, source view, export, running jobs) keep working.
 """
 from __future__ import annotations
 
@@ -17,13 +21,24 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Response
 
-from ..config import SCRIPTS_DIR
+from ..config import SCRIPTS_DIR, ALLOW_SCRIPT_EDITING
 from ..models import ScriptUpsertRequest
 from ..services.scanner import discover_scripts
 
 router = APIRouter(prefix="/scripts", tags=["scripts"])
 
 _SAFE_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+
+
+def _require_editing_enabled() -> None:
+    """403 unless script authoring is allowed on this server."""
+    if not ALLOW_SCRIPT_EDITING:
+        raise HTTPException(
+            status_code=403,
+            detail="Script editing is disabled on this server "
+                   "(LOGSMITH_ALLOW_SCRIPT_EDITING=0) — scripts on disk can be "
+                   "run, but not created, changed or deleted",
+        )
 
 # Default command template per extension when the manifest leaves it blank.
 _DEFAULT_COMMAND = {
@@ -107,6 +122,7 @@ def get_script_source(script_id: str):
 
 @router.post("")
 def create_script(req: ScriptUpsertRequest):
+    _require_editing_enabled()
     if _find(req.id) is not None:
         raise HTTPException(status_code=409, detail=f"A script named '{req.id}' already exists")
     manifest = _validate(req)
@@ -129,6 +145,7 @@ def create_script(req: ScriptUpsertRequest):
 
 @router.put("/{script_id}")
 def update_script(script_id: str, req: ScriptUpsertRequest):
+    _require_editing_enabled()
     if req.id != script_id:
         raise HTTPException(status_code=422, detail="Body id and path id don't match")
     script = _get_flat_or_404(script_id)
@@ -148,6 +165,7 @@ def update_script(script_id: str, req: ScriptUpsertRequest):
 
 @router.delete("/{script_id}")
 def delete_script(script_id: str):
+    _require_editing_enabled()
     script = _get_flat_or_404(script_id)
     code_path = Path(script.script_path)
     try:

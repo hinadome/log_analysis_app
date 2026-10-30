@@ -453,6 +453,7 @@ export default function App() {
                 onAdd={addScript}
                 onNewScript={() => setScriptEditor("new")}
                 onEditScript={(s) => setScriptEditor(s.id)}
+                canEditScripts={health?.script_editing !== false}
               />
               {(steps.length > 0 || mode === "chain") && (
                 <section className="card step">

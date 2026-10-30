@@ -13,6 +13,13 @@
 # the backend serves — the built React SPA, or the server-rendered pages
 # (no build step). The LOGSMITH_UI environment variable does the same.
 #
+# Security: binding a non-local address without LOGSMITH_TOKEN generates a
+# strong password (printed once, saved in .run/authtoken, reused across
+# restarts) — scripts run as this user, so an open server is remote code
+# execution. Set LOGSMITH_TOKEN to choose the password, or LOGSMITH_INSECURE=1
+# to run open anyway (not recommended). LOGSMITH_ALLOW_SCRIPT_EDITING=0 also
+# locks script authoring while keeping the existing scripts runnable.
+#
 # Anything else (e.g. './run.sh --port 8001') runs the foreground server with
 # the args passed through to uvicorn, exactly like before (except --ui,
 # which this script consumes).
@@ -34,7 +41,7 @@ HOST="${LOGSMITH_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 
 UI="${LOGSMITH_UI:-react}"        # frontend: react SPA or python pages (--ui)
 
 usage() {
-  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # --- small helpers ------------------------------------------------------
@@ -61,14 +68,54 @@ lan_ip() {
   echo "$ip"
 }
 
-# Warn loudly when the app is exposed beyond this machine with no password —
-# LogSmith runs scripts with the permissions of this user.
-check_exposure() {
-  if [ "$HOST" != "localhost" ] && [ "$HOST" != "127.0.0.1" ] && [ -z "${LOGSMITH_TOKEN:-}" ]; then
-    echo "  ⚠  WARNING: binding to $HOST with no LOGSMITH_TOKEN —" >&2
-    echo "     anyone who can reach this machine can run scripts as you." >&2
-    echo "     Set a password:  LOGSMITH_TOKEN='choose-one' ./run.sh start" >&2
+# Secure by default: scripts run with the permissions of this user, so a
+# non-local bind with no LOGSMITH_TOKEN would be remote code execution for
+# anyone on the network. This generates a strong password instead (reused
+# across restarts). Set LOGSMITH_TOKEN to choose your own, or
+# LOGSMITH_INSECURE=1 to run open (not recommended).
+AUTH_TOKEN_FILE="$RUN_DIR/authtoken"
+AUTH_MODE="none"   # none (local bind) | custom | generated | insecure
+AUTH_SHOW_TOKEN=0  # 1 = print the token value at startup (first generation)
+
+ensure_auth() {
+  if [ -n "${LOGSMITH_TOKEN:-}" ]; then AUTH_MODE="custom"; return 0; fi
+  if [ "$HOST" = "localhost" ] || [ "$HOST" = "127.0.0.1" ]; then return 0; fi
+  if [ "${LOGSMITH_INSECURE:-0}" = "1" ]; then AUTH_MODE="insecure"; return 0; fi
+  mkdir -p "$RUN_DIR"
+  if [ -s "$AUTH_TOKEN_FILE" ]; then
+    LOGSMITH_TOKEN="$(cat "$AUTH_TOKEN_FILE")"
+  else
+    if command -v openssl >/dev/null 2>&1; then
+      LOGSMITH_TOKEN="$(openssl rand -hex 16)"
+    else
+      LOGSMITH_TOKEN="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    fi
+    printf '%s\n' "$LOGSMITH_TOKEN" > "$AUTH_TOKEN_FILE"
+    chmod 600 "$AUTH_TOKEN_FILE" 2>/dev/null || true
+    AUTH_SHOW_TOKEN=1
   fi
+  AUTH_MODE="generated"
+  export LOGSMITH_TOKEN
+}
+
+auth_report() {
+  case "$AUTH_MODE" in
+    custom)
+      echo "Auth     ●  password required (LOGSMITH_TOKEN)" ;;
+    generated)
+      if [ "$AUTH_SHOW_TOKEN" = "1" ]; then
+        echo "Auth     ●  password required: $LOGSMITH_TOKEN"
+        echo "           generated, saved in $AUTH_TOKEN_FILE — set LOGSMITH_TOKEN to pin your own"
+      else
+        echo "Auth     ●  password required (token: cat $AUTH_TOKEN_FILE)"
+      fi
+      echo "           tip: LOGSMITH_ALLOW_SCRIPT_EDITING=0 also locks script authoring" ;;
+    insecure)
+      echo "Auth     ✗  DISABLED (LOGSMITH_INSECURE=1) — anyone who can reach this" >&2
+      echo "           machine can run scripts as you" >&2 ;;
+    none)
+      echo "Auth     ●  none (local bind only)" ;;
+  esac
 }
 
 # The TLS cert only covers localhost; other devices will see a browser warning.
@@ -84,11 +131,13 @@ cert_hint() {
   echo "  rerun with LOGSMITH_CERT_HOSTS='$example'" >&2
 }
 
-# Backend health URL for readiness checks (honors --port and LOGSMITH_HTTP).
+# Backend readiness URL for readiness checks (honors --port and LOGSMITH_HTTP).
+# /api/auth/status is exempt from authentication, so it answers even when a
+# password is required (which /api/health would not).
 health_url() {
   local scheme="https"
   [ "${LOGSMITH_HTTP:-0}" = "1" ] && scheme="http"
-  echo "$scheme://localhost:$BACKEND_PORT/api/health"
+  echo "$scheme://localhost:$BACKEND_PORT/api/auth/status"
 }
 
 # Poll a URL until it answers; warns with the log tail on timeout.
@@ -218,7 +267,7 @@ cmd_start() { # args may contain --dev and --ui python|react
   mkdir -p "$RUN_DIR"
   ensure_backend_env
   already_running_or_busy "Backend" "$BACKEND_PID" "$BACKEND_PORT"
-  check_exposure
+  ensure_auth
   cert_hint
 
   local scheme="https"
@@ -237,6 +286,7 @@ cmd_start() { # args may contain --dev and --ui python|react
   else
     echo "UI       ●  react (SPA from frontend/dist)"
   fi
+  auth_report
   local ip
   ip=$(lan_ip)
   if [ -n "$ip" ] && [ "$HOST" != "localhost" ] && [ "$HOST" != "127.0.0.1" ]; then
@@ -260,7 +310,7 @@ cmd_start() { # args may contain --dev and --ui python|react
       echo "           open $scheme://localhost:$BACKEND_PORT/api/health — Vite proxies /api to the backend"
     fi
   fi
-  echo "$mode, ui: $UI" > "$RUN_DIR/mode"
+  echo "$mode, ui: $UI, auth: $AUTH_MODE" > "$RUN_DIR/mode"
 }
 
 # --- stop ---------------------------------------------------------------
@@ -362,13 +412,14 @@ case "${1:-}" in
       echo "  ./run.sh --port 8001" >&2
       exit 1
     fi
-    check_exposure
+    ensure_auth
     cert_hint
     if [ "$UI" = "python" ]; then
       echo "UI       ●  python (server-rendered pages — no build step)"
     else
       echo "UI       ●  react (SPA from frontend/dist)"
     fi
+    auth_report
     # shellcheck disable=SC2086
     exec .venv/bin/uvicorn --app-dir backend app.main:app --host "$HOST" --port "$BACKEND_PORT" $(ssl_flags) ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
     ;;

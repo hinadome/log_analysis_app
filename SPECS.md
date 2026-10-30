@@ -155,9 +155,9 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 |---|---|
 | `GET /api/scripts` | `{"scripts": [ScriptInfo]}` — id, name, description, command, timeout, parameters, script_path, style, output_filename, error |
 | `GET /api/scripts/{id}` | code + manifest for the editor (flat style only) → `{id, extension, code, manifest}`; 404 unknown, 400 directory-style |
-| `POST /api/scripts` | create a flat-style script. Body: `{id, extension, code, manifest}` (`manifest` per §6). Errors: 409 id exists / 422 bad id (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`), empty code, bad timeout (1–86400), or invalid manifest/parameters |
-| `PUT /api/scripts/{id}` | update code and/or manifest; a changed `extension` moves the code file. 404 unknown, 400 directory-style, 422 body/path id mismatch |
-| `DELETE /api/scripts/{id}` | removes the code file and its sidecar. Job history is kept (stdout/artifacts are per-job); jobs of a deleted script can no longer be re-run (404) |
+| `POST /api/scripts` | create a flat-style script. Body: `{id, extension, code, manifest}` (`manifest` per §6). Errors: 409 id exists / 422 bad id (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`), empty code, bad timeout (1–86400), or invalid manifest/parameters / 403 when editing is locked (§8.1) |
+| `PUT /api/scripts/{id}` | update code and/or manifest; a changed `extension` moves the code file. 404 unknown, 400 directory-style, 422 body/path id mismatch, 403 when editing is locked |
+| `DELETE /api/scripts/{id}` | removes the code file and its sidecar. Job history is kept (stdout/artifacts are per-job); jobs of a deleted script can no longer be re-run (404). 403 when editing is locked |
 | `GET /api/scripts/{id}/export` | tar.gz download: code + sidecar manifest (flat) or the full directory (directory-style), plus a `RESTORE.txt` explaining where to unpack |
 
 ### Jobs
@@ -180,7 +180,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 
 | Method & Path | Description |
 |---|---|
-| `GET /api/health` | `{status, logs_dir, scripts_dir, data_dir, max_concurrent_jobs, auth_required, job_retention_days, data_dir_size}` |
+| `GET /api/health` | `{status, logs_dir, scripts_dir, data_dir, max_concurrent_jobs, auth_required, script_editing, job_retention_days, data_dir_size}` |
 
 Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
@@ -303,13 +303,27 @@ step per §4.1 rule 2.
 - `LOGSMITH_TOKEN` set → every `/api/*` route except `/api/auth/*` requires
   authentication. Two accepted credentials:
   - session cookie `logsmith_session` (HttpOnly, SameSite=Lax, Secure on
-    HTTPS) obtained via `POST /api/auth/login`
+    HTTPS) obtained via `POST /api/auth/login` (the python UI posts the same
+    check from its HTML form, then guards pages with a redirect to
+    `/login?next=…`)
   - `Authorization: Bearer <LOGSMITH_TOKEN>` for automation
-- `LOGSMITH_TOKEN` unset → auth disabled; the server logs a warning. The
-  launcher binds to all interfaces by default (`LOGSMITH_HOST` overrides) and
-  warns loudly when exposed without a token — set one for any network use.
+- `LOGSMITH_TOKEN` unset → auth disabled, and the launcher is secure by
+  default: a non-local bind generates a strong token into `.run/authtoken`
+  (printed once, reused across restarts) instead of starting open.
+  `LOGSMITH_INSECURE=1` opts out; a local bind (`LOGSMITH_HOST=127.0.0.1`)
+  skips auth entirely.
 - The SPA serves without a token; API calls failing with 401 raise a global
   event that switches the UI to the login screen.
+
+### 8.1 Script authoring lock
+
+Scripts are arbitrary code running as the server user, so the editor is
+remote code execution by design. `LOGSMITH_ALLOW_SCRIPT_EDITING=0` narrows
+that trust: `POST /api/scripts`, `PUT` and `DELETE /api/scripts/{id}` answer
+**403** (the python UI also bounces its editor pages and hides the editor
+actions), while listing, source view, export and job submission keep
+working. `/api/health` reports the state as `"script_editing": bool` so the
+UIs can adapt.
 
 ## 9. Configuration
 
@@ -323,7 +337,9 @@ step per §4.1 rule 2.
 | `LOG_PREVIEW_LINES` | `200` | default lines in log preview |
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
-| `LOGSMITH_TOKEN` | *(unset)* | UI password; unset disables auth |
+| `LOGSMITH_TOKEN` | *(unset)* | UI password; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
+| `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` = non-local bind with no password (not recommended) |
+| `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` = script write endpoints answer 403 (§8.1); existing scripts stay runnable |
 | `LOGSMITH_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages, §5.1); same as `run.sh --ui` |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation |

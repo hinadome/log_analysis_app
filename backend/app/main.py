@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth
 from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
-                     DATA_DIR, JOB_RETENTION_DAYS, UI)
+                     DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING)
 from .routers import jobs, logs, scripts
 from .services.job_store import JobStore
 
@@ -81,6 +81,7 @@ def health():
         "data_dir": str(DATA_DIR),
         "max_concurrent_jobs": MAX_CONCURRENT_JOBS,
         "auth_required": auth.auth_required(),
+        "script_editing": ALLOW_SCRIPT_EDITING,
         "job_retention_days": JOB_RETENTION_DAYS,
         "data_dir_size": _dir_size(DATA_DIR),
     }

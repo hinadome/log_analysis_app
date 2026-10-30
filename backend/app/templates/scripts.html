@@ -4,7 +4,11 @@
 {% block content %}
 <div class="page-head">
   <h1>Scripts</h1>
+  {% if allow_editing %}
   <a class="btn primary sm" href="/scripts/new">＋ New script</a>
+  {% else %}
+  <span class="muted">🔒 editing disabled on this server</span>
+  {% endif %}
 </div>
 
 <table class="list">
@@ -17,11 +21,11 @@
     <td class="muted">{{ s.parameters | length }}</td>
     <td class="muted">{{ s.style }}</td>
     <td class="row-actions">
-      {% if s.style == 'flat' %}
+      {% if s.style == 'flat' and allow_editing %}
       <a class="btn sm" href="/scripts/{{ s.id }}/edit">Edit</a>
       {% endif %}
       <a class="btn ghost sm" href="/api/scripts/{{ s.id }}/export">Export</a>
-      {% if s.style == 'flat' %}
+      {% if s.style == 'flat' and allow_editing %}
       <form method="post" action="/scripts/{{ s.id }}/delete" class="inline"
             onsubmit="return confirm('Delete script &quot;{{ s.id }}&quot;? The code and manifest files are permanently removed. Job history is kept, but jobs of this script can no longer be re-run.')">
         <button class="btn danger sm" type="submit">Delete</button>
@@ -32,5 +36,5 @@
   {% endfor %}
   </tbody>
 </table>
-<p class="muted">Directory-style scripts are managed on disk; flat scripts are editable here.</p>
+<p class="muted">{% if allow_editing %}Directory-style scripts are managed on disk; flat scripts are editable here.{% else %}Script authoring is locked (LOGSMITH_ALLOW_SCRIPT_EDITING=0) — the scripts below can be run but not changed. The operator edits files on disk.{% endif %}</p>
 {% endblock %}

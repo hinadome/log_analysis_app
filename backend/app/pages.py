@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from . import auth
-from .config import LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB
+from .config import LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB, ALLOW_SCRIPT_EDITING
 from .models import Job, JobCreateRequest, JobSpecIn, ScriptManifest, ScriptUpsertRequest
 from .routers import jobs as jobs_api
 from .routers import logs as logs_api
@@ -643,12 +643,18 @@ def job_compare(request: Request, job_id: str, other: str = ""):
 
 # --- scripts: list, editor, test-run ---------------------------------------
 
+def _editing_disabled() -> HTTPException:
+    return HTTPException(403, "Script editing is disabled on this server "
+                              "(LOGSMITH_ALLOW_SCRIPT_EDITING=0)")
+
+
 @router.get("/scripts")
 def scripts_page(request: Request):
     if redirect := _need_login(request):
         return redirect
     return _page(request, "scripts.html", nav="scripts",
-                 scripts=discover_scripts())
+                 scripts=discover_scripts(),
+                 allow_editing=ALLOW_SCRIPT_EDITING)
 
 
 def _script_form_values(sid: str) -> dict:
@@ -701,6 +707,9 @@ def _form_values_from(form) -> dict:
 def script_new(request: Request):
     if redirect := _need_login(request):
         return redirect
+    if not ALLOW_SCRIPT_EDITING:
+        return RedirectResponse("/scripts?" + urlencode(
+            {"err": "Script editing is disabled on this server"}), status_code=303)
     return _script_form_context(request, _script_form_values(""))
 
 
@@ -708,6 +717,9 @@ def script_new(request: Request):
 def script_edit(request: Request, script_id: str):
     if redirect := _need_login(request):
         return redirect
+    if not ALLOW_SCRIPT_EDITING:
+        return RedirectResponse("/scripts?" + urlencode(
+            {"err": "Script editing is disabled on this server"}), status_code=303)
     try:
         values = _script_form_values(script_id)
     except HTTPException as exc:
@@ -764,6 +776,8 @@ def _save_script(form) -> str:
 async def script_save(request: Request):
     if redirect := _need_login(request):
         return redirect
+    if not ALLOW_SCRIPT_EDITING:
+        return _render_error(request, _editing_disabled(), back="/scripts")
     form = await request.form()
     try:
         sid = _save_script(form)
@@ -784,6 +798,8 @@ async def script_test_run(request: Request):
     """
     if redirect := _need_login(request):
         return redirect
+    if not ALLOW_SCRIPT_EDITING:
+        return _render_error(request, _editing_disabled(), back="/scripts")
     form = await request.form()
     log = (form.get("log") or "").strip()
     if not log:
@@ -806,6 +822,8 @@ async def script_test_run(request: Request):
 def script_delete(request: Request, script_id: str):
     if redirect := _need_login(request):
         return redirect
+    if not ALLOW_SCRIPT_EDITING:
+        return _render_error(request, _editing_disabled(), back="/scripts")
     try:
         scripts_api.delete_script(script_id)
     except HTTPException as exc:

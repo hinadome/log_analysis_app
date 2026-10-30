@@ -395,9 +395,11 @@ deep-linkable URL. Design points:
   automation uses `Authorization: Bearer`. Comparisons are constant-time.
   Failed logins are rate-limited per client IP (5 per 60 s sliding window →
   429 with `Retry-After`); a successful login clears the counter, and the
-  Bearer path is unaffected. When unset, the server warns and runs open;
-  `run.sh` binds to all interfaces by default (`LOGSMITH_HOST` restores
-  local-only) and prints a loud exposure warning when no token is set.
+  Bearer path is unaffected. **Secure by default**: when unset and the bind
+  is non-local, the launcher generates a strong token into `.run/authtoken`
+  (gitignored, mode 600, reused across restarts) — an exposed server is
+  never open unless `LOGSMITH_INSECURE=1` says so explicitly. A local bind
+  skips auth entirely.
 - **No shell**: commands are tokenized with `shlex` but executed via `exec`
   — parameter values are literal argv tokens and can never inject syntax.
 - **Path containment**: log paths resolve strictly inside `LOGS_DIR`.
@@ -410,8 +412,15 @@ deep-linkable URL. Design points:
   id/extension-constrained names inside `SCRIPTS_DIR` — no path traversal;
   the code itself is arbitrary, which is the same trust level scripts already
   have (they run as the server user by design).
+- **Script authoring lock** (`LOGSMITH_ALLOW_SCRIPT_EDITING=0`): authoring
+  is remote code execution by design, so it can be switched off without
+  losing anything else — every write endpoint (API and both UIs) answers
+  403, reads/export/job submission keep working, and `/api/health` reports
+  `script_editing: false` so the UIs hide their editor entry points.
 - Trust boundary: scripts are **arbitrary code running as the server user**
-  by design — this is a trusted-operator tool, not multi-tenant.
+  by design — this is a trusted-operator tool, not multi-tenant. Anyone with
+  the password can run the scripts; with the lock on, that is all they can
+  do. Run the server under a dedicated non-admin account when in doubt.
 
 ## 10. Design invariants
 
@@ -467,6 +476,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
 | `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted) |
+| `test_security.py` | the script authoring lock: API writes 403 (nothing lands on disk), reads/export/job submission unaffected, python UI editor pages bounce and hide actions, health reports the flag, editor works when unlocked |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 

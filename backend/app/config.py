@@ -33,6 +33,13 @@ AUTH_TOKEN = os.environ.get("LOGSMITH_TOKEN", "").strip()
 # Auto-delete jobs older than this many days (0 = keep forever).
 JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))
 
+# Script authoring lock. When False, creating, updating or deleting
+# scripts through the UI/API is rejected with 403 — the server turns into
+# "run the vetted scripts only" for everyone who has the password. Use it
+# when other people reach this server: scripts are arbitrary code running
+# as the server user, so the editor is effectively remote code execution.
+ALLOW_SCRIPT_EDITING = os.environ.get("LOGSMITH_ALLOW_SCRIPT_EDITING", "1").strip().lower() not in ("0", "false", "no", "off")
+
 # Which frontend to serve: "react" (the built SPA in frontend/dist) or
 # "python" (server-rendered pages — see app/pages.py). run.sh exposes this
 # as `--ui python` / `--ui react`; the two frontends are mutually exclusive
