@@ -20,18 +20,30 @@ python3 tools/generate_sample_logs.py
 
 # 3a. Production-style: build the frontend once, backend serves it
 cd frontend && npm install && npm run build && cd ..
-./run.sh                                          # https://localhost:8000
+./run.sh start                                      # https://localhost:8000
 
 # 3b. Or dev mode with hot reload (frontend on :5173, proxies /api)
-.venv/bin/uvicorn --app-dir backend app.main:app --reload &
-cd frontend && npm run dev                          # http://localhost:5173
+./run.sh start --dev                                # backend + Vite together
+
+# Control (plain userland — no systemctl/root needed)
+./run.sh stop                                       # stop everything it started
+./run.sh status                                     # what's running
+./run.sh restart [--dev]                            # stop + start
+./run.sh                                            # foreground server (Ctrl+C stops)
 ```
+
+`start` runs in the background: logs append to `.run/*.log`, PIDs live in
+`.run/*.pid` (gitignored), and `stop` only kills processes this script
+started. In dev mode the backend auto-reloads on backend-code changes
+(running jobs are cancelled on reload) and Vite proxies `/api` to it.
 
 ## HTTPS
 
 `run.sh` serves the app over **https://localhost:8000**. On first start it
 generates a local certificate into `certs/` (via `tools/generate_cert.sh`) and
 reuses it on every later start — it is never regenerated while it exists.
+Dev mode (`./run.sh start --dev`) uses the same certificate, because the
+Vite proxy talks HTTPS to the backend.
 
 - **With [mkcert](https://github.com/FiloSottile/mkcert) installed**
   (`brew install mkcert`): the certificate is trusted by your browser, no

@@ -16,6 +16,9 @@ frontend/dist/
 # Python tooling caches
 .pytest_cache/
 
+# Runtime PID/log files of the control script
+.run/
+
 # OS / editor
 .DS_Store
 .rocketride/
