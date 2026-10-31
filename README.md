@@ -193,6 +193,13 @@ Vite proxy talks HTTPS to the backend.
 - **Fan-out over logs** — arm extra logs with the ＋ toggle in the log list
   and one Run submits the same scripts against each of them ("3 logs × 2
   steps = 6 jobs"), e.g. the same counter across all rotated files.
+- **Any file by path** — pick from `logs/`, or type an absolute path
+  (React: the box under the log filter; python UI: "Use a file by path")
+  and analyze any existing file on the machine LogSmith runs on —
+  `/var/log/system.log`, a big export, whatever. Previews work on it too,
+  and jobs from outside `logs/` carry the full path as their name. Scripts
+  run as your user with full filesystem access anyway, so this opens no
+  new doors.
 - **Labels & job search** — tag a submission with a label ("timeout spike
   investigation") at creation time and filter the job history by label,
   script, log, chain or free text — searched server-side (debounced) and

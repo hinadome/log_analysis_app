@@ -7,6 +7,9 @@ conftest writes into the isolated LOGS_DIR. Each test gets a fresh TestClient
 from __future__ import annotations
 
 import time
+from pathlib import Path
+
+from conftest import SAMPLE_LOG
 
 LOG = "app.log"
 
@@ -195,6 +198,46 @@ def test_atomic_validation_rejects_without_side_effects(client):
 
     # nothing was created by any failed request
     assert client.get("/api/jobs").json()["jobs"] == []
+
+
+def test_submit_with_absolute_path_outside_logs_dir(client, tmp_path):
+    """An absolute path to any existing file is a valid input: scripts run
+    as this user with full filesystem access anyway, so typing a path is
+    just another way to pick the input file."""
+    outside = (tmp_path / "elsewhere" / "system.log")
+    outside.parent.mkdir()
+    outside.write_text("2026-10-30 ERROR typed absolute path\n", encoding="utf-8")
+
+    steps = [{"script_id": "grep_search", "params": {"pattern": "typed absolute path"}}]
+    jobs = submit(client, steps, log=str(outside))
+    wait_status(client, [jobs[0]["id"]], ("completed",))
+    job = client.get(f"/api/jobs/{jobs[0]['id']}").json()
+    assert Path(job["log_path"]) == outside.resolve()
+    # the full path is the label — its base name alone would identify nothing
+    assert job["log_name"] == str(outside.resolve())
+    assert "typed absolute path" in job["stdout_tail"]
+
+    # rerun resolves the stored absolute path the same way
+    rerun = client.post(f"/api/jobs/{jobs[0]['id']}/rerun").json()["job"]
+    wait_status(client, [rerun["id"]], ("completed",))
+    assert rerun["log_name"] == str(outside.resolve())
+
+    # a logs/ file submitted by its absolute path keeps its bare name
+    jobs = submit(client, steps, log=str(SAMPLE_LOG))
+    wait_status(client, [jobs[0]["id"]], ("completed",))
+    assert client.get(f"/api/jobs/{jobs[0]['id']}").json()["log_name"] == "app.log"
+
+    # a typed path that does not exist -> 404 naming it
+    res = client.post("/api/jobs", json={
+        "log_path": "/definitely/not/here.log", "jobs": steps})
+    assert res.status_code == 404
+    assert "/definitely/not/here.log" in res.json()["detail"]
+
+    # relative names still may not escape the logs directory
+    res = client.post("/api/jobs", json={
+        "log_path": "../outside.log", "jobs": steps})
+    assert res.status_code == 400
+    assert "escapes" in res.json()["detail"]
 
 
 def test_label_and_search(client):

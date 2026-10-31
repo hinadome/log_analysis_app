@@ -7,7 +7,7 @@ Normative functional specification. Implementation details live in
 
 | Concept | Definition |
 |---|---|
-| **Log** | Any file under `LOGS_DIR` (recursive, hidden entries skipped), listed newest-first. `.gz`/`.bz2`/`.xz` logs are supported and decompressed transparently. |
+| **Log** | Any file under `LOGS_DIR` (recursive, hidden entries skipped), listed newest-first. `.gz`/`.bz2`/`.xz` logs are supported and decompressed transparently. A job's input may also be any *existing* file on the machine, reached by absolute `log_path` (§4). |
 | **Script** | An executable under `SCRIPTS_DIR` plus its manifest (or a default command derived from its extension). See §6. |
 | **Job** | One execution of one script against one input. Fully persisted; identified by `YYYYMMDD-HHMMSS-<8hex>`. |
 | **Chain** | A submission of ≥2 jobs in `mode: "chain"` that run sequentially, each step's input being the previous step's output. |
@@ -49,7 +49,7 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 |---|---|---|
 | `id` | string | `YYYYMMDD-HHMMSS-<8 hex>` |
 | `script_id` / `script_name` | string | manifest id / display name |
-| `log_path` / `log_name` | string | originally selected log (absolute / base name) |
+| `log_path` / `log_name` | string | input file: resolved absolute path / base name for a file in `LOGS_DIR`, the full path for one outside it |
 | `label` | string\|null | user tag for the submission this job belongs to |
 | `params` | object | validated parameter values |
 | `command` | string[] | final argv as executed |
@@ -175,7 +175,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | Method & Path | Description |
 |---|---|
 | `GET /api/logs` | `{"logs": [{name, path, size, modified}]}` — recursive, newest first |
-| `GET /api/logs/preview?path=…&lines=200[&tail=1]` | `lines` ≤ 2000; decompresses on the fly → `{name, path, size, compressed, lines[], truncated}`. Default reads the first lines; `tail=1` reads the last lines (backwards seek for plain files, streamed window for compressed ones) |
+| `GET /api/logs/preview?path=…&lines=200[&tail=1]` | `lines` ≤ 2000; decompresses on the fly → `{name, path, size, compressed, lines[], truncated}`. Default reads the first lines; `tail=1` reads the last lines (backwards seek for plain files, streamed window for compressed ones). `path` follows the submission rule: relative stays inside `LOGS_DIR`, absolute may point anywhere (must exist) |
 | `POST /api/logs/upload` | multipart `file` field → saves it into `LOGS_DIR` (flat) → `{saved, size, log}`. The name is reduced to a safe basename (`^[\w][\w.\- ]{0,254}$`); errors: 409 name exists / 413 over `MAX_LOG_UPLOAD_MB` / 422 empty or invalid name / 403 uploads disabled. Written as a hidden `.name.part` until complete, so partial uploads never appear in listings |
 
 ### Scripts
@@ -193,7 +193,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 
 | Method & Path | Description |
 |---|---|
-| `POST /api/jobs` | submission (§4) → `{"jobs": [Job]}`. Errors: 404 unknown script / 404 unknown log / 400 path escapes `LOGS_DIR` / 422 bad params or empty list |
+| `POST /api/jobs` | submission (§4) → `{"jobs": [Job]}`. Errors: 404 unknown script / 404 unknown log — an absolute `log_path` may point anywhere on the machine but must exist / 400 relative path escapes `LOGS_DIR` / 422 bad params or empty list |
 | `GET /api/jobs?status=…&q=…&limit=&offset=` | list jobs (newest first), optionally filtered by status (single value or comma-separated, e.g. `queued,waiting,running` for "active") and/or free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
 | `GET /api/jobs/{id}` | job detail incl. tails and `chain_steps` (§3) |
 | `GET /api/jobs/{id}/stdout` `/stderr` | full text (`text/plain`, 20 MB cap) |
@@ -223,8 +223,8 @@ missing.
 
 | Path | Description |
 |---|---|
-| `GET /` | home: log list, script checkboxes, upload form |
-| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default) |
+| `GET /` | home: log list, script checkboxes, "use a file by path" box (absolute path → run configuration), upload form |
+| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default). A `?log=` value that is an existing absolute file is kept even when the listing doesn't know it |
 | `POST /submit` | form submission: one submission per selected log (fan-out), parallel or chain; single job → 303 to its page, else 303 to the jobs list |
 | `GET /jobs?q=&status=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |

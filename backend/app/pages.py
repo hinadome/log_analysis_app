@@ -324,8 +324,13 @@ def run_page(
 
     available = {l.name: l for l in list_logs()}
     selected = _selected_logs(log, logs)
-    missing = [n for n in selected if n not in available]
-    selected = [n for n in selected if n in available]
+    # A selected entry is usable when the listing knows it, or when it is
+    # an absolute path to an existing file — the "use a file by path"
+    # escape hatch on the home page.
+    def _usable(name: str) -> bool:
+        return name in available or (Path(name).is_absolute() and Path(name).is_file())
+    missing = [n for n in selected if not _usable(n)]
+    selected = [n for n in selected if _usable(n)]
 
     all_scripts = discover_scripts()
     by_id = {s.id: s for s in all_scripts}

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 import { cx, fmtBytes, fmtDate } from "../fmt.js";
 import { Modal, StepHead } from "./ui.jsx";
@@ -9,7 +9,15 @@ export default function LogPicker({ logs, value, onSelect, fanout, onToggleFanou
   const [tail, setTail] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [customPath, setCustomPath] = useState("");
   const fileInput = useRef(null);
+  const rowSelected = useRef(null); // last log picked by clicking a row
+
+  // Keep the restore point in sync with any non-custom selection — a row
+  // click, or the auto-select after an upload (App-level state change).
+  useEffect(() => {
+    if (value && !value.custom) rowSelected.current = value;
+  }, [value]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -20,11 +28,24 @@ export default function LogPicker({ logs, value, onSelect, fanout, onToggleFanou
     setLoading(true);
     try {
       const data = await api.previewLog(log.path, 200, fromEnd);
-      setPreview({ ...data, size: log.size });
+      setPreview({ ...data, size: log.size ?? data.size });
     } catch (e) {
       setPreview({ name: log.name, lines: [String(e.message || e)], error: true });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Typing a path selects it like clicking a row would: a synthetic log
+  // whose name is the full path (what the job will carry as log_name).
+  // Clearing the box restores the last row selection.
+  const applyCustomPath = (v) => {
+    setCustomPath(v);
+    const t = v.trim();
+    if (t) {
+      onSelect({ name: t, path: t, custom: true });
+    } else {
+      onSelect(rowSelected.current);
     }
   };
 
@@ -41,6 +62,25 @@ export default function LogPicker({ logs, value, onSelect, fanout, onToggleFanou
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      <div className="custom-log">
+        <input
+          className="mono"
+          spellCheck="false"
+          autoComplete="off"
+          placeholder="…or type a path to any file on this machine — e.g. /var/log/system.log"
+          title="Overrides the selection above while filled. Absolute paths reach outside the logs directory; a relative name resolves inside it."
+          value={customPath}
+          onChange={(e) => applyCustomPath(e.target.value)}
+        />
+        <button
+          className="btn ghost sm"
+          disabled={!customPath.trim() || loading}
+          title="Check the typed path exists and peek at its first lines"
+          onClick={() => openPreview({ name: customPath.trim(), path: customPath.trim() })}
+        >
+          Preview
+        </button>
+      </div>
       <div
         className={cx("dropzone", dragging && "over")}
         onClick={() => fileInput.current?.click()}
@@ -73,7 +113,7 @@ export default function LogPicker({ logs, value, onSelect, fanout, onToggleFanou
             <div
               key={log.path}
               className={cx("log-row", { selected: value?.path === log.path, fan: isFan })}
-              onClick={() => onSelect(log)}
+              onClick={() => { rowSelected.current = log; setCustomPath(""); onSelect(log); }}
             >
               <span className={cx("radio", { on: value?.path === log.path })} />
               <span className="mono log-name">{log.name}</span>

@@ -81,6 +81,26 @@ def test_run_page_flags_missing_log(client):
     assert "No logs selected" in res.text
 
 
+def test_run_page_accepts_typed_absolute_path(client, tmp_path):
+    # the home page's "use a file by path" box: any existing file on the
+    # machine, not just what the logs listing knows
+    outside = tmp_path / "system.log"
+    outside.write_text("2026-10-30 ERROR typed absolute path\n", encoding="utf-8")
+    res = client.get("/run", params={"log": str(outside)})
+    assert res.status_code == 200
+    assert "no longer available" not in res.text
+    assert "No logs selected" not in res.text
+    # carried through as a chip and as the form's hidden log value
+    assert str(outside) in res.text
+
+
+def test_run_page_flags_missing_typed_path(client):
+    res = client.get("/run", params={"log": "/no/such/file.log"})
+    assert res.status_code == 200
+    assert "no longer available" in res.text
+    assert "No logs selected" in res.text
+
+
 # --- submission -----------------------------------------------------------
 
 def test_submit_single_job_redirects_to_detail(client):
@@ -108,6 +128,26 @@ def test_submit_single_job_redirects_to_detail(client):
     # details tab shows the command
     details_page = client.get(f"/jobs/{job_id}", params={"tab": "details"})
     assert "error_counter.py" in details_page.text
+
+
+def test_submit_typed_absolute_path_runs_on_that_file(client, tmp_path):
+    """The run page carries the typed path in its hidden inputs; the API
+    resolver accepts it, so the form flow needs no special casing."""
+    outside = tmp_path / "system.log"
+    outside.write_text("2026-10-30 ERROR typed absolute path\n", encoding="utf-8")
+    res = client.post("/submit", data={
+        "logs": str(outside), "scripts": "grep_search", "mode": "parallel",
+        "p::grep_search::pattern": "typed absolute path",
+    }, follow_redirects=False)
+    assert res.status_code == 303
+    job_id = res.headers["location"].split("/")[-1]
+
+    job = wait_done(client, job_id)
+    assert job["status"] == "completed"
+    assert Path(job["log_path"]) == outside.resolve()
+    assert job["log_name"] == str(outside.resolve())
+    # the script really read the file outside the logs directory
+    assert "typed absolute path" in job["stdout_tail"]
 
 
 def test_submit_fanout_creates_one_job_per_log(client):

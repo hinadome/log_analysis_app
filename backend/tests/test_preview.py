@@ -4,6 +4,7 @@ from __future__ import annotations
 import bz2
 import gzip
 import lzma
+from pathlib import Path
 
 import pytest
 
@@ -91,7 +92,22 @@ def test_tail_large_file_is_cheap(client):
     assert res["truncated"] is True
 
 
+def test_absolute_path_outside_logs_dir(client, tmp_path):
+    """A typed absolute path previews any file on the machine — the same
+    rule submissions follow (scripts read arbitrary paths anyway)."""
+    outside = tmp_path / "remote.log"
+    outside.write_text(CONTENT, encoding="utf-8")
+    res = client.get(_url(str(outside), lines=2)).json()
+    assert res["lines"] == ALL_LINES[:2]
+    assert res["truncated"] is True
+    assert Path(res["path"]) == outside.resolve()
+
+    res = client.get(_url(str(outside), lines=2, tail=1)).json()
+    assert res["lines"] == ALL_LINES[-2:]
+
+
 def test_preview_errors(client):
     assert client.get(_url(str(LOGS_TMP / "nope.log"))).status_code == 404
-    assert client.get(_url("/etc/passwd")).status_code == 400
+    assert client.get(_url("/no/such/absolute/path.log")).status_code == 404
+    assert client.get(_url("../outside.log")).status_code == 400
     assert client.get(_url(str(PREVIEW_LOG), lines=0)).status_code == 422

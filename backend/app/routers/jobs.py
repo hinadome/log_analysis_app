@@ -72,16 +72,33 @@ def _validate_params(script: ScriptInfo, params: dict) -> dict:
 
 
 def _resolve_log(user_path: str) -> Path:
+    """Resolve a user-supplied input path to an existing file.
+
+    Relative names resolve under LOGS_DIR and must not escape it. An
+    absolute path may point anywhere on this machine: scripts already run
+    as this user with full filesystem access, so an arbitrary input file
+    grants no new capability — it just has to exist.
+    """
     p = Path(user_path)
-    if not p.is_absolute():
-        p = LOGS_DIR / p
-    p = p.resolve()
+    if p.is_absolute():
+        p = p.resolve()
+        if not p.is_file():
+            raise HTTPException(status_code=404, detail=f"Log file not found: {user_path}")
+        return p
+    p = (LOGS_DIR / p).resolve()
     base = LOGS_DIR.resolve()
     if p != base and base not in p.parents:
         raise HTTPException(status_code=400, detail="Path escapes the logs directory")
     if not p.is_file():
         raise HTTPException(status_code=404, detail=f"Log file not found: {user_path}")
     return p
+
+
+def _display_log_name(p: Path) -> str:
+    """The label a job carries for its input: base name for a file in
+    logs/, the full path for one reached by absolute path from elsewhere
+    on the machine (its base name alone would identify nothing)."""
+    return p.name if LOGS_DIR.resolve() in p.parents else str(p)
 
 
 def _get_job_or_404(job_id: str) -> Job:
@@ -138,7 +155,7 @@ async def create_jobs(req: JobCreateRequest):
             script_id=script.id,
             script_name=script.name,
             log_path=str(log),
-            log_name=log.name,
+            log_name=_display_log_name(log),
             params=params,
             label=label,
         ), script)
@@ -316,7 +333,7 @@ async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
                 script_id=script.id,
                 script_name=script.name,
                 log_path=str(log),
-                log_name=log.name,
+                log_name=_display_log_name(log),
                 params=params,
                 label=job.label,
             ), script)
@@ -340,7 +357,7 @@ async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
         script_id=script.id,
         script_name=script.name,
         log_path=str(log),
-        log_name=log.name,
+        log_name=_display_log_name(log),
         params=params,
         label=job.label,
     )

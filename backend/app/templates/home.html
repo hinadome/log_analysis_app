@@ -48,6 +48,17 @@
   per-log “Run” link for a single log.</p>
 </form>
 
+<form method="get" action="/run" class="card">
+  <h2>Use a file by path</h2>
+  <div class="searchbar">
+    <input type="text" name="log" class="mono" spellcheck="false" autocomplete="off"
+           placeholder="/var/log/system.log — any file on this machine">
+    <button class="btn" type="submit">Run by path →</button>
+  </div>
+  <p class="muted">Absolute paths reach outside the logs directory (existence is checked when
+  the run is submitted); a relative path resolves inside it.</p>
+</form>
+
 {% if uploads_enabled %}
 <form method="post" action="/upload" enctype="multipart/form-data" class="card">
   <h2>Upload a log</h2>

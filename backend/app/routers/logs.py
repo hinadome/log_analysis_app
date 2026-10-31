@@ -33,16 +33,24 @@ _MAX_PREVIEW_CHARS = 2_000_000
 
 
 def _resolve_log(user_path: str) -> Path:
-    """Resolve a user-supplied path and ensure it stays inside LOGS_DIR."""
+    """Resolve a user-supplied path to an existing log file.
+
+    Relative names stay inside LOGS_DIR (no escapes); an absolute path
+    may point anywhere on this machine — same rule the job submitter
+    applies, so previews and submissions accept the same paths.
+    """
     p = Path(user_path)
-    if not p.is_absolute():
-        p = LOGS_DIR / p
-    p = p.resolve()
+    if p.is_absolute():
+        p = p.resolve()
+        if not p.is_file():
+            raise HTTPException(status_code=404, detail=f"Log file not found: {user_path}")
+        return p
+    p = (LOGS_DIR / p).resolve()
     base = LOGS_DIR.resolve()
     if p != base and base not in p.parents:
         raise HTTPException(status_code=400, detail="Path escapes the logs directory")
     if not p.is_file():
-        raise HTTPException(status_code=404, detail="Log file not found")
+        raise HTTPException(status_code=404, detail=f"Log file not found")
     return p
 
 

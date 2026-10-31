@@ -40,7 +40,7 @@ Identical rules for every language:
 
 | What your script gets | Value |
 |---|---|
-| Input path | first argument after the script — also `JOB_LOG_PATH` in the environment |
+| Input path | first argument after the script — also `JOB_LOG_PATH` in the environment. Usually a file from `logs/`, but the user may submit any absolute path, so it can be a file elsewhere on the machine |
 | Parameters | CLI flags spelled exactly as the manifest's `flag` fields |
 | Booleans | the bare flag when true, **absent** when false (never `--flag false`) |
 | Integers | always rendered, even when `0` |

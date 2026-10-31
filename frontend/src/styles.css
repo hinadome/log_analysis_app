@@ -83,6 +83,13 @@ body {
   border-radius: 6px; padding: 8px 12px; font-size: 13px; outline: none;
 }
 .search:focus { border-color: var(--accent); }
+.custom-log { display: flex; gap: 8px; margin-bottom: 12px; }
+.custom-log input {
+  flex: 1;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 8px 12px; font-size: 12px; outline: none;
+}
+.custom-log input:focus { border-color: var(--accent); }
 .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow: auto; }
 .log-row {
   display: flex; align-items: center; gap: 12px;
