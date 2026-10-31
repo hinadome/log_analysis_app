@@ -317,6 +317,11 @@ ones on disk, except that the editor writes the code file **executable**
 Scripts written by hand need `chmod +x` for that; run through an
 interpreter (`bash {script} {log}`) they need neither.
 
+The `{log}` argument is always the plain, uncompressed input: `.gz`/`.bz2`/
+`.xz` logs (and compressed outputs of a previous chain step) are
+decompressed before your script runs, so no script ever needs to handle
+compression.
+
 ```jsonc
 {
   "name": "Error Counter",              // shown in the UI

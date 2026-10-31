@@ -306,7 +306,9 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
             <input className="editor-input mono" value={form.command} onChange={set("command")}
                   placeholder={`${form.extension === "py" ? "python3" : "bash"} {script} {log} {args}`} />
             <span className="field-hint">
-              Placeholders: {"{script}"} {"{log}"} {"{output}"} {"{args}"} — leave empty for the default
+              Placeholders: {"{script}"} {"{log}"} {"{output}"} {"{args}"} — {"{log}"} is always
+              the plain, uncompressed input (.gz/.bz2/.xz are decompressed first) — leave empty
+              for the default
             </span>
           </label>
           <label className="editor-field span-2">

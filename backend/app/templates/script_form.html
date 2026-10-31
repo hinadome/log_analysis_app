@@ -27,9 +27,11 @@
   <label>Description <input type="text" name="description" value="{{ values.description }}"></label>
   <label>Category <span class="muted">(optional — groups the script under a filter chip, e.g. “web”)</span>
     <input type="text" name="category" value="{{ values.category }}" placeholder="web"></label>
-  <label>Command <span class="muted">({{ '{script}' }}, {{ '{log}' }}, {{ '{output}' }} and {{ '{param}' }} placeholders; empty = the extension's default)</span>
+  <label>Command <span class="muted">({{ '{script}' }}, {{ '{log}' }}, {{ '{output}' }} and {{ '{args}' }} placeholders; empty = the extension's default)</span>
     <input type="text" name="command" value="{{ values.command }}" class="mono">
   </label>
+  <p class="muted">{{ '{log}' }} is always the plain, uncompressed input — .gz/.bz2/.xz logs
+    (and compressed chain outputs) are decompressed before your script runs.</p>
   <label>Output filename <span class="muted">(optional — declares an {{ '{output}' }} artifact)</span>
     <input type="text" name="output_filename" value="{{ values.output_filename }}" class="mono">
   </label>

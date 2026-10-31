@@ -302,7 +302,7 @@ simply have no chip. An empty value is never written to the manifest.
 | Placeholder | Expands to |
 |---|---|
 | `{script}` | absolute path of the script |
-| `{log}` | absolute path of the input — the selected log, or in a chain the previous step's output (decompressed copy for `.gz`/`.bz2`/`.xz`) |
+| `{log}` | absolute path of the input — the selected log, or in a chain the previous step's output. Always a **plain, uncompressed** file: `.gz`/`.bz2`/`.xz` sources are transparently decompressed first (one shared cache copy per source, §4) |
 | `{output}` | `<job>/outputs/<output_filename>` — set when the command contains it |
 | `{args}` | rendered CLI flags from validated parameters |
 
