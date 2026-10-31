@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from ..config import LOGS_DIR, STDOUT_TAIL_BYTES, JOB_RETENTION_DAYS
 from ..models import Job, JobCreateRequest, ScriptInfo
+from ..services import decompress_cache
 from ..services.executor import Executor
 from ..services.job_store import JobStore
 from ..services.scanner import discover_scripts
@@ -220,6 +221,12 @@ def get_job_input(job_id: str):
     pruned job data).
     """
     job = _get_job_or_404(job_id)
+    if job.status == "waiting":
+        # A waiting chain step has no input yet — and the shared decompressed
+        # cache may already hold the *log's* copy from a sibling job, which
+        # must not leak in as this step's input (it will read the previous
+        # step's output, not the log).
+        raise HTTPException(status_code=404, detail="Input file is not available")
     path = executor.input_path(job)
     text = store.read_path(path) if path else None
     if text is None:
@@ -372,7 +379,9 @@ def prune_jobs(days: int | None = Query(None, ge=1, le=3650)):
     if effective <= 0:
         raise HTTPException(status_code=400, detail="Retention is disabled (JOB_RETENTION_DAYS=0); pass ?days=N")
     removed = store.prune(effective)
-    return {"removed": removed, "retention_days": effective}
+    cache_removed = decompress_cache.prune()
+    return {"removed": removed, "retention_days": effective,
+            "cache_removed": cache_removed}
 
 
 @router.get("/{job_id}/events")

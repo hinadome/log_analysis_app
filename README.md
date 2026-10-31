@@ -172,7 +172,11 @@ Vite proxy talks HTTPS to the backend.
   image and point `LOGSMITH_SANDBOX_IMAGE` at your tag when scripts need
   extra libraries.
 - **gzip logs** — `.gz`, `.bz2` and `.xz` logs are transparently decompressed
-  before scripts run, and preview correctly in the UI.
+  before scripts run, and preview correctly in the UI. The decompressed copy
+  is **shared**: one per unique source file (under `data/cache/decompressed/`)
+  no matter how many scripts read it, so a fan-out on one `.gz` costs a
+  single decompression instead of one copy per job. Deleting the log (or
+  the 🧹 Prune button) reclaims its copy.
 - **Job retention** — `JOB_RETENTION_DAYS` auto-deletes old jobs at startup
   (0 = off); the Jobs panel has a manual 🧹 Prune button and shows storage use.
 - **Chain mode (pipelines)** — submit the same scripts as an ordered chain:

@@ -447,6 +447,9 @@ A step that produces nothing at all fails the next one with
 
 Compressed intermediates are handled for you: if a step's output is a
 `.gz`/`.bz2`/`.xz` file, it is decompressed before the next step reads it.
+The decompressed copy is shared — one per unique source file, not one per
+job — so fanning out several scripts on one compressed log costs a single
+decompression.
 
 ### What each step sees
 

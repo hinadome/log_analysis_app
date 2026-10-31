@@ -595,9 +595,10 @@ async def jobs_prune(request: Request):
     except (ValueError, HTTPException) as exc:
         detail = str(getattr(exc, "detail", exc))
         return RedirectResponse("/jobs?" + urlencode({"err": detail}), status_code=303)
-    return RedirectResponse(
-        "/jobs?" + urlencode({"msg": f"Pruned {result['removed']} job(s) older than {days}d"}),
-        status_code=303)
+    msg = f"Pruned {result['removed']} job(s) older than {days}d"
+    if result.get("cache_removed"):
+        msg += f"; freed {result['cache_removed']} decompressed cache file(s)"
+    return RedirectResponse("/jobs?" + urlencode({"msg": msg}), status_code=303)
 
 
 # --- job detail ------------------------------------------------------------

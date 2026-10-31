@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 
 from conftest import make_job, make_script, patch_script_lookup
 from test_executor import wait_for
@@ -42,8 +43,9 @@ def test_chain_artifact_flow_and_decompression(store, executor, monkeypatch, tmp
 
         assert d1.output_files == ["filtered.log.gz"]
         assert d2.input_source == "prev_output"
-        # the compressed artifact was materialized as a decompressed copy
-        assert (store.job_dir(j2.id) / "input.log").read_text() == log.read_text()
+        # the compressed artifact was materialized as a shared decompressed copy
+        assert d2.decompressed_path is not None
+        assert Path(d2.decompressed_path).read_text() == log.read_text()
         assert (store.job_dir(j2.id) / "stdout.txt").read_text() == log.read_text()
 
     asyncio.run(main())

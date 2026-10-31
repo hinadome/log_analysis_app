@@ -61,6 +61,7 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 | `output_files` | string[] | artifact file names |
 | `chain_id` | string\|null | set for chain steps |
 | `chain_index` / `chain_size` | int | 0-based position / total steps |
+| `decompressed_path` | string\|null | cache path of the shared decompressed copy, for compressed inputs |
 | `input_source` | string\|null | `log` \| `prev_output` \| `prev_stdout` |
 | `input_path` | string\|null | the file `{log}` resolved to |
 | `output_file` | string\|null | `{output}` target, when declared |
@@ -119,8 +120,13 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
    else its `stdout.txt` (only when non-empty). If none exists, the next
    step fails with `Previous step produced no output to chain`.
 3. Compressed inputs (`.gz`/`.bz2`/`.xz` — the selected log **or** a chained
-   output) are decompressed into the step's own `input.log` before the
-   script runs; scripts always receive a plain path.
+   output) are read from the shared decompressed cache before the script
+   runs; scripts always receive a plain path. The cache holds one copy per
+   unique source version (path + size + mtime) under
+   `data/cache/decompressed/`, shared by every job, rerun and the Input
+   tab — a fan-out of N scripts on one `.gz` decompresses once, not N
+   times. Entries are garbage-collected at startup and on manual prune
+   when their source is gone or changed.
 4. Commands for steps 2+ are rendered lazily at start time (the input file
    does not exist before then).
 5. A step that ends `failed` or `cancelled` stops the chain; every later
@@ -197,13 +203,13 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | `GET /api/jobs?status=…&q=…&limit=&offset=` | list jobs (newest first), optionally filtered by status (single value or comma-separated, e.g. `queued,waiting,running` for "active") and/or free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
 | `GET /api/jobs/{id}` | job detail incl. tails and `chain_steps` (§3) |
 | `GET /api/jobs/{id}/stdout` `/stderr` | full text (`text/plain`, 20 MB cap) |
-| `GET /api/jobs/{id}/input` | the exact input this job's script received — the selected log, or for chain steps the previous step's output (compressed sources served decompressed). `text/plain`, 20 MB cap; 404 when the source file is gone |
+| `GET /api/jobs/{id}/input` | the exact input this job's script received — the selected log, or for chain steps the previous step's output (compressed sources served decompressed). `text/plain`, 20 MB cap; 404 while the step is still waiting, and when the source file is gone |
 | `GET /api/jobs/{id}/files/{name}` | download an artifact (name must be a single path segment) |
 | `GET /api/jobs/{id}/events` | SSE: `{"type":"status", status, error, exit_code, started_at, finished_at, stdout_size, stderr_size, output_files, stderr_tail}` and `{"type":"stdout","text"}` deltas; ends with `{"type":"gone"}` if the job is deleted. Stays open while `queued`/`running`/`waiting` |
 | `POST /api/jobs/{id}/cancel` | chain job → cancels whole chain; single job → kills it. 409 if nothing active |
 | `POST /api/jobs/{id}/rerun` | new job / new chain with the same config → `{"job": …}`; chains accept `?from_step=N` (§4.2). Errors: 404 if a script no longer exists / 400 bad `from_step` / 409 unseedable predecessor |
 | `DELETE /api/jobs/{id}` | cancels a live chain first when applicable, then deletes the record |
-| `POST /api/jobs/prune?days=N` | deletes job records older than N days (1–3650) → `{"removed", "retention_days"}`; 400 when retention is disabled and no `days` given |
+| `POST /api/jobs/prune?days=N` | deletes job records older than N days (1–3650) → `{"removed", "retention_days", "cache_removed"}` (files dropped from the shared decompressed cache); 400 when retention is disabled and no `days` given | |
 
 ### Meta
 
@@ -365,7 +371,11 @@ runtime contract above are unchanged, with these differences:
 - `JOB_RETENTION_DAYS` (default `0` = disabled) auto-deletes job records
   older than N days **at startup only** — never while running.
 - Manual pruning: `POST /api/jobs/prune?days=N` (requires `days` when
-  retention is disabled) and the 🧹 button in the Jobs panel.
+  retention is disabled) and the 🧹 button in the Jobs panel. Pruning also
+  garbage-collects the shared decompressed cache: entries whose source log
+  is gone or changed are removed, so deleting a log reclaims its
+  decompressed copy (entries for unchanged sources stay — reruns read them
+  for free).
 
 ## 8. Authentication
 

@@ -103,6 +103,12 @@ class Job(BaseModel):
     chain_id: str | None = None
     chain_index: int = 0
     chain_size: int = 0
+
+    # Cache path of the decompressed copy this job reads, for a compressed
+    # input (the selected log or a previous step's compressed artifact).
+    # Memoized at submit time so the spawned command, the materialized file
+    # and the Input tab always agree even if the source changes underneath.
+    decompressed_path: str | None = None
     input_source: str | None = None  # "log" | "prev_output" | "prev_stdout"
     input_path: str | None = None     # actual file the {log} placeholder resolved to
     output_file: str | None = None    # {output} artifact target, when declared

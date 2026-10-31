@@ -29,10 +29,7 @@ and killing a job kills the container, not just the docker CLI.
 from __future__ import annotations
 
 import asyncio
-import bz2
 import errno
-import gzip
-import lzma
 import os
 import shlex
 import shutil
@@ -41,16 +38,13 @@ from pathlib import Path
 
 from ..config import MAX_CONCURRENT_JOBS, DOCKER_SANDBOX, SANDBOX_IMAGE, SANDBOX_MEMORY
 from ..models import Job, ScriptInfo
+from .decompress_cache import DECOMPRESSORS, cache_target, decompress
 from .job_store import JobStore, utcnow
 from .scanner import discover_scripts
 
 _READ_CHUNK = 65536
 
-_DECOMPRESSORS = {
-    ".gz": gzip.open,
-    ".bz2": bz2.open,
-    ".xz": lzma.open,
-}
+_DECOMPRESSORS = DECOMPRESSORS  # shared with the decompressed-input cache
 
 # Sandbox containers are named after their job so a timeout or cancel can
 # stop the container itself, not just the docker CLI (see _terminate).
@@ -222,6 +216,7 @@ class Executor:
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
         self._tasks: dict[str, asyncio.Task] = {}
         self._procs: dict[str, asyncio.subprocess.Process] = {}
+        self._decompress_locks: dict[Path, asyncio.Lock] = {}
         self._cancelling: set[str] = set()
         # Chains with a cancellation in flight. The flag is set before any
         # killing starts so that a step completing mid-cancel cannot hand
@@ -243,8 +238,8 @@ class Executor:
         """Render the command, persist it, and schedule the job.
 
         Compressed inputs (.gz/.bz2/.xz logs *and* compressed outputs of a
-        previous chain step) are referenced as a decompressed copy
-        (job_dir/input.log) that _run materializes before the script starts.
+        previous chain step) are referenced through the shared decompressed
+        cache, which _run materializes before the script starts.
         """
         out_dir = self._store.outputs_dir(job.id)
         output_path = None
@@ -298,26 +293,45 @@ class Executor:
     def input_path(self, job: Job) -> Path:
         """Path scripts should read: chained input, decompressed copy, or the log.
 
-        Both the selected log and a previous step's chained output are
-        decompressed into job_dir/input.log when they are .gz/.bz2/.xz —
-        a compressed chain output must never be piped raw into a script.
+        Both the selected log and a previous step's compressed artifact are
+        read from the shared decompressed cache — one copy per unique source
+        (path + size + mtime), shared by every job, rerun and the Input tab.
+        The computed path is memoized on the job so the spawned command, the
+        materialized file and the Input tab always agree even if the source
+        changes underneath (a changed source simply gets a new cache entry).
         """
-        source = job.input_path or job.log_path
-        if _is_compressed(source):
+        source = Path(job.input_path or job.log_path)
+        if not _is_compressed(source):
+            return source
+        if job.decompressed_path:
+            return Path(job.decompressed_path)
+        try:
+            target = cache_target(source)
+        except OSError:
+            # Source vanished since validation — keep the old per-job name;
+            # materialization then fails the job with the reason.
             return self._store.job_dir(job.id) / "input.log"
-        return Path(source)
+        job.decompressed_path = str(target)
+        return target
 
-    def _materialize_input(self, job: Job) -> None:
-        """Decompress a compressed input into job_dir/input.log if needed."""
+    async def _materialize_input(self, job: Job) -> None:
+        """Ensure the shared decompressed copy of a compressed input exists.
+
+        Concurrent jobs on the same source (a fan-out on one .gz) share one
+        asyncio lock per cache path, so the file is decompressed once, off
+        the event loop, and the rest find it already there.
+        """
         source = Path(job.input_path or job.log_path)
         opener = _DECOMPRESSORS.get(source.suffix.lower())
         if opener is None:
             return
-        target = self._store.job_dir(job.id) / "input.log"
+        target = self.input_path(job)
         if target.exists():
             return
-        with opener(source, "rb") as src, target.open("wb") as dst:
-            shutil.copyfileobj(src, dst, _READ_CHUNK)
+        lock = self._decompress_locks.setdefault(target, asyncio.Lock())
+        async with lock:
+            if not target.exists():  # a concurrent job made it while we waited
+                await asyncio.to_thread(decompress, source, opener, target)
 
     # -- chain advancement -------------------------------------------------
     def chain_output(self, job: Job) -> tuple[Path | None, str | None]:
@@ -523,7 +537,7 @@ class Executor:
                 self._store.save(job)
 
                 try:
-                    self._materialize_input(job)
+                    await self._materialize_input(job)
                 except Exception as exc:
                     job.status = "failed"
                     job.error = f"Failed to decompress input: {exc}"

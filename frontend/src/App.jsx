@@ -406,7 +406,9 @@ export default function App() {
     if (!days || days < 1) return;
     try {
       const res = await api.pruneJobs(days);
-      setToast({ kind: "ok", text: `Pruned ${res.removed} job(s) older than ${days} day(s)` });
+      const cache = res.cache_removed
+        ? ` · freed ${res.cache_removed} decompressed cache file(s)` : "";
+      setToast({ kind: "ok", text: `Pruned ${res.removed} job(s) older than ${days} day(s)${cache}` });
       refreshJobs();
       api.health().then(setHealth).catch(() => {});
     } catch (e) {

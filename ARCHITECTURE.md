@@ -164,12 +164,16 @@ previous-step output identically:
 
 ```
 source = job.input_path or job.log_path
-if source is .gz/.bz2/.xz → decompress once into <job>/input.log
+if source is .gz/.bz2/.xz → read the shared cache copy (data/cache/decompressed/)
 else                        → use the file directly
 ```
 
 A compressed input is therefore **never** handed to a script raw — whether it
-is the originally selected log or step N−1's gzipped artifact.
+is the originally selected log or step N−1's gzipped artifact. The cache
+keeps one decompressed copy per unique source version (path + size + mtime),
+shared by every job and rerun, so a fan-out of N scripts on one `.gz` costs
+one copy — not N. Entries carry a sidecar naming their source; startup and
+manual prune drop the ones whose source is gone or changed.
 
 ### 3.3 Script runtime contract
 
@@ -310,8 +314,11 @@ data/jobs/20261029-110333-88914512/     # id = timestamp + 8 hex chars
 ├── job.json        # the full Job record, rewritten on every transition
 ├── stdout.txt      # streamed as the script runs
 ├── stderr.txt
-├── input.log       # decompressed copy — only for compressed inputs
 └── outputs/        # script cwd; artifacts served via /api/jobs/{id}/files/
+
+data/cache/decompressed/                # shared decompressed copies (.gz/.bz2/.xz)
+├── <key>.log       # one per unique source version (path + size + mtime)
+└── <key>.json      # sidecar naming the source, for garbage collection
 ```
 
 `list()` scans directories and returns parsed jobs sorted newest-first. To

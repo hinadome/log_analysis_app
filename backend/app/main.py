@@ -19,6 +19,7 @@ from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
                      DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING,
                      DOCKER_SANDBOX, SANDBOX_IMAGE)
 from .routers import jobs, logs, scripts
+from .services import decompress_cache
 from .services.job_store import JobStore
 
 jobs_store: JobStore = jobs.store
@@ -37,6 +38,11 @@ async def lifespan(app: FastAPI):
     removed = jobs_store.prune(JOB_RETENTION_DAYS)
     if removed:
         print(f"job retention: removed {removed} job(s) older than {JOB_RETENTION_DAYS} day(s)")
+    # Drop decompressed-cache entries whose source log is gone or changed;
+    # entries for still-valid sources stay so reruns on them stay free.
+    cache_removed = decompress_cache.prune()
+    if cache_removed:
+        print(f"decompressed cache: removed {cache_removed} stale file(s)")
     if not auth.auth_required():
         print("WARNING: LOGSMITH_TOKEN is not set — running without authentication.")
     if DOCKER_SANDBOX:

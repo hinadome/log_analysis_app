@@ -10,6 +10,7 @@ import bz2
 import gzip
 import lzma
 import time
+from pathlib import Path
 
 import pytest
 
@@ -122,9 +123,38 @@ def test_compressed_log_is_decompressed(store, executor, tmp_path, suffix):
         executor.submit(job, script)
         done = await wait_for(store, job.id, ("completed", "failed"))
         assert done.status == "completed", done.error
-        decompressed = store.job_dir(job.id) / "input.log"
+        # the shared cache copy, memoized on the job at submit time
+        assert done.decompressed_path is not None
+        decompressed = Path(done.decompressed_path)
         assert decompressed.read_text() == payload
         assert (store.job_dir(job.id) / "stdout.txt").read_text() == payload
+
+    asyncio.run(main())
+
+
+def test_compressed_log_shares_one_decompressed_copy(store, executor, tmp_path):
+    """A fan-out on one .gz decompresses once: every job reads the same
+    cache file — not a per-job input.log — and the entry carries its sidecar
+    so prune can garbage-collect it when the source changes or disappears."""
+
+    async def main():
+        payload = "alpha\nbeta\ngamma\n"
+        compressed = tmp_path / "shared.log.gz"
+        write_compressed(compressed, payload)
+        script = make_script("cat", "cat {log}")
+        jobs_ = [make_job(store, script, str(compressed)) for _ in range(2)]
+        for job in jobs_:
+            executor.submit(job, script)
+        for job in jobs_:
+            done = await wait_for(store, job.id, ("completed", "failed"))
+            assert done.status == "completed", done.error
+            assert job.decompressed_path is not None
+        first, second = (Path(j.decompressed_path) for j in jobs_)
+        assert first == second                          # one shared copy
+        assert first.read_text() == payload
+        assert first.with_suffix(".json").is_file()     # sidecar for GC
+        # nothing per-job anymore
+        assert not (store.job_dir(jobs_[0].id) / "input.log").exists()
 
     asyncio.run(main())
 
