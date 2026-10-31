@@ -409,7 +409,7 @@ UIs can adapt.
 | `LOGSMITH_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
 | `LOGSMITH_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages, §5.1); same as `run.sh --ui` |
-| `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation |
+| `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation (`run.sh --cert-hostname names` regenerates the certificate with them) |
 | `JOB_RETENTION_DAYS` | `0` | startup auto-delete window (0 = keep forever) |
 
 All variables are read once at process start; restart to apply changes.

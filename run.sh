@@ -13,6 +13,13 @@
 # the backend serves — the built React SPA, or the server-rendered pages
 # (no build step). The LOGSMITH_UI environment variable does the same.
 #
+#   --cert-hostname host(s)  regenerate the TLS certificate covering the
+#                            given hostname(s) — comma-separated for
+#                            several, e.g. --cert-hostname myserver.local,192.168.1.5
+#                            (the localhost SANs are always included too).
+#                            Normally a certificate is generated once and
+#                            kept; passing this option replaces it.
+#
 # Security: binding a non-local address without LOGSMITH_TOKEN generates a
 # strong password (printed once, saved in .run/authtoken, reused across
 # restarts) — scripts run as this user, so an open server is remote code
@@ -48,9 +55,10 @@ FRONTEND_PORT=5173
 BACKEND_PORT=8000  # overridden by --port in start/foreground modes
 HOST="${LOGSMITH_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 to go back to local-only)
 UI="${LOGSMITH_UI:-react}"        # frontend: react SPA or python pages (--ui)
+CERT_HOSTNAMES=""                 # --cert-hostname: regenerate the TLS cert for these names
 
 usage() {
-  sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # --- small helpers ------------------------------------------------------
@@ -176,14 +184,16 @@ sandbox_report() {
 # The TLS cert only covers localhost; other devices will see a browser warning.
 cert_hint() {
   if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then return 0; fi
+  [ -n "$CERT_HOSTNAMES" ] && return 0  # just regenerated with explicit names
   if [ "$HOST" = "localhost" ] || [ "$HOST" = "127.0.0.1" ]; then return 0; fi
   local example="my-machine.local"
   local ip
   ip=$(lan_ip)
   [ -n "$ip" ] && example="$ip,my-machine.local"
   echo "  Note: the TLS certificate only covers localhost — other devices" >&2
-  echo "  will show a browser warning. To include them: delete certs/ and" >&2
-  echo "  rerun with LOGSMITH_CERT_HOSTS='$example'" >&2
+  echo "  will show a browser warning. To include them:" >&2
+  echo "    ./run.sh restart --cert-hostname '$example'" >&2
+  echo "  (or set LOGSMITH_CERT_HOSTS='$example' and delete certs/)" >&2
 }
 
 # Backend readiness URL for readiness checks (honors --port and LOGSMITH_HTTP).
@@ -281,6 +291,39 @@ scan_host() {
   done
 }
 
+# Pick up '--cert-hostname host(s)' from the args (comma-separated names).
+scan_cert_hostname() {
+  local args=("$@") i
+  for ((i = 0; i < $#; i++)); do
+    if [ "${args[$i]}" = "--cert-hostname" ]; then
+      if [ $((i + 1)) -ge $# ] || [ -z "${args[$((i + 1))]}" ]; then
+        echo "Error: --cert-hostname needs a hostname, e.g. --cert-hostname myserver.local." >&2
+        exit 1
+      fi
+      CERT_HOSTNAMES="${args[$((i + 1))]}"
+    fi
+  done
+}
+
+# --cert-hostname: the explicit "regenerate my certificate" path. The cert
+# is normally created once and never replaced (ssl_flags/generate_cert.sh);
+# this deletes it first so the next ssl_flags call makes a fresh one, with
+# the given names merged into LOGSMITH_CERT_HOSTS (which adds the SANs).
+ensure_cert() {
+  [ -n "$CERT_HOSTNAMES" ] || return 0
+  if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then
+    echo "Error: --cert-hostname has no effect with LOGSMITH_HTTP=1 —" >&2
+    echo "       HTTP mode serves no certificate." >&2
+    exit 1
+  fi
+  if [ -n "${LOGSMITH_CERT_HOSTS:-}" ]; then
+    CERT_HOSTNAMES="${LOGSMITH_CERT_HOSTS},${CERT_HOSTNAMES}"
+  fi
+  export LOGSMITH_CERT_HOSTS="$CERT_HOSTNAMES"
+  rm -f certs/localhost.pem certs/localhost-key.pem
+  echo "TLS      ●  regenerating certificate for: $CERT_HOSTNAMES (localhost SANs stay included)"
+}
+
 # Pick up '--ui python|react' from the args (LOGSMITH_UI works too).
 scan_ui() {
   local prev=""
@@ -296,14 +339,17 @@ scan_ui() {
   export LOGSMITH_UI="$UI"
 }
 
-# The args left for uvicorn after '--ui X' pairs are removed (uvicorn would
-# reject the unknown flag). Bash 3.2-safe: fills the PASSTHROUGH array.
-strip_ui() {
+# The args left for uvicorn after this script's own flags ('--ui X',
+# '--cert-hostname H') are removed (uvicorn would reject the unknown
+# options). Bash 3.2-safe: fills the PASSTHROUGH array.
+strip_ours() {
   PASSTHROUGH=()
   local skip_next=0
   for arg in "$@"; do
     if [ "$skip_next" = "1" ]; then skip_next=0; continue; fi
-    if [ "$arg" = "--ui" ]; then skip_next=1; continue; fi
+    case "$arg" in
+      --ui|--cert-hostname) skip_next=1; continue ;;
+    esac
     PASSTHROUGH+=("$arg")
   done
 }
@@ -359,12 +405,14 @@ cmd_start() { # args may contain --dev and --ui python|react
   scan_port "$@"
   scan_host "$@"
   scan_ui "$@"
+  scan_cert_hostname "$@"
   mkdir -p "$RUN_DIR"
   already_running_or_busy "Backend" "$BACKEND_PID" "$BACKEND_PORT"
   ensure_backend_env
   ensure_node_modules
   ensure_auth
   ensure_sandbox
+  ensure_cert
   cert_hint
 
   local scheme="https"
@@ -496,7 +544,8 @@ case "${1:-}" in
     scan_port "$@"
     scan_host "$@"
     scan_ui "$@"
-    strip_ui "$@"
+    scan_cert_hostname "$@"
+    strip_ours "$@"
     if command -v lsof >/dev/null 2>&1 && port_busy "$BACKEND_PORT"; then
       PID="$(lsof -ti ":$BACKEND_PORT" | head -1)"
       echo "Error: port $BACKEND_PORT is already in use by PID $PID:" >&2
@@ -514,6 +563,7 @@ case "${1:-}" in
     fi
     ensure_auth
     ensure_sandbox
+    ensure_cert
     cert_hint
     if [ "$UI" = "python" ]; then
       echo "UI       ●  python (server-rendered pages — no build step)"

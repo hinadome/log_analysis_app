@@ -98,8 +98,17 @@ Vite proxy talks HTTPS to the backend.
   a one-time "not private" warning — proceed or install mkcert.
 - **From other devices** (the server binds all interfaces by default): the
   certificate only covers `localhost`, so other machines see a browser
-  warning. To include them, delete `certs/` and regenerate with their address:
-  `LOGSMITH_CERT_HOSTS='192.168.1.50,my-mac.local' ./run.sh start`.
+  warning. To include them, regenerate it for their address:
+
+  ```bash
+  ./run.sh restart --cert-hostname '192.168.1.50,my-mac.local'
+  ```
+
+  The option explicitly replaces the existing certificate (the `localhost`
+  SANs stay included; hostnames become DNS SANs, dotted quads become IP
+  SANs) — the only way to regenerate one, since a certificate is otherwise
+  kept forever once generated. The `LOGSMITH_CERT_HOSTS` environment
+  variable adds the same names when a certificate is first generated.
 - Plain HTTP is disabled when HTTPS is on. Set `LOGSMITH_HTTP=1 ./run.sh` to
   fall back to HTTP.
 - Running uvicorn manually with TLS:
