@@ -27,6 +27,7 @@ class ScriptManifest(BaseModel):
 
     name: str = ""
     description: str = ""
+    category: str = ""  # optional grouping label, e.g. "web" — pickers offer it as a filter
     command: str = ""
     timeout: int = 600
     parameters: list[ParamSpec] = Field(default_factory=list)
@@ -40,6 +41,7 @@ class ScriptInfo(BaseModel):
     id: str
     name: str
     description: str = ""
+    category: str = ""
     command: str
     timeout: int
     parameters: list[ParamSpec] = Field(default_factory=list)

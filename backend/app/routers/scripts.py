@@ -104,7 +104,10 @@ def _validate(req: ScriptUpsertRequest) -> dict:
         raise HTTPException(status_code=422, detail="Script code is empty")
     if not (1 <= req.manifest.timeout <= 86400):
         raise HTTPException(status_code=422, detail="timeout must be 1–86400 seconds")
+    req.manifest.category = req.manifest.category.strip()
     manifest = req.manifest.model_dump(exclude_none=True)
+    if not manifest["category"]:
+        del manifest["category"]  # keep manifest files free of empty labels
     if not manifest.get("command", "").strip():
         manifest["command"] = _DEFAULT_COMMAND[req.extension]
     return manifest
@@ -128,6 +131,7 @@ def get_script_source(script_id: str):
         "manifest": {
             "name": script.name,
             "description": script.description,
+            "category": script.category,
             "command": script.command,
             "timeout": script.timeout,
             "parameters": [p.model_dump(exclude_none=True) for p in script.parameters],

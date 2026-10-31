@@ -368,6 +368,22 @@ def test_editor_save_normalizes_crlf(client, scripts_dir):
     wait_status(client, [jobs[0]["id"]], ("completed",))
 
 
+def test_category_round_trip_and_default_absent(client, scripts_dir):
+    """The optional manifest category groups scripts under a picker filter
+    chip; scripts without one report "" and keep the key out of the file."""
+    client.post("/api/scripts", json=_body("catlog", category="web"))
+    client.post("/api/scripts", json=_body("nocat"))
+    listed = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+    assert listed["catlog"]["category"] == "web"
+    assert listed["nocat"]["category"] == ""
+
+    # the editor source round-trips it (so editing never drops the label)
+    src = client.get("/api/scripts/catlog").json()
+    assert src["manifest"]["category"] == "web"
+    # and an empty one is not written into the manifest file
+    assert "category" not in json.loads((scripts_dir / "nocat.json").read_text())
+
+
 def test_chain_first_step_preflight_skips_the_rest(client, scripts_dir):
     """When a chain's first step cannot start, the later steps are
     skipped — not left waiting forever."""

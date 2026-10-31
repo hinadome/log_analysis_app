@@ -48,6 +48,7 @@ def _parse_manifest(data: dict) -> ScriptManifest:
     return ScriptManifest(
         name=str(data.get("name") or ""),
         description=str(data.get("description") or ""),
+        category=str(data.get("category") or "").strip(),
         command=str(data.get("command") or ""),
         timeout=int(data.get("timeout") or DEFAULT_TIMEOUT),
         parameters=params,
@@ -66,6 +67,7 @@ def _to_info(script_id: str, manifest: ScriptManifest, script_path: Path, style:
         id=script_id,
         name=manifest.name or script_id,
         description=manifest.description,
+        category=manifest.category,
         command=manifest.command or _default_command(script_path),
         timeout=manifest.timeout,
         parameters=manifest.parameters,

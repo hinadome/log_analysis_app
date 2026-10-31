@@ -24,6 +24,15 @@
   </table>
 
   <h2>Scripts</h2>
+  {% if categories %}
+  <div class="chips cat-chips">
+    <span class="muted">category:</span>
+    <a class="chip {{ 'on' if not cat else '' }}" href="/">all</a>
+    {% for c in categories %}
+    <a class="chip {{ 'on' if c == cat else '' }}" href="/?cat={{ c | urlencode }}">{{ c }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
   <table class="list">
     <thead><tr><th class="cb"></th><th>Script</th><th>Description</th><th>Params</th></tr></thead>
     <tbody>

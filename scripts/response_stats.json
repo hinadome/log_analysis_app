@@ -1,6 +1,7 @@
 {
   "name": "Endpoint Stats",
   "description": "Node.js — hits, transferred bytes and error rate per endpoint, from a common-format access log",
+  "category": "web",
   "command": "node {script} {log} {args}",
   "timeout": 120,
   "parameters": [

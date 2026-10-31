@@ -42,7 +42,17 @@
 
 <form method="get" action="/run" class="card">
   <h2>Scripts &amp; options</h2>
+  {% if categories %}
+  <div class="chips cat-chips">
+    <span class="muted">category:</span>
+    <a class="chip {{ 'on' if not cat else '' }}" href="{{ all_href }}">all</a>
+    {% for c in cat_links %}
+    <a class="chip {{ 'on' if c.name == cat else '' }}" href="{{ c.href }}">{{ c.name }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% for l in selected_logs %}<input type="hidden" name="logs" value="{{ l }}">{% endfor %}
+  {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
   <table class="list">
     <thead><tr><th class="cb"></th><th>Script</th><th>Description</th><th>Params</th></tr></thead>
     <tbody>
@@ -91,6 +101,7 @@
   {% for s in chosen_scripts %}<input type="hidden" name="scripts" value="{{ s.id }}">{% endfor %}
   <input type="hidden" name="mode" value="{{ mode }}">
   <input type="hidden" name="label" value="{{ label }}">
+  {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
   <div class="runbar">
     <div class="run-summary">
       {{ chosen_scripts | length }} script(s) × {{ selected_logs | length }} log(s) —

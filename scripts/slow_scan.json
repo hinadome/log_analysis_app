@@ -1,6 +1,7 @@
 {
   "name": "Slow Scan (demo)",
   "description": "Simulated long-running analysis — live progress, writes an artifact, can fail on purpose",
+  "category": "testing",
   "command": "python3 {script} {log} {args}",
   "timeout": 300,
   "parameters": [

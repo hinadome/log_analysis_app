@@ -1,6 +1,7 @@
 {
   "name": "Regex Search",
   "description": "Shell script — grep a pattern with optional context lines and match cap",
+  "category": "search",
   "command": "bash {script} {log} {args}",
   "timeout": 60,
   "parameters": [

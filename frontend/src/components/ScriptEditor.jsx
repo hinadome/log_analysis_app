@@ -72,6 +72,7 @@ const DEFAULTS = {
   extension: "py",
   name: "",
   description: "",
+  category: "",
   command: "",
   timeout: 600,
   output_filename: "",
@@ -103,6 +104,7 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
           extension: src.extension || "py",
           name: src.manifest.name || "",
           description: src.manifest.description || "",
+          category: src.manifest.category || "",
           command: src.manifest.command || "",
           timeout: src.manifest.timeout ?? 600,
           output_filename: src.manifest.output_filename || "",
@@ -149,6 +151,7 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
         manifest: {
           name: form.name.trim() || form.id.trim(),
           description: form.description.trim(),
+          category: form.category.trim(),
           command: form.command.trim(),
           timeout: Number(form.timeout) || 600,
           parameters,
@@ -289,6 +292,14 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
             <span>Description</span>
             <input className="editor-input" value={form.description} onChange={set("description")}
                   placeholder="What this script does — shown on the script card" />
+          </label>
+          <label className="editor-field">
+            <span>Category <span className="muted">(optional)</span></span>
+            <input className="editor-input" value={form.category} onChange={set("category")}
+                  placeholder="web" title="Groups the script under a filter chip in the picker" />
+            <span className="field-hint">
+              Scripts with the same category share a filter chip — e.g. “web”, “counting”
+            </span>
           </label>
           <label className="editor-field span-2">
             <span>Command template</span>

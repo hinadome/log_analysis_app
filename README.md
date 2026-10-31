@@ -206,6 +206,13 @@ Vite proxy talks HTTPS to the backend.
   collapsed since it is already configured. The Run button and the
   `logs × steps = jobs` math stay pinned to the bottom of the viewport
   while the stack scrolls — a sticky runbar in both UIs.
+- **Script categories** — give scripts a `category` in their manifest
+  ("web", "counting", …) and the script pickers grow filter chips that
+  narrow the list to one group: React filters instantly client-side, the
+  python UI via `?cat=` links that rebuild the full run configuration.
+  Chosen scripts stay chosen even when their category is filtered out of
+  view. The shipped samples are categorized (`web`, `counting`,
+  `search`, `testing`), and the editor has a Category field in both UIs.
 - **Labels & job search** — tag a submission with a label ("timeout spike
   investigation") at creation time and filter the job history by label,
   script, log, chain or free text — searched server-side (debounced) and

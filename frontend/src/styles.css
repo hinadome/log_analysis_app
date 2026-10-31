@@ -122,6 +122,11 @@ body {
 
 /* ---------- script picker ---------- */
 .script-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+/* Category filter chips (script picker); hidden entirely until some script
+   declares a category. */
+.cat-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.chip-btn { background: transparent; cursor: pointer; }
+.chip-btn.on { color: var(--accent); border-color: rgba(68, 147, 248, 0.4); background: rgba(68, 147, 248, 0.08); }
 .script-card {
   border: 1px solid var(--border); background: var(--panel2);
   border-radius: 8px; padding: 12px; cursor: pointer;

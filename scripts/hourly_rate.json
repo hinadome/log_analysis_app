@@ -1,6 +1,7 @@
 {
   "name": "Event Rate Histogram",
   "description": "Ruby — events per minute/hour from a timestamped log, drawn as a bar chart",
+  "category": "counting",
   "command": "ruby {script} {log} {args}",
   "timeout": 120,
   "parameters": [

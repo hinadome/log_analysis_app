@@ -140,6 +140,7 @@ th.cb, td.cb { width: 26px; }
 
 /* ---------- chips ---------- */
 .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.cat-chips { margin: 8px 0 12px; align-items: center; }
 a.chip, span.chip {
   display: inline-block; padding: 3px 12px; border-radius: 999px;
   border: 1px solid var(--border2); color: var(--muted); font-size: 13px;

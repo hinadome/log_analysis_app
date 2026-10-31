@@ -25,6 +25,8 @@
     <label>Timeout (seconds) <input type="number" name="timeout" value="{{ values.timeout }}" min="1" max="86400" required></label>
   </div>
   <label>Description <input type="text" name="description" value="{{ values.description }}"></label>
+  <label>Category <span class="muted">(optional — groups the script under a filter chip, e.g. “web”)</span>
+    <input type="text" name="category" value="{{ values.category }}" placeholder="web"></label>
   <label>Command <span class="muted">({{ '{script}' }}, {{ '{log}' }}, {{ '{output}' }} and {{ '{param}' }} placeholders; empty = the extension's default)</span>
     <input type="text" name="command" value="{{ values.command }}" class="mono">
   </label>

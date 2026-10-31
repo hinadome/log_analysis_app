@@ -1,6 +1,7 @@
 {
   "name": "Top IPs",
   "description": "Rank the most active client IPs found in the log",
+  "category": "web",
   "command": "python3 {script} {log} {args}",
   "timeout": 120,
   "parameters": [

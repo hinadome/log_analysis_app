@@ -97,6 +97,31 @@ def test_run_page_accepts_typed_absolute_path(client, tmp_path):
     assert str(outside) in res.text
 
 
+def test_script_category_filter(client):
+    """The shipped samples carry categories; both script tables narrow to
+    one category via ?cat=, chosen scripts survive the filter, and an
+    unknown category falls back to everything."""
+    # home: chip row + filtering
+    res = client.get("/")
+    assert "category:" in res.text
+    assert 'href="/?cat=web"' in res.text
+    res = client.get("/", params={"cat": "web"})
+    assert "Top IPs" in res.text
+    assert "Regex Search" not in res.text  # search, not web
+
+    # unknown category: everything, not a broken empty table
+    res = client.get("/", params={"cat": "bogus"})
+    assert "Regex Search" in res.text
+
+    # run page: same table filter, chosen steps stay submitted via their
+    # hidden inputs even when their category is filtered out of view
+    res = client.get("/run", params={
+        "log": LOG, "scripts": ["grep_search"], "cat": "web"})
+    assert "Top IPs" in res.text                       # a web script in the table
+    assert '<input type="hidden" name="scripts" value="grep_search">' in res.text
+    assert 'name="cat" value="web"' in res.text        # the filter persists through Update
+
+
 def test_run_page_flags_missing_typed_path(client):
     res = client.get("/run", params={"log": "/no/such/file.log"})
     assert res.status_code == 200

@@ -274,12 +274,19 @@ def logout():
 # --- home: logs, upload, script picker -----------------------------------
 
 @router.get("/")
-def home(request: Request):
+def home(request: Request, cat: str = ""):
     if redirect := _need_login(request):
         return redirect
+    scripts = discover_scripts()
+    categories = sorted({s.category for s in scripts if s.category})
+    # A hand-edited ?cat= that no script carries shows everything, not an
+    # empty table that looks like a broken filter.
+    if cat and cat in categories:
+        scripts = [s for s in scripts if s.category == cat]
     return _page(request, "home.html", nav="logs",
                  logs=list_logs(),
-                 scripts=discover_scripts(),
+                 scripts=scripts,
+                 categories=categories, cat=cat if cat in categories else "",
                  upload_max_mb=MAX_LOG_UPLOAD_MB,
                  uploads_enabled=MAX_LOG_UPLOAD_MB > 0)
 
@@ -318,6 +325,7 @@ def run_page(
     scripts: list[str] | None = Query(None),
     mode: str = "parallel",
     label: str = "",
+    cat: str = "",
 ):
     if redirect := _need_login(request):
         return redirect
@@ -333,16 +341,36 @@ def run_page(
     selected = [n for n in selected if _usable(n)]
 
     all_scripts = discover_scripts()
+    categories = sorted({s.category for s in all_scripts if s.category})
+    cat = cat if cat in categories else ""
+    # The table is filtered for browsing; chosen steps stay chosen via their
+    # hidden inputs even when their category is filtered out of view.
+    table_scripts = [s for s in all_scripts if s.category == cat] if cat else all_scripts
     by_id = {s.id: s for s in all_scripts}
     chosen_ids = [s for s in (scripts or []) if s in by_id]
     if mode not in ("parallel", "chain"):
         mode = "parallel"
 
+    # Category chips rebuild this exact configuration with one filter
+    # swapped, so switching categories never drops the selection.
+    def _run_href(cat_value: str) -> str:
+        pairs = [("logs", n) for n in selected]
+        pairs += [("scripts", s) for s in chosen_ids]
+        pairs.append(("mode", mode))
+        if label:
+            pairs.append(("label", label))
+        if cat_value:
+            pairs.append(("cat", cat_value))
+        return "/run?" + urlencode(pairs)
+
     return _page(
         request, "run.html", nav="logs",
         selected_logs=selected,
         missing_logs=missing,
-        all_scripts=all_scripts,
+        all_scripts=table_scripts,
+        categories=categories, cat=cat,
+        all_href=_run_href(""),
+        cat_links=[{"name": c, "href": _run_href(c)} for c in categories],
         chosen_ids=set(chosen_ids),
         chosen_scripts=[by_id[i] for i in chosen_ids],
         mode=mode, label=label,
@@ -382,10 +410,12 @@ async def submit(request: Request):
     script_ids = form.getlist("scripts")
     mode = form.get("mode", "parallel")
     label = (form.get("label") or "").strip()
+    cat = (form.get("cat") or "").strip()
 
     run_url = "/run?" + urlencode(
         [("logs", n) for n in log_names] + [("scripts", s) for s in script_ids]
-        + [("mode", mode)] + ([("label", label)] if label else []))
+        + [("mode", mode)] + ([("label", label)] if label else [])
+        + ([("cat", cat)] if cat else []))
 
     if not log_names:
         return _render_error(request, HTTPException(422, "No log selected"), back="/")
@@ -672,6 +702,7 @@ def _script_form_values(sid: str) -> dict:
             "extension": src["extension"],
             "name": src["manifest"]["name"],
             "description": src["manifest"]["description"],
+            "category": src["manifest"]["category"] or "",
             "command": src["manifest"]["command"],
             "timeout": src["manifest"]["timeout"],
             "output_filename": src["manifest"]["output_filename"] or "",
@@ -680,7 +711,7 @@ def _script_form_values(sid: str) -> dict:
         }
     return {
         "id": "", "original_id": "", "extension": "py",
-        "name": "", "description": "", "command": "",
+        "name": "", "description": "", "category": "", "command": "",
         "timeout": 600, "output_filename": "",
         "parameters_text": "[]", "code": STARTER_CODE,
     }
@@ -701,6 +732,7 @@ def _form_values_from(form) -> dict:
         "extension": form.get("extension") or "py",
         "name": form.get("name") or "",
         "description": form.get("description") or "",
+        "category": form.get("category") or "",
         "command": form.get("command") or "",
         "timeout": form.get("timeout") or "",
         "output_filename": form.get("output_filename") or "",
@@ -752,6 +784,7 @@ def _script_upsert_request(form) -> ScriptUpsertRequest:
         manifest = ScriptManifest(
             name=(form.get("name") or "").strip(),
             description=(form.get("description") or "").strip(),
+            category=(form.get("category") or "").strip(),
             command=(form.get("command") or "").strip(),
             timeout=timeout,
             output_filename=(form.get("output_filename") or "").strip() or None,

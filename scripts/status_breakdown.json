@@ -1,6 +1,7 @@
 {
   "name": "Status Breakdown",
   "description": "Perl — requests and transferred bytes per HTTP status code, with bar chart",
+  "category": "web",
   "command": "perl {script} {log} {args}",
   "timeout": 120,
   "parameters": [

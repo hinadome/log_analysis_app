@@ -1,6 +1,7 @@
 {
   "name": "Error Counter",
   "description": "Count lines by severity level, with optional substring filter",
+  "category": "counting",
   "command": "python3 {script} {log} {args}",
   "timeout": 120,
   "parameters": [

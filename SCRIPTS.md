@@ -75,6 +75,7 @@ The manifest (`scripts/level_report.json`) — full reference version:
 {
   "name": "Level Report",
   "description": "Count lines at a severity level, with a threshold",
+  "category": "counting",
   "command": "python3 {script} {log} {args}",
   "timeout": 120,
   "parameters": [
@@ -91,6 +92,11 @@ The manifest (`scripts/level_report.json`) — full reference version:
   ]
 }
 ```
+
+`category` (optional) is a free-form short label — "web", "counting",
+whatever groups your scripts. Both script pickers turn the distinct
+values into filter chips, so a crowded list narrows to the group you are
+working with. Scripts without a category simply have no chip.
 
 The code (`scripts/level_report.py`) — argparse, the `error_counter.py`
 style:

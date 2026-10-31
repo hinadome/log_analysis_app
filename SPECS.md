@@ -182,7 +182,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 
 | Method & Path | Description |
 |---|---|
-| `GET /api/scripts` | `{"scripts": [ScriptInfo]}` — id, name, description, command, timeout, parameters, script_path, style, output_filename, error |
+| `GET /api/scripts` | `{"scripts": [ScriptInfo]}` — id, name, description, category, command, timeout, parameters, script_path, style, output_filename, error |
 | `GET /api/scripts/{id}` | code + manifest for the editor (flat style only) → `{id, extension, code, manifest}`; 404 unknown, 400 directory-style |
 | `POST /api/scripts` | create a flat-style script. Body: `{id, extension, code, manifest}` (`manifest` per §6). Errors: 409 id exists / 422 bad id (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`), empty code, bad timeout (1–86400), or invalid manifest/parameters / 403 when editing is locked (§8.1) |
 | `PUT /api/scripts/{id}` | update code and/or manifest; a changed `extension` moves the code file. 404 unknown, 400 directory-style, 422 body/path id mismatch, 403 when editing is locked |
@@ -223,8 +223,8 @@ missing.
 
 | Path | Description |
 |---|---|
-| `GET /` | home: log list, script checkboxes, "use a file by path" box (absolute path → run configuration), upload form |
-| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default). A `?log=` value that is an existing absolute file is kept even when the listing doesn't know it. The submit bar (run summary + Run button) is sticky at the viewport bottom, so long fieldset stacks keep Run one click away |
+| `GET /` | home: log list, script checkboxes, "use a file by path" box (absolute path → run configuration), upload form. Script table narrows by category via `?cat=` (chips; unknown value = everything) |
+| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…&cat=…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default). A `?log=` value that is an existing absolute file is kept even when the listing doesn't know it. The script table narrows by `?cat=` (chips rebuild the full configuration with the filter swapped; chosen steps stay chosen via hidden inputs even when filtered out of view). The submit bar (run summary + Run button) is sticky at the viewport bottom, so long fieldset stacks keep Run one click away |
 | `POST /submit` | form submission: one submission per selected log (fan-out), parallel or chain; single job → 303 to its page, else 303 to the jobs list |
 | `GET /jobs?q=&status=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |
@@ -267,6 +267,7 @@ scripts are read-only in the UI.
 {
   "name": "Error Counter",          // UI display name (defaults to id)
   "description": "Count lines by level",
+  "category": "counting",           // optional; groups scripts under a picker filter chip
   "command": "python3 {script} {log} {args}",  // template, see below
   "timeout": 120,                   // seconds; killed after (default 600)
   "output_filename": "report.md",   // optional; target of {output}
@@ -285,6 +286,10 @@ scripts are read-only in the UI.
   ]
 }
 ```
+
+`category` is a free-form short label ("web", "counting"). Both script
+pickers offer the distinct values as filter chips; scripts without one
+simply have no chip. An empty value is never written to the manifest.
 
 ### Command placeholders
 
