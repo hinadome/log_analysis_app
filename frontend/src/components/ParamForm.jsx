@@ -135,11 +135,25 @@ function Field({ spec, value, onChange }) {
 export default function ParamForm({
   script, params, onChange, onApply, onRemove,
   stepNumber = null, chainMode = false, canMoveUp = false, canMoveDown = false,
-  onMoveUp, onMoveDown,
+  onMoveUp, onMoveDown, collapsed = false, onToggleCollapsed,
 }) {
   return (
-    <div className="param-card">
-      <div className="param-card-head">
+    <div className={cx("param-card", { collapsed })}>
+      {/* The head is the always-visible summary: title, chain position,
+          input source — plus the reorder controls, which must stay
+          reachable while collapsed (that is the point of collapsing). */}
+      <div
+        className="param-card-head"
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        title={collapsed ? "Expand to edit parameters" : "Collapse (keeps the step)"}
+        onClick={() => onToggleCollapsed?.()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggleCollapsed?.(); }
+        }}
+      >
+        <span className={cx("disclosure", { open: !collapsed })} aria-hidden="true">▸</span>
         <div>
           <div className="param-card-title">
             {stepNumber != null && <span className="step-chip">{stepNumber}</span>}
@@ -157,28 +171,33 @@ export default function ParamForm({
           {stepNumber != null && (
             <>
               <button className="btn ghost sm" disabled={!canMoveUp}
-                      title="Move earlier" onClick={onMoveUp}>↑</button>
+                      title="Move earlier" onClick={(e) => { e.stopPropagation(); onMoveUp(); }}>↑</button>
               <button className="btn ghost sm" disabled={!canMoveDown}
-                      title="Move later" onClick={onMoveDown}>↓</button>
+                      title="Move later" onClick={(e) => { e.stopPropagation(); onMoveDown(); }}>↓</button>
             </>
           )}
-          <button className="btn ghost sm" onClick={onRemove}>Remove</button>
+          <button className="btn ghost sm"
+                  onClick={(e) => { e.stopPropagation(); onRemove(); }}>Remove</button>
         </div>
       </div>
-      <PresetBar script={script} params={params} onApply={onApply} />
-      {script.parameters.length === 0 && (
-        <div className="muted sm">No parameters — runs with defaults.</div>
+      {!collapsed && (
+        <>
+          <PresetBar script={script} params={params} onApply={onApply} />
+          {script.parameters.length === 0 && (
+            <div className="muted sm">No parameters — runs with defaults.</div>
+          )}
+          <div className="param-grid">
+            {script.parameters.map((spec) => (
+              <Field
+                key={spec.name}
+                spec={spec}
+                value={params[spec.name]}
+                onChange={(v) => onChange(spec.name, v)}
+              />
+            ))}
+          </div>
+        </>
       )}
-      <div className="param-grid">
-        {script.parameters.map((spec) => (
-          <Field
-            key={spec.name}
-            spec={spec}
-            value={params[spec.name]}
-            onChange={(v) => onChange(spec.name, v)}
-          />
-        ))}
-      </div>
     </div>
   );
 }

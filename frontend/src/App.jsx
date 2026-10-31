@@ -53,6 +53,7 @@ export default function App() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [fanout, setFanout] = useState([]); // extra logs the submission also runs on
   const [steps, setSteps] = useState([]); // [{key, scriptId, params}]
+  const [collapsedSteps, setCollapsedSteps] = useState(() => new Set()); // step keys folded to their title bar
   const [mode, setMode] = useState("parallel"); // parallel | chain
   const [label, setLabel] = useState("");      // optional tag for a submission
   const [chainPresets, setChainPresets] = useState(() => loadChainPresets());
@@ -215,6 +216,15 @@ export default function App() {
 
   const removeStep = (key) => {
     setSteps((list) => list.filter((st) => st.key !== key));
+    setCollapsedSteps((set) => { const next = new Set(set); next.delete(key); return next; });
+  };
+
+  const toggleCollapsed = (key) => {
+    setCollapsedSteps((set) => {
+      const next = new Set(set);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
   };
 
   const moveStep = (key, dir) => {
@@ -273,6 +283,9 @@ export default function App() {
     }
     setSteps(loaded);
     setMode("chain");
+    // A loaded pipeline is pre-configured — load it to run, not to re-edit:
+    // the stack starts collapsed to title bars.
+    setCollapsedSteps(new Set(loaded.map((st) => st.key)));
     if (dropped > 0) {
       setToast({ kind: "error", text: `${dropped} step(s) dropped — script(s) no longer available` });
     }
@@ -468,6 +481,20 @@ export default function App() {
                         ? "runs in order — each step's input is the previous step's output"
                         : "empty fields use script defaults"}
                     </span>
+                    {steps.length > 1 && (
+                      <span className="head-action">
+                        <button
+                          className="btn ghost sm"
+                          title="Fold every step to its title bar — reorder controls stay put"
+                          onClick={() => setCollapsedSteps(new Set(steps.map((st) => st.key)))}
+                        >⇈ Collapse all</button>
+                        <button
+                          className="btn ghost sm"
+                          title="Open every step's parameter form"
+                          onClick={() => setCollapsedSteps(new Set())}
+                        >⇊ Expand all</button>
+                      </span>
+                    )}
                   </div>
                   {mode === "chain" && (
                     <div className="chain-presets">
@@ -533,6 +560,8 @@ export default function App() {
                         onChange={(name, value) => setParam(st.key, name, value)}
                         onApply={(params) => applyParams(st.key, st.scriptId, params)}
                         onRemove={() => removeStep(st.key)}
+                        collapsed={collapsedSteps.has(st.key)}
+                        onToggleCollapsed={() => toggleCollapsed(st.key)}
                       />
                     );
                   })}

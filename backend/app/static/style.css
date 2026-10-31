@@ -164,6 +164,19 @@ label.param { display: grid; grid-template-columns: 230px minmax(200px, 340px) 1
 .req { color: var(--red); }
 .phelp { color: var(--dim); font-size: 12px; }
 .run-summary { color: var(--muted); margin: 10px 0; }
+/* The submit bar pins to the bottom of the viewport while the parameter
+   fieldsets scroll past — the Run button stays one click away no matter
+   how many scripts are configured (mirrors the React runbar). */
+.runbar {
+  position: sticky; bottom: 12px; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  padding: 12px 18px; margin-top: 16px;
+  background: var(--panel2); border: 1px solid var(--border2); border-radius: 10px;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45);
+}
+.runbar .run-summary { margin: 0; }
+@media (max-width: 640px) { .runbar { justify-content: flex-end; } }
 
 /* ---------- job detail ---------- */
 .meta-grid { display: flex; gap: 26px; flex-wrap: wrap; font-size: 12px;

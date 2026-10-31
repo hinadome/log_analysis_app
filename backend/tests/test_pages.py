@@ -72,6 +72,9 @@ def test_run_page_renders_param_forms(client):
     assert 'value="grep_search" checked' in body
     assert 'value="error_counter" checked' in body
     assert 'value="slow_scan"' in body and "checked" not in body.split('value="slow_scan"')[1].split(">")[0]
+    # the submit bar is sticky: Run stays reachable past long fieldset stacks
+    assert 'class="runbar"' in body
+    assert "▶ Run" in body
 
 
 def test_run_page_flags_missing_log(client):

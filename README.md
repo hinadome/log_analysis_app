@@ -200,6 +200,12 @@ Vite proxy talks HTTPS to the backend.
   and jobs from outside `logs/` carry the full path as their name. Scripts
   run as your user with full filesystem access anyway, so this opens no
   new doors.
+- **Long run configs stay manageable** — every parameter card folds down
+  to its title bar (chain reorder controls stay put), with Collapse all /
+  Expand all in the section header; loading a saved pipeline starts
+  collapsed since it is already configured. The Run button and the
+  `logs × steps = jobs` math stay pinned to the bottom of the viewport
+  while the stack scrolls — a sticky runbar in both UIs.
 - **Labels & job search** — tag a submission with a label ("timeout spike
   investigation") at creation time and filter the job history by label,
   script, log, chain or free text — searched server-side (debounced) and

@@ -91,12 +91,14 @@
   {% for s in chosen_scripts %}<input type="hidden" name="scripts" value="{{ s.id }}">{% endfor %}
   <input type="hidden" name="mode" value="{{ mode }}">
   <input type="hidden" name="label" value="{{ label }}">
-  <div class="run-summary">
-    {{ chosen_scripts | length }} script(s) × {{ selected_logs | length }} log(s) —
-    {% if mode == 'chain' %}chain{% else %}parallel{% endif %}
-    {% if label %} · label “{{ label }}”{% endif %}
+  <div class="runbar">
+    <div class="run-summary">
+      {{ chosen_scripts | length }} script(s) × {{ selected_logs | length }} log(s) —
+      {% if mode == 'chain' %}chain{% else %}parallel{% endif %}
+      {% if label %} · label “{{ label }}”{% endif %}
+    </div>
+    <button class="btn primary lg" type="submit">▶ Run</button>
   </div>
-  <button class="btn primary lg" type="submit">▶ Run</button>
 </form>
 {% else %}
 <p class="muted">Check at least one script above, then “Update”.</p>
