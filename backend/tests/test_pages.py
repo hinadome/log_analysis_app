@@ -10,6 +10,7 @@ frontends share.
 from __future__ import annotations
 
 import os
+import re
 import time
 from pathlib import Path
 
@@ -119,7 +120,50 @@ def test_script_category_filter(client):
         "log": LOG, "scripts": ["grep_search"], "cat": "web"})
     assert "Top IPs" in res.text                       # a web script in the table
     assert '<input type="hidden" name="scripts" value="grep_search">' in res.text
+    assert '<input type="hidden" name="pick" value="grep_search">' in res.text  # stays checked through an Update
     assert 'name="cat" value="web"' in res.text        # the filter persists through Update
+
+
+def _hidden_script_order(html: str) -> list[str]:
+    """Order of the chosen steps as the page carries them (GET + POST forms
+    both repeat the hidden inputs, so dedupe preserving order)."""
+    return list(dict.fromkeys(re.findall(r'name="scripts" value="(\w+)"', html)))
+
+
+def test_chain_step_order_visible_and_reorderable(client):
+    """Chain mode numbers the parameter fieldsets (Step N) and gives each
+    legend ↑/↓ links that swap it with a neighbor; the run summary shows the
+    pipeline. In parallel mode order is irrelevant, so no numbering appears.
+    The script table's checkboxes merge into the carried order on Update —
+    a reordered chain survives an Update instead of snapping back to the
+    table's alphabetical order."""
+    res = client.get("/run", params=[
+        ("log", LOG), ("scripts", "grep_search"), ("scripts", "top_ips"),
+        ("mode", "chain")])
+    assert "Step 1" in res.text and "Step 2" in res.text
+    assert "Regex Search → Top IPs" in res.text         # runbar pipeline, in order
+    # the ↓ on step 1 / ↑ on step 2 both swap the pair (hrefs are HTML-escaped)
+    assert "scripts=top_ips&amp;scripts=grep_search" in res.text
+
+    # following a swap link re-numbers the steps
+    res = client.get("/run", params=[
+        ("log", LOG), ("scripts", "top_ips"), ("scripts", "grep_search"),
+        ("mode", "chain")])
+    assert "Top IPs → Regex Search" in res.text
+    assert _hidden_script_order(res.text) == ["top_ips", "grep_search"]
+
+    # an Update keeps that custom order, appends newly checked scripts in
+    # table order, and drops unchecked ones
+    res = client.get("/run", params=[
+        ("log", LOG), ("scripts", "top_ips"), ("scripts", "grep_search"),
+        ("pick", "top_ips"), ("pick", "error_counter"), ("mode", "chain")])
+    assert _hidden_script_order(res.text) == ["top_ips", "error_counter"]
+
+    # parallel mode: no step numbering, no reorder controls
+    res = client.get("/run", params=[
+        ("log", LOG), ("scripts", "grep_search"), ("scripts", "top_ips")])
+    assert "Step 1" not in res.text
+    assert "Run this step" not in res.text
 
 
 def test_run_page_flags_missing_typed_path(client):

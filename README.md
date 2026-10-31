@@ -181,6 +181,11 @@ Vite proxy talks HTTPS to the backend.
   A failed step skips the rest; cancelling any step cancels the chain; re-running
   any step re-runs the whole chain. `JOB_ORIGINAL_LOG` always points at the
   original file. Scripts need **zero changes** to work in chains.
+  The order is visible and editable in both UIs: React numbers the step cards
+  with ↑/↓ reorder buttons; the python UI numbers the parameter fieldsets
+  (`Step N`) with ↑/↓ links, and its script-table checkboxes merge into the
+  carried order on Update — so a reordered chain survives an Update instead
+  of snapping back to the table's alphabetical order.
 - **Continue-from-step-N** — re-run only from a chosen step onwards: earlier
   steps' persisted outputs are reused, so iterating on step 3 doesn't pay for
   step 1 again ("Re-run from here" on any chain step).

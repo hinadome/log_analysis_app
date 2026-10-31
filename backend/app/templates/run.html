@@ -52,13 +52,16 @@
   </div>
   {% endif %}
   {% for l in selected_logs %}<input type="hidden" name="logs" value="{{ l }}">{% endfor %}
+  {% for s in chosen_scripts %}<input type="hidden" name="scripts" value="{{ s.id }}">{% endfor %}
+  {# chosen steps filtered out of the table by a category stay checked through an Update #}
+  {% for s in chosen_scripts if s.id not in table_ids %}<input type="hidden" name="pick" value="{{ s.id }}">{% endfor %}
   {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
   <table class="list">
     <thead><tr><th class="cb"></th><th>Script</th><th>Description</th><th>Params</th></tr></thead>
     <tbody>
     {% for s in all_scripts %}
       <tr>
-        <td class="cb"><input type="checkbox" name="scripts" value="{{ s.id }}" {% if s.id in chosen_ids %}checked{% endif %} {% if s.error %}disabled{% endif %}></td>
+        <td class="cb"><input type="checkbox" name="pick" value="{{ s.id }}" {% if s.id in chosen_ids %}checked{% endif %} {% if s.error %}disabled{% endif %}></td>
         <td><b>{{ s.name or s.id }}</b><br><span class="mono muted">{{ s.id }}</span></td>
         <td>{% if s.error %}<span class="err-text">broken manifest: {{ s.error }}</span>{% else %}{{ s.description or '—' }}{% endif %}</td>
         <td class="muted">{{ s.parameters | length }}</td>
@@ -77,9 +80,22 @@
 {% if chosen_scripts %}
 <form method="post" action="/submit" class="card">
   <h2>Parameters</h2>
+  {% if mode == 'chain' and chosen_scripts | length > 1 %}
+  <p class="muted">Chain runs these steps in the order shown, each reading the
+    previous step's output — reorder with the ↑ / ↓ buttons in a step's header.</p>
+  {% endif %}
   {% for s in chosen_scripts %}
   <fieldset>
-    <legend>{{ s.name or s.id }} <span class="mono muted">({{ s.id }})</span></legend>
+    <legend>
+      {% if mode == 'chain' %}<span class="step-chip">Step {{ loop.index }}</span>{% endif %}
+      {{ s.name or s.id }} <span class="mono muted">({{ s.id }})</span>
+      {% if mode == 'chain' and step_moves[loop.index0].up %}
+      <a class="btn ghost sm" href="{{ step_moves[loop.index0].up }}" title="Run this step earlier">↑</a>
+      {% endif %}
+      {% if mode == 'chain' and step_moves[loop.index0].down %}
+      <a class="btn ghost sm" href="{{ step_moves[loop.index0].down }}" title="Run this step later">↓</a>
+      {% endif %}
+    </legend>
     {% if s.description %}<p class="muted">{{ s.description }}</p>{% endif %}
     {% for p in s.parameters %}
     <label class="param">
@@ -105,7 +121,9 @@
   <div class="runbar">
     <div class="run-summary">
       {{ chosen_scripts | length }} script(s) × {{ selected_logs | length }} log(s) —
-      {% if mode == 'chain' %}chain{% else %}parallel{% endif %}
+      {% if mode == 'chain' %}chain{% if chosen_scripts | length > 1 %}:
+        {{ chosen_scripts | map(attribute='name') | join(' → ') }}{% endif %}
+      {% else %}parallel{% endif %}
       {% if label %} · label “{{ label }}”{% endif %}
     </div>
     <button class="btn primary lg" type="submit">▶ Run</button>

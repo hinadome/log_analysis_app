@@ -323,6 +323,7 @@ def run_page(
     log: str = "",
     logs: list[str] | None = Query(None),
     scripts: list[str] | None = Query(None),
+    pick: list[str] | None = Query(None),
     mode: str = "parallel",
     label: str = "",
     cat: str = "",
@@ -347,15 +348,27 @@ def run_page(
     # hidden inputs even when their category is filtered out of view.
     table_scripts = [s for s in all_scripts if s.category == cat] if cat else all_scripts
     by_id = {s.id: s for s in all_scripts}
-    chosen_ids = [s for s in (scripts or []) if s in by_id]
+    # `scripts` carries the chosen steps in order (URL params and the form's
+    # hidden inputs). `pick` is the script table's checkboxes: an Update
+    # keeps the carried order for still-checked steps, appends newly checked
+    # ones in table order, and drops unchecked ones — so a chain order that
+    # was reordered survives an Update instead of snapping back to the
+    # table's alphabetical order.
+    carried = [s for s in (scripts or []) if s in by_id]
+    if pick is not None:
+        checked = [p for p in pick if p in by_id]
+        chosen_ids = [s for s in carried if s in checked]
+        chosen_ids += [p for p in checked if p not in carried]
+    else:
+        chosen_ids = carried
     if mode not in ("parallel", "chain"):
         mode = "parallel"
 
-    # Category chips rebuild this exact configuration with one filter
-    # swapped, so switching categories never drops the selection.
-    def _run_href(cat_value: str) -> str:
+    # Category chips and chain reorder links rebuild this exact configuration
+    # with one thing swapped, so neither ever drops the selection.
+    def _run_href(cat_value: str, order: list[str] | None = None) -> str:
         pairs = [("logs", n) for n in selected]
-        pairs += [("scripts", s) for s in chosen_ids]
+        pairs += [("scripts", s) for s in (chosen_ids if order is None else order)]
         pairs.append(("mode", mode))
         if label:
             pairs.append(("label", label))
@@ -363,16 +376,35 @@ def run_page(
             pairs.append(("cat", cat_value))
         return "/run?" + urlencode(pairs)
 
+    # A chain runs the steps in the order shown; each step's legend gets
+    # ↑/↓ links that swap it with a neighbor. Parallel order is irrelevant,
+    # so it gets nothing (mirrors the React UI's chain-only step chips).
+    step_moves: list[dict] = []
+    if mode == "chain":
+        for i in range(len(chosen_ids)):
+            up = down = None
+            if i > 0:
+                swapped = list(chosen_ids)
+                swapped[i - 1], swapped[i] = swapped[i], swapped[i - 1]
+                up = _run_href(cat, swapped)
+            if i < len(chosen_ids) - 1:
+                swapped = list(chosen_ids)
+                swapped[i], swapped[i + 1] = swapped[i + 1], swapped[i]
+                down = _run_href(cat, swapped)
+            step_moves.append({"up": up, "down": down})
+
     return _page(
         request, "run.html", nav="logs",
         selected_logs=selected,
         missing_logs=missing,
         all_scripts=table_scripts,
+        table_ids={s.id for s in table_scripts},
         categories=categories, cat=cat,
         all_href=_run_href(""),
         cat_links=[{"name": c, "href": _run_href(c)} for c in categories],
         chosen_ids=set(chosen_ids),
         chosen_scripts=[by_id[i] for i in chosen_ids],
+        step_moves=step_moves,
         mode=mode, label=label,
     )
 
