@@ -72,6 +72,25 @@ class JobSpecIn(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class PipelineStep(BaseModel):
+    """One step of a saved pipeline: a script plus its parameters."""
+    script_id: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class PipelineSaveRequest(BaseModel):
+    name: str
+    steps: list[PipelineStep]
+
+
+class Pipeline(BaseModel):
+    """A saved, reusable chain — steps run in order on any log."""
+    name: str
+    steps: list[PipelineStep] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+
+
 class JobCreateRequest(BaseModel):
     log_path: str
     mode: Literal["parallel", "chain"] = "parallel"

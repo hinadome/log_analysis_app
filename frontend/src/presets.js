@@ -33,27 +33,39 @@ export function deletePreset(scriptId, name) {
   persist(all);
 }
 
-/** Saved chains (whole ordered pipelines), also stored in localStorage. */
+/** Saved chains moved to the server (api.savePipeline — shared by every
+ *  browser and the python UI). The old localStorage copy is migrated once
+ *  and then cleared; the helpers stay so the legacy key's shape lives in
+ *  one place and the migration stays unit-testable. */
 
-const CHAIN_KEY = "logsmith.chainPresets";
+const LEGACY_CHAIN_KEY = "logsmith.chainPresets";
 
-export function loadChainPresets() {
+function legacyChainPresets() {
   try {
-    return JSON.parse(localStorage.getItem(CHAIN_KEY) || "{}");
+    return JSON.parse(localStorage.getItem(LEGACY_CHAIN_KEY) || "{}");
   } catch {
     return {};
   }
 }
 
-/** Save the current step list under a name. steps: [{scriptId, params}] */
-export function saveChainPreset(name, steps) {
-  const all = loadChainPresets();
-  all[name] = { steps, saved_at: new Date().toISOString() };
-  localStorage.setItem(CHAIN_KEY, JSON.stringify(all));
-}
-
-export function deleteChainPreset(name) {
-  const all = loadChainPresets();
-  delete all[name];
-  localStorage.setItem(CHAIN_KEY, JSON.stringify(all));
+/** Move localStorage-saved chains to the server. Pipelines whose name
+ *  already exists on the server are left alone (the server's wins).
+ *  Returns how many were migrated; on any failure the local copy is kept
+ *  so the next page load can try again. */
+export async function migrateLegacyChains({ listPipelines, savePipeline }) {
+  const legacy = legacyChainPresets();
+  const names = Object.keys(legacy);
+  if (!names.length) return 0;
+  const existing = new Set((await listPipelines()).pipelines.map((p) => p.name));
+  let moved = 0;
+  for (const name of names) {
+    if (existing.has(name)) continue;
+    const steps = (legacy[name].steps || [])
+      .map(({ scriptId, params }) => ({ script_id: scriptId, params }));
+    if (!steps.length) continue;
+    await savePipeline({ name, steps });
+    moved += 1;
+  }
+  localStorage.removeItem(LEGACY_CHAIN_KEY);
+  return moved;
 }

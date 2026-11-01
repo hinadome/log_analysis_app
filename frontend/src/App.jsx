@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, UNAUTHORIZED_EVENT } from "./api.js";
 import { useHashRoute, useInterval } from "./hooks.js";
 import { fmtBytes } from "./fmt.js";
-import { loadChainPresets, saveChainPreset, deleteChainPreset } from "./presets.js";
+import { migrateLegacyChains } from "./presets.js";
 import LoginView from "./components/LoginView.jsx";
 import LogPicker from "./components/LogPicker.jsx";
 import ScriptPicker from "./components/ScriptPicker.jsx";
@@ -56,7 +56,7 @@ export default function App() {
   const [collapsedSteps, setCollapsedSteps] = useState(() => new Set()); // step keys folded to their title bar
   const [mode, setMode] = useState("parallel"); // parallel | chain
   const [label, setLabel] = useState("");      // optional tag for a submission
-  const [chainPresets, setChainPresets] = useState(() => loadChainPresets());
+  const [pipelines, setPipelines] = useState([]); // server-side saved chains, shared with the python UI
   const [jobs, setJobs] = useState([]);
   const [jobsTotal, setJobsTotal] = useState(0);
   const [jobsLimit, setJobsLimit] = useState(200); // how much of the history to fetch
@@ -85,6 +85,11 @@ export default function App() {
     api.listScripts().then((r) => setScripts(r.scripts)).catch(() => {});
     api.health().then(setHealth).catch(() => {});
   }, []);
+
+  const loadPipelines = useCallback(
+    () => api.listPipelines().then((r) => setPipelines(r.pipelines || [])).catch(() => {}),
+    []
+  );
 
   const refreshJobs = useCallback(() => {
     api.listJobs({ q: jobQueryRef.current, status: jobStatusRef.current, limit: jobsLimitRef.current })
@@ -146,9 +151,22 @@ export default function App() {
   useEffect(() => {
     if (auth === "logged_in") {
       loadAll();
+      loadPipelines();
       refreshJobs();
     }
-  }, [auth, loadAll, refreshJobs]);
+  }, [auth, loadAll, loadPipelines, refreshJobs]);
+
+  // one-time per page load: chains saved by the old localStorage UI move
+  // to the server, so every browser and the python UI see them. A failed
+  // move keeps the local copy — the next load tries again.
+  const migratedRef = useRef(false);
+  useEffect(() => {
+    if (auth !== "logged_in" || migratedRef.current) return;
+    migratedRef.current = true;
+    migrateLegacyChains({ listPipelines: api.listPipelines, savePipeline: api.savePipeline })
+      .then((moved) => { if (moved > 0) loadPipelines(); })
+      .catch(() => {});
+  }, [auth, loadPipelines]);
 
   const logout = async () => {
     await api.logout().catch(() => {});
@@ -250,28 +268,39 @@ export default function App() {
     ));
   };
 
-  // ---------- saved chains (reusable pipelines, localStorage) ----------
-  const presetNames = Object.keys(chainPresets);
+  // ---------- saved pipelines (server-side chains, shared with the python UI) ----------
+  const presetNames = pipelines.map((p) => p.name);
+  const pipelineByName = useMemo(
+    () => Object.fromEntries(pipelines.map((p) => [p.name, p])),
+    [pipelines]
+  );
 
-  const saveChain = () => {
+  const saveChain = async () => {
     if (steps.length === 0) return;
     const name = window.prompt("Save this pipeline as:", "");
     if (!name || !name.trim()) return;
-    saveChainPreset(name.trim(), steps.map(({ scriptId, params }) => ({ scriptId, params })));
-    setChainPresets(loadChainPresets());
-    setToast({ kind: "ok", text: `Pipeline "${name.trim()}" saved — load it anytime above` });
+    try {
+      await api.savePipeline({
+        name: name.trim(),
+        steps: steps.map(({ scriptId, params }) => ({ script_id: scriptId, params })),
+      });
+      await loadPipelines();
+      setToast({ kind: "ok", text: `Pipeline "${name.trim()}" saved — load it anytime above` });
+    } catch (e) {
+      showError(e);
+    }
   };
 
   const loadChain = (name) => {
-    const preset = chainPresets[name];
+    const preset = pipelineByName[name];
     if (!preset) return;
     const loaded = preset.steps
       .map((st) => {
-        const script = scriptById[st.scriptId];
+        const script = scriptById[st.script_id];
         if (!script) return null;
         return {
-          key: `${st.scriptId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          scriptId: st.scriptId,
+          key: `${st.script_id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          scriptId: st.script_id,
           params: { ...defaultParams(script), ...st.params },
         };
       })
@@ -291,9 +320,13 @@ export default function App() {
     }
   };
 
-  const removeChainPreset = (name) => {
-    deleteChainPreset(name);
-    setChainPresets(loadChainPresets());
+  const removeChainPreset = async (name) => {
+    try {
+      await api.deletePipeline(name);
+      setPipelines((list) => list.filter((p) => p.name !== name));
+    } catch (e) {
+      showError(e);
+    }
   };
 
   // ---------- log upload (dropzone) ----------

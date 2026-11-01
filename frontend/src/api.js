@@ -66,6 +66,11 @@ export const api = {
   rerunJob: (id, fromStep) =>
     request(`/api/jobs/${id}/rerun${fromStep ? `?from_step=${fromStep}` : ""}`, { method: "POST" }),
   pruneJobs: (days) => request(`/api/jobs/prune?days=${days}`, { method: "POST" }),
+  listPipelines: () => request("/api/pipelines"),
+  savePipeline: (body) =>
+    request("/api/pipelines", { method: "POST", body: JSON.stringify(body) }),
+  deletePipeline: (name) =>
+    request(`/api/pipelines/${encodeURIComponent(name)}`, { method: "DELETE" }),
   jobFileUrl: (id, name) => `/api/jobs/${id}/files/${encodeURIComponent(name)}`,
   jobEventsUrl: (id) => `/api/jobs/${id}/events`,
 };

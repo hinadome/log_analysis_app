@@ -26,10 +26,15 @@ from pydantic import ValidationError
 
 from . import auth
 from .config import LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB, ALLOW_SCRIPT_EDITING, DOCKER_SANDBOX
-from .models import Job, JobCreateRequest, JobSpecIn, ScriptManifest, ScriptUpsertRequest
+from .models import (
+    Job, JobCreateRequest, JobSpecIn, PipelineSaveRequest, PipelineStep,
+    ScriptManifest, ScriptUpsertRequest,
+)
 from .routers import jobs as jobs_api
 from .routers import logs as logs_api
+from .routers import pipelines as pipelines_api
 from .routers import scripts as scripts_api
+from .services import pipeline_store
 from .services.scanner import discover_scripts, list_logs
 
 router = APIRouter(include_in_schema=False)
@@ -327,9 +332,20 @@ def run_page(
     mode: str = "parallel",
     label: str = "",
     cat: str = "",
+    pipeline: str = "",
+    msg: str = "",
 ):
     if redirect := _need_login(request):
         return redirect
+
+    # Parameter values ride along as `p::<script_id>::<param>` query params
+    # (exactly what the form would submit), so an Update, a step reorder,
+    # a category chip and a shared link all keep the configuration intact.
+    url_params: dict[str, dict[str, str]] = {}
+    for key in request.query_params:
+        if key.startswith("p::") and key.count("::") == 2:
+            _, sid, pname = key.split("::", 2)
+            url_params.setdefault(sid, {})[pname] = request.query_params[key]
 
     available = {l.name: l for l in list_logs()}
     selected = _selected_logs(log, logs)
@@ -364,17 +380,56 @@ def run_page(
     if mode not in ("parallel", "chain"):
         mode = "parallel"
 
+    # A saved pipeline (loaded via ?pipeline=) replaces the current steps
+    # with its own, in order, and forces chain mode; its parameters ride
+    # along as values so a loaded pipeline is immediately runnable. Values
+    # from the URL still win over the stored ones — a shared link can
+    # tweak one knob of a loaded pipeline.
+    pipelines = pipeline_store.list_pipelines()
+    msg_is_error = False
+    param_values = url_params
+    if pipeline:
+        loaded = next((p for p in pipelines if p.name == pipeline), None)
+        if loaded is None:
+            msg, msg_is_error = f"No pipeline named '{pipeline}'", True
+        else:
+            chosen_ids = [st.script_id for st in loaded.steps if st.script_id in by_id]
+            mode = "chain"
+            merged = {
+                st.script_id: {pname: _stringify_param(pval)
+                               for pname, pval in (st.params or {}).items()}
+                for st in loaded.steps if st.script_id in by_id
+            }
+            for sid, vals in url_params.items():
+                merged.setdefault(sid, {}).update(vals)
+            param_values = merged
+            dropped = len(loaded.steps) - len(chosen_ids)
+            if dropped:
+                msg = (f"Pipeline '{pipeline}': {dropped} step(s) skipped — "
+                       "script(s) no longer exist")
+                msg_is_error = True
+
+    # Values belong to the chosen steps — a script dropped from the run
+    # does not keep its values in rebuilt links.
+    chosen = set(chosen_ids)
+    param_values = {sid: vals for sid, vals in param_values.items() if sid in chosen}
+
     # Category chips and chain reorder links rebuild this exact configuration
-    # with one thing swapped, so neither ever drops the selection.
+    # with one thing swapped, so neither ever drops the selection — or the
+    # parameter values.
     def _run_href(cat_value: str, order: list[str] | None = None) -> str:
+        ids = chosen_ids if order is None else order
         pairs = [("logs", n) for n in selected]
-        pairs += [("scripts", s) for s in (chosen_ids if order is None else order)]
+        pairs += [("scripts", s) for s in ids]
         pairs.append(("mode", mode))
         if label:
             pairs.append(("label", label))
         if cat_value:
             pairs.append(("cat", cat_value))
-        return "/run?" + urlencode(pairs)
+        for sid in ids:
+            for pname, pval in param_values.get(sid, {}).items():
+                pairs.append((f"p::{sid}::{pname}", pval))
+        return "/run?" + urlencode(pairs, safe=":")
 
     # A chain runs the steps in the order shown; each step's legend gets
     # ↑/↓ links that swap it with a neighbor. Parallel order is irrelevant,
@@ -406,7 +461,23 @@ def run_page(
         chosen_scripts=[by_id[i] for i in chosen_ids],
         step_moves=step_moves,
         mode=mode, label=label,
+        param_values=param_values,
+        pipeline_names=[p.name for p in pipelines],
+        msg=msg, msg_is_error=msg_is_error,
     )
+
+
+def _stringify_param(value) -> str:
+    """A parameter value as the one string a form field would carry.
+
+    Booleans become true/false, lists their comma-joined form — the same
+    shapes _parse_form_params reads back.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value)
+    return str(value)
 
 
 def _parse_form_params(form, script) -> dict:
@@ -478,6 +549,64 @@ async def submit(request: Request):
     noun = "chain" if mode == "chain" else "jobs"
     return RedirectResponse("/jobs?" + urlencode(
         {"msg": f"Submitted {len(created)} {noun} on {len(log_names)} log(s)"}), status_code=303)
+
+
+@router.post("/pipelines/save")
+async def save_pipeline_page(request: Request):
+    """The runbar's 💾 button (formaction) — saves the configured steps.
+
+    Reuses the POST /submit form's fields (logs, ordered scripts, mode,
+    label, every p:: parameter) so saving never needs a second form. On
+    success it redirects back to the same fully-configured /run URL —
+    which doubles as the shareable link for the pipeline's configuration.
+    """
+    if redirect := _need_login(request):
+        return redirect
+    form = await request.form()
+    name = (form.get("pipeline_name") or "").strip()
+    log_names = form.getlist("logs")
+    script_ids = [s for s in form.getlist("scripts") if s]
+    mode = form.get("mode", "chain")
+    label = (form.get("label") or "").strip()
+    cat = (form.get("cat") or "").strip()
+
+    by_id = {s.id: s for s in discover_scripts()}
+    pairs = [("logs", n) for n in log_names]
+    pairs += [("scripts", s) for s in script_ids]
+    pairs.append(("mode", mode))
+    if label:
+        pairs.append(("label", label))
+    if cat:
+        pairs.append(("cat", cat))
+    for sid in script_ids:
+        script = by_id.get(sid)
+        if not script:
+            continue
+        for spec in script.parameters:
+            raw = form.get(f"p::{sid}::{spec.name}")
+            if raw not in (None, ""):
+                pairs.append((f"p::{sid}::{spec.name}", str(raw)))
+    run_url = "/run?" + urlencode(pairs, safe=":")
+
+    if not name:
+        return _render_error(request, HTTPException(422, "Pipeline name is empty"),
+                             back=run_url)
+    if not script_ids:
+        return _render_error(request, HTTPException(422, "A pipeline needs at least one step"),
+                             back=run_url)
+    unknown = [s for s in script_ids if s not in by_id]
+    if unknown:
+        return _render_error(request, HTTPException(404, f"Unknown script: {', '.join(unknown)}"),
+                             back=run_url)
+    try:
+        req = PipelineSaveRequest(name=name, steps=[
+            PipelineStep(script_id=sid, params=_parse_form_params(form, by_id[sid]))
+            for sid in script_ids])
+        pipelines_api.save_pipeline(req)
+    except HTTPException as exc:
+        return _render_error(request, exc, back=run_url)
+    return RedirectResponse(
+        run_url + "&" + urlencode({"msg": f"Pipeline '{name}' saved"}), status_code=303)
 
 
 # --- jobs list ------------------------------------------------------------

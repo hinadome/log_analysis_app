@@ -186,6 +186,10 @@ label.param { display: grid; grid-template-columns: 230px minmax(200px, 340px) 1
   box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45);
 }
 .runbar .run-summary { margin: 0; }
+/* the 💾 Save pipeline controls (chain mode) sit between the summary and
+   the Run button — a formaction sibling of Run, not a second form */
+.pipeline-save { display: flex; align-items: center; gap: 8px; }
+.pipeline-save input[type="text"] { width: 180px; }
 @media (max-width: 640px) { .runbar { justify-content: flex-end; } }
 
 /* ---------- job detail ---------- */

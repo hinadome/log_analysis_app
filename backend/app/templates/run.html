@@ -1,25 +1,26 @@
 {% extends "base.html" %}
 {% block title %}Run · LogSmith{% endblock %}
 
-{% macro param_input(s, p) %}
+{% macro param_input(s, p, v=none) %}
 {% set fname = 'p::' ~ s.id ~ '::' ~ p.name %}
+{% set cur = v if v is not none else p.default %}
 {% if p.type == 'boolean' %}
   <input type="hidden" name="{{ fname }}" value="false">
-  <input type="checkbox" name="{{ fname }}" value="true" {% if p.default %}checked{% endif %}>
+  <input type="checkbox" name="{{ fname }}" value="true" {% if cur|string|lower == 'true' %}checked{% endif %}>
 {% elif p.type == 'enum' %}
   <select name="{{ fname }}">
-    <option value="" {% if not p.default %}selected{% endif %}>— default{% if p.default is not none %}: {{ p.default }}{% endif %} —</option>
-    {% for c in p.choices %}<option value="{{ c }}" {% if p.default == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    <option value="" {% if cur is none or cur == '' %}selected{% endif %}>— default{% if p.default is not none %}: {{ p.default }}{% endif %} —</option>
+    {% for c in p.choices %}<option value="{{ c }}" {% if cur == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
   </select>
 {% elif p.type in ('integer', 'float') %}
   <input type="number" step="{{ 'any' if p.type == 'float' else '1' }}" name="{{ fname }}"
-         value="{{ p.default if p.default is not none else '' }}" placeholder="default">
+         value="{{ cur if cur is not none else '' }}" placeholder="default">
 {% elif p.type == 'multi' %}
   <input type="text" name="{{ fname }}"
-         value="{{ p.default | join(', ') if p.default is iterable and p.default is not string else (p.default or '') }}"
+         value="{{ v if v is not none else (p.default | join(', ') if p.default is iterable and p.default is not string else (p.default or '')) }}"
          placeholder="comma-separated list">
 {% else %}
-  <input type="text" name="{{ fname }}" value="{{ p.default if p.default is not none else '' }}">
+  <input type="text" name="{{ fname }}" value="{{ cur if cur is not none else '' }}">
 {% endif %}
 {% endmacro %}
 
@@ -27,6 +28,9 @@
 <h1>Configure run</h1>
 {% if missing_logs %}
 <div class="flash bad">Log no longer available: <span class="mono">{{ missing_logs | join(', ') }}</span></div>
+{% endif %}
+{% if msg %}
+<div class="flash {{ 'bad' if msg_is_error else 'ok' }}">{{ msg }}</div>
 {% endif %}
 
 {% if not selected_logs %}
@@ -55,6 +59,10 @@
   {% for s in chosen_scripts %}<input type="hidden" name="scripts" value="{{ s.id }}">{% endfor %}
   {# chosen steps filtered out of the table by a category stay checked through an Update #}
   {% for s in chosen_scripts if s.id not in table_ids %}<input type="hidden" name="pick" value="{{ s.id }}">{% endfor %}
+  {# parameter values survive an Update — the form re-renders them below #}
+  {% for s in chosen_scripts %}{% for p in s.parameters %}{% set v = param_values.get(s.id, {}).get(p.name) %}
+  {% if v is not none %}<input type="hidden" name="p::{{ s.id }}::{{ p.name }}" value="{{ v }}">{% endif %}
+  {% endfor %}{% endfor %}
   {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
   <table class="list">
     <thead><tr><th class="cb"></th><th>Script</th><th>Description</th><th>Params</th></tr></thead>
@@ -76,6 +84,23 @@
   </div>
   <button class="btn" type="submit">Update</button>
 </form>
+
+{% if pipeline_names %}
+<form method="get" action="/run" class="card">
+  <h2>Saved pipelines</h2>
+  <div class="run-options">
+    <label class="inline-opt">pipeline
+      <select name="pipeline">
+        {% for n in pipeline_names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+      </select>
+    </label>
+    <button class="btn" type="submit">Load</button>
+    <span class="muted">replaces the steps below with this chain — parameters included</span>
+  </div>
+  {% for l in selected_logs %}<input type="hidden" name="logs" value="{{ l }}">{% endfor %}
+  {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
+</form>
+{% endif %}
 
 {% if chosen_scripts %}
 <form method="post" action="/submit" class="card">
@@ -101,7 +126,7 @@
     <label class="param">
       <span class="pname">{{ p.label or p.name }}{% if p.required %} <b class="req">*</b>{% endif %}
         <span class="muted">[{{ p.type }}]</span></span>
-      {{ param_input(s, p) }}
+      {{ param_input(s, p, param_values.get(s.id, {}).get(p.name)) }}
       {% if p.help %}<span class="phelp">{{ p.help }}</span>{% endif %}
       {% if not p.required and p.default is not none and p.type != 'boolean' %}
       <span class="phelp">default: {{ p.default | tojson }}</span>
@@ -126,6 +151,13 @@
       {% else %}parallel{% endif %}
       {% if label %} · label “{{ label }}”{% endif %}
     </div>
+    {% if mode == 'chain' %}
+    <div class="pipeline-save">
+      <input type="text" name="pipeline_name" placeholder="pipeline name" maxlength="80">
+      <button class="btn" type="submit" formaction="/pipelines/save"
+              title="Save these steps with their parameters as a reusable pipeline (server-side, both UIs)">💾 Save pipeline</button>
+    </div>
+    {% endif %}
     <button class="btn primary lg" type="submit">▶ Run</button>
   </div>
 </form>

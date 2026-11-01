@@ -18,7 +18,7 @@ from . import auth
 from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
                      DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING,
                      DOCKER_SANDBOX, SANDBOX_IMAGE)
-from .routers import jobs, logs, scripts
+from .routers import jobs, logs, pipelines, scripts
 from .services import decompress_cache
 from .services.job_store import JobStore
 
@@ -83,6 +83,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
 app.include_router(scripts.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(pipelines.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["meta"])

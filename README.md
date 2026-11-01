@@ -196,9 +196,13 @@ Vite proxy talks HTTPS to the backend.
 - **Step-input viewer** — the Input tab shows exactly what a script received:
   the selected log, or for chain steps the previous step's actual output
   (compressed sources shown decompressed).
-- **Saved pipelines** *(React UI)* — save a whole ordered chain (scripts +
-  parameters) under a name and load it on any log, like parameter presets
-  but for chains (stored in your browser's localStorage).
+- **Saved pipelines** — save a whole ordered chain (scripts + parameters)
+  under a name and load it on any log, like parameter presets but for
+  chains. Stored on the server (`data/pipelines.json`), so every browser
+  and both UIs share the same list: React saves/loads via the runbar;
+  the python UI has a "Saved pipelines" Load form on the run page and a
+  💾 button in the runbar. A loaded pipeline is a ready-to-run, fully
+  configured chain.
 - **Fan-out over logs** — arm extra logs with the ＋ toggle in the log list
   and one Run submits the same scripts against each of them ("3 logs × 2
   steps = 6 jobs"), e.g. the same counter across all rotated files.
@@ -512,6 +516,9 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | GET | `/api/scripts/{id}/export` | download the script as a tar.gz backup |
 | POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs |
 | POST | `/api/jobs/prune?days=N` | delete jobs older than N days |
+| GET | `/api/pipelines` | saved pipelines (reusable chains) — shared by every browser and both UIs |
+| POST | `/api/pipelines` | save a pipeline `{name, steps: [{script_id, params}]}` (upsert by name, validated like a submission) |
+| DELETE | `/api/pipelines/{name}` | remove a saved pipeline |
 | GET | `/api/auth/status` | whether a password is required |
 | POST | `/api/auth/login` `/logout` | password → session cookie (login is rate-limited: 5 failures/min per client) |
 | GET | `/api/jobs` | list jobs (optional `?status=`, `?q=` free-text search over label/script/log/ids, `?limit=&offset=` paging; returns `total`) |
@@ -568,7 +575,8 @@ filtering, paging, SSE streaming, the step-input endpoint, full and partial
 re-run), submission pre-flight + spawn-error diagnostics (missing
 interpreters named), the async contract (parallel jobs overlap; the API
 answers mid-run), log preview (head/tail/compressed), upload sanitization
-and caps, authentication incl. rate limiting and session expiry, the
+and caps, saved pipelines (API round-trip + validation, the python UI's
+save/load flow), authentication incl. rate limiting and session expiry, the
 python UI's page flow (login, submission, fan-out, chains, compare,
 editor, the output table + CSV), plus the frontend's diff/table logic. See
 [ARCHITECTURE.md §11](ARCHITECTURE.md#11-testing) for the invariant → test

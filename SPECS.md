@@ -209,7 +209,21 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | `POST /api/jobs/{id}/cancel` | chain job → cancels whole chain; single job → kills it. 409 if nothing active |
 | `POST /api/jobs/{id}/rerun` | new job / new chain with the same config → `{"job": …}`; chains accept `?from_step=N` (§4.2). Errors: 404 if a script no longer exists / 400 bad `from_step` / 409 unseedable predecessor |
 | `DELETE /api/jobs/{id}` | cancels a live chain first when applicable, then deletes the record |
-| `POST /api/jobs/prune?days=N` | deletes job records older than N days (1–3650) → `{"removed", "retention_days", "cache_removed"}` (files dropped from the shared decompressed cache); 400 when retention is disabled and no `days` given | |
+| `POST /api/jobs/prune?days=N` | deletes job records older than N days (1–3650) → `{"removed", "retention_days", "cache_removed"}` (files dropped from the shared decompressed cache); 400 when retention is disabled and no `days` given |
+
+### Pipelines
+
+Saved chains — reusable pipelines of scripts + parameters, stored on the
+server (`data/pipelines.json`) so every browser and both UIs see the
+same list. The name is the identity: saving an existing name replaces it.
+
+| Method & Path | Description |
+|---|---|
+| `GET /api/pipelines` | `{"pipelines": [Pipeline]}` sorted by name |
+| `POST /api/pipelines` | save (upsert): `{name, steps: [{script_id, params}]}` → `{"pipeline": Pipeline}`. Validation matches submission — 404 unknown script, 422 bad params / empty name / empty steps — so a stored pipeline always loads cleanly. Steps keep their order; params are a validated snapshot (non-default values, typed) |
+| `DELETE /api/pipelines/{name}` | remove; 404 unknown |
+
+`Pipeline` = `{name, steps: [{script_id, params}], created_at, updated_at}`. |
 
 ### Meta
 
@@ -230,8 +244,9 @@ missing.
 | Path | Description |
 |---|---|
 | `GET /` | home: log list, script checkboxes, "use a file by path" box (absolute path → run configuration), upload form. Script table narrows by category via `?cat=` (chips; unknown value = everything) |
-| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…&cat=…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default). Repeated `scripts=` params are the chosen steps **in chain order** (the submission preserves it). A `?log=` value that is an existing absolute file is kept even when the listing doesn't know it. The script table narrows by `?cat=` (chips rebuild the full configuration with the filter swapped; chosen steps stay chosen via hidden inputs even when filtered out of view). In chain mode the parameter fieldsets are numbered `Step N` and each legend has ↑/↓ links that swap it with a neighbor (rebuilding the query); the run summary shows the pipeline `A → B → C`. The table's checkboxes (`pick`) merge into the carried order on Update — still-checked steps keep their position, newly checked ones append, unchecked ones drop — so a reordered chain survives an Update. The submit bar (run summary + Run button) is sticky at the viewport bottom, so long fieldset stacks keep Run one click away |
+| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…&cat=…&pipeline=…&p::…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default). Repeated `scripts=` params are the chosen steps **in chain order** (the submission preserves it). A `?log=` value that is an existing absolute file is kept even when the listing doesn't know it. The script table narrows by `?cat=` (chips rebuild the full configuration with the filter swapped; chosen steps stay chosen via hidden inputs even when filtered out of view). In chain mode the parameter fieldsets are numbered `Step N` and each legend has ↑/↓ links that swap it with a neighbor (rebuilding the query); the run summary shows the pipeline `A → B → C`. The table's checkboxes (`pick`) merge into the carried order on Update — still-checked steps keep their position, newly checked ones append, unchecked ones drop — so a reordered chain survives an Update. `p::<script_id>::<param>` **query** params carry current parameter values: they prefill the forms and ride along every rebuilt link and the Update form's hidden inputs, so a configured run never falls back to defaults by navigating — the fully-configured URL is shareable. `?pipeline=<name>` loads a saved pipeline (§5 Pipelines): its steps replace the current selection in order, chain mode is forced, and the stored parameters prefill the forms (URL `p::` values still win). The submit bar (run summary + Run button) is sticky at the viewport bottom, so long fieldset stacks keep Run one click away. A "Saved pipelines" card (when any exist) offers a zero-JS Load form; in chain mode the runbar also has a 💾 Save pipeline button — a `formaction` sibling of Run posting the same form's fields to `/pipelines/save` |
 | `POST /submit` | form submission: one submission per selected log (fan-out), parallel or chain; single job → 303 to its page, else 303 to the jobs list |
+| `POST /pipelines/save` | the runbar's 💾 button (a `formaction` sibling of Run reusing `/submit`'s fields plus `pipeline_name`): saves the configured steps as a pipeline (validated like the API, §5) and 303-redirects back to the same fully-configured `/run` URL with a success flash — that URL doubles as the shareable link |
 | `GET /jobs?q=&status=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |
 | `GET /jobs/{id}/result.csv?sortcol=&sortdir=` | the table view as CSV (`output.csv`), sorted as shown; 422 when the output is not a JSON table |

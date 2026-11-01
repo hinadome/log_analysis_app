@@ -75,11 +75,16 @@ backend/app/
 │   └── jobs.py        Job lifecycle endpoints; two-pass validation for
 │                      create/rerun; chain-aware cancel/delete/rerun;
 │                      ?q=/?status= filters + limit/offset paging
+│   └── pipelines.py   Saved pipelines: list / upsert-by-name / delete,
+│                      validated at save time like a submission
 └── services/
     ├── scanner.py     Discovers logs (recursive, newest first) and scripts
     │                  (flat + directory styles, default commands)
     ├── job_store.py   Filesystem persistence; parse cache keyed by
     │                  (mtime, size); list_chain; reconcile; prune
+    ├── pipeline_store.py  pipelines.json persistence: atomic rewrite,
+    │                  lock-guarded read-modify-write, corrupt entries
+    │                  skipped
     └── executor.py    Execution engine + chain (pipeline) engine
 
 backend/tests/         pytest suite: conftest isolates LOGS_DIR/DATA_DIR to
@@ -87,10 +92,11 @@ backend/tests/         pytest suite: conftest isolates LOGS_DIR/DATA_DIR to
 
 frontend/src/
 ├── App.jsx            State orchestration: auth, selection, ordered steps,
-│                      parallel|chain mode, submission label, chain presets,
-│                      job polling, notifications
+│                      parallel|chain mode, submission label, saved pipelines
+│                      (server-side), job polling, notifications
 ├── api.js             Fetch wrapper; emits a global event on 401
-├── presets.js         Named parameter presets + saved chains (localStorage)
+├── presets.js         Per-script parameter presets (localStorage) + the
+│                      one-time migration of legacy saved chains → server
 ├── hooks.js           useInterval
 ├── fmt.js             Byte formatting
 └── components/
@@ -319,6 +325,9 @@ data/jobs/20261029-110333-88914512/     # id = timestamp + 8 hex chars
 data/cache/decompressed/                # shared decompressed copies (.gz/.bz2/.xz)
 ├── <key>.log       # one per unique source version (path + size + mtime)
 └── <key>.json      # sidecar naming the source, for garbage collection
+
+data/pipelines.json                      # saved pipelines: {name: Pipeline}
+                                         # atomic rewrite on every save
 ```
 
 `list()` scans directories and returns parsed jobs sorted newest-first. To
@@ -382,8 +391,9 @@ Single-page React app; state lives in `App.jsx`:
 - **LogPicker** includes a drag-and-drop upload zone (multiple files,
   streamed to `POST /api/logs/upload`) and Head/Tail preview toggles.
 - **Presets** (`presets.js`) store named parameter sets per script in
-  localStorage — client-side only, so this (plus saved pipelines and
-  browser notifications) has no python-UI equivalent.
+  localStorage — client-side only, unlike saved pipelines which live on
+  the server and are shared with the python UI (browser notifications
+  also have no python-UI equivalent).
 
 ### Python pages (`--ui python`)
 
@@ -518,10 +528,11 @@ every push and pull request; the repo is under git with `data/`,
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
-| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted) |
+| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash) |
 | `test_security.py` | the script authoring lock: API writes 403 (nothing lands on disk), reads/export/job submission unaffected, python UI editor pages bounce and hide actions, health reports the flag, editor works when unlocked |
 | `test_sandbox.py` | the Docker sandbox: the `docker run` wrapper's shape (mounts, no network, uid:gid, JOB_* env, container name, image + command order), compressed-input mounts; e2e (skipped without Docker + image): completion, artifacts owned by the host user, no network, timeout kills the container, every interpreter |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
+| `test_pipelines_api.py` | the saved-pipeline API: save/list/delete round-trip, upsert-by-name (created_at kept), validation (unknown script 404, bad params 422, empty name/steps), delete 404 |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,

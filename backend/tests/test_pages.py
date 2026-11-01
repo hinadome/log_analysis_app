@@ -166,6 +166,109 @@ def test_chain_step_order_visible_and_reorderable(client):
     assert "Run this step" not in res.text
 
 
+# --- saved pipelines -------------------------------------------------------
+
+def test_save_pipeline_via_runbar_and_load(client):
+    """The runbar's 💾 button posts the /submit form's fields to
+    /pipelines/save; success redirects to the same fully-configured /run
+    URL (steps, params, msg flash) — which is also the shareable link."""
+    res = client.post("/pipelines/save", data={
+        "logs": LOG,
+        "scripts": ["grep_search", "error_counter"],
+        "mode": "chain",
+        "pipeline_name": "my chain",
+        "p::grep_search::pattern": "timeout",
+        "p::grep_search::ignore_case": "true",
+        "p::grep_search::context": "2",
+        "p::error_counter::level": "WARN",
+    }, follow_redirects=False)
+    assert res.status_code == 303
+    loc = res.headers["location"]
+    assert loc.startswith("/run?")
+    assert "logs=app.log" in loc
+    assert "scripts=grep_search&scripts=error_counter" in loc  # order kept
+    assert "p::grep_search::pattern=timeout" in loc
+    assert "p::error_counter::level=WARN" in loc
+    assert "msg=" in loc
+
+    # the API serves what was saved — typed params, in order
+    pipes = client.get("/api/pipelines").json()["pipelines"]
+    assert [p["name"] for p in pipes] == ["my chain"]
+    assert pipes[0]["steps"][0]["params"] == {
+        "pattern": "timeout", "ignore_case": True, "context": 2, "max_count": 0}
+    assert pipes[0]["steps"][1]["params"] == {"level": "WARN", "json": False}
+
+    # the redirect target shows the flash and keeps the configuration
+    page = client.get(loc)
+    assert "Pipeline &#39;my chain&#39; saved" in page.text  # msg flash
+    assert 'name="p::grep_search::pattern" value="timeout"' in page.text
+
+    # loading it via ?pipeline= replaces the steps, forces chain mode and
+    # prefills every parameter — a ready-to-run page
+    page = client.get("/run", params={"log": LOG, "pipeline": "my chain"})
+    body = page.text
+    assert "Step 1" in body and "Step 2" in body
+    assert _hidden_script_order(body) == ["grep_search", "error_counter"]
+    assert 'name="p::grep_search::pattern" value="timeout"' in body
+    assert 'name="p::grep_search::ignore_case" value="true" checked' in body
+    assert re.search(r'name="p::grep_search::context"[^>]*value="2"', body, re.S)
+    assert '<option value="WARN" selected>WARN</option>' in body
+    assert 'value="chain" checked' in body                       # mode forced
+    assert 'value="my chain">my chain</option>' in body           # Load select
+    assert 'formaction="/pipelines/save"' in body                # save row
+
+
+def test_run_page_param_values_survive_links_and_update(client):
+    """`p::` query params prefill the form, ride along the GET form's
+    hidden inputs (Update) and the reorder/chip links — a configured run
+    never falls back to defaults by navigating."""
+    res = client.get("/run", params=[
+        ("log", LOG), ("scripts", "grep_search"), ("mode", "chain"),
+        ("p::grep_search::pattern", "timeout"),
+        ("p::grep_search::ignore_case", "true"),
+    ])
+    body = res.text
+    assert 'name="p::grep_search::pattern" value="timeout"' in body
+    assert 'name="p::grep_search::ignore_case" value="true" checked' in body
+    # the GET form carries them — an Update keeps the configuration
+    assert '<input type="hidden" name="p::grep_search::pattern" value="timeout">' in body
+    # so do the reorder links
+    assert "p::grep_search::pattern=timeout" in body
+
+
+def test_run_page_unknown_pipeline_flashes_error(client):
+    res = client.get("/run", params={"log": LOG, "pipeline": "ghost"})
+    assert res.status_code == 200
+    assert "No pipeline named &#39;ghost&#39;" in res.text  # msg is escaped
+    assert 'class="flash bad"' in res.text
+
+
+def test_save_pipeline_requires_a_name(client):
+    res = client.post("/pipelines/save", data={
+        "logs": LOG, "scripts": "grep_search", "mode": "chain",
+        "p::grep_search::pattern": "x"})
+    assert res.status_code == 422
+    assert "Pipeline name is empty" in res.text
+    assert client.get("/api/pipelines").json()["pipelines"] == []
+
+
+def test_save_pipeline_unknown_script_renders_error(client):
+    res = client.post("/pipelines/save", data={
+        "logs": LOG, "scripts": "ghost", "mode": "chain", "pipeline_name": "x"})
+    assert res.status_code == 404
+    assert "Unknown script: ghost" in res.text
+
+
+def test_save_pipeline_validates_params_like_submission(client):
+    # grep_search's pattern is required — saving without it is a 422 page
+    res = client.post("/pipelines/save", data={
+        "logs": LOG, "scripts": "grep_search", "mode": "chain",
+        "pipeline_name": "bad"})
+    assert res.status_code == 422
+    assert "required" in res.text
+    assert client.get("/api/pipelines").json()["pipelines"] == []
+
+
 def test_run_page_flags_missing_typed_path(client):
     res = client.get("/run", params={"log": "/no/such/file.log"})
     assert res.status_code == 200
