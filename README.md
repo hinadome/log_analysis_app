@@ -199,10 +199,10 @@ Vite proxy talks HTTPS to the backend.
 - **Saved pipelines** — save a whole ordered chain (scripts + parameters)
   under a name and load it on any log, like parameter presets but for
   chains. Stored on the server (`data/pipelines.json`), so every browser
-  and both UIs share the same list: React saves/loads via the runbar;
-  the python UI has a "Saved pipelines" Load form on the run page and a
-  💾 button in the runbar. A loaded pipeline is a ready-to-run, fully
-  configured chain.
+  and both UIs share the same list: React saves/loads/deletes via the
+  runbar; the python UI has a "Saved pipelines" card on the run page with
+  Load and 🗑 Delete buttons, plus a 💾 button in the runbar. A loaded
+  pipeline is a ready-to-run, fully configured chain.
 - **Fan-out over logs** — arm extra logs with the ＋ toggle in the log list
   and one Run submits the same scripts against each of them ("3 logs × 2
   steps = 6 jobs"), e.g. the same counter across all rotated files.

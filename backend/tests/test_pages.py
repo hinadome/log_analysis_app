@@ -216,6 +216,7 @@ def test_save_pipeline_via_runbar_and_load(client):
     assert 'value="chain" checked' in body                       # mode forced
     assert 'value="my chain">my chain</option>' in body           # Load select
     assert 'formaction="/pipelines/save"' in body                # save row
+    assert 'formaction="/pipelines/delete" formmethod="post"' in body  # 🗑 button
 
 
 def test_run_page_param_values_survive_links_and_update(client):
@@ -267,6 +268,32 @@ def test_save_pipeline_validates_params_like_submission(client):
     assert res.status_code == 422
     assert "required" in res.text
     assert client.get("/api/pipelines").json()["pipelines"] == []
+
+
+def test_delete_pipeline_via_load_card(client):
+    """The Load card's 🗑 button shares the Load form (formaction +
+    formmethod overrides): the selected name and hidden logs POST to
+    /pipelines/delete; success redirects to /run with a flash, and the
+    card disappears once no pipelines remain."""
+    client.post("/pipelines/save", data={
+        "logs": LOG, "scripts": "grep_search", "mode": "chain",
+        "pipeline_name": "my chain", "p::grep_search::pattern": "ERROR"})
+
+    res = client.post("/pipelines/delete", data={"pipeline": "my chain", "logs": LOG},
+                      follow_redirects=False)
+    assert res.status_code == 303
+    loc = res.headers["location"]
+    assert loc.startswith("/run?") and "logs=app.log" in loc and "msg=" in loc
+
+    assert client.get("/api/pipelines").json()["pipelines"] == []
+    page = client.get(loc)
+    assert "Pipeline &#39;my chain&#39; deleted" in page.text  # msg flash
+    assert "Saved pipelines" not in page.text                  # card gone
+
+    # deleting an unknown name (e.g. a stale page) renders the 404 page
+    res = client.post("/pipelines/delete", data={"pipeline": "ghost", "logs": LOG})
+    assert res.status_code == 404
+    assert "No pipeline named" in res.text
 
 
 def test_run_page_flags_missing_typed_path(client):

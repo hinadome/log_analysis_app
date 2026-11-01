@@ -384,14 +384,15 @@ def run_page(
     # with its own, in order, and forces chain mode; its parameters ride
     # along as values so a loaded pipeline is immediately runnable. Values
     # from the URL still win over the stored ones — a shared link can
-    # tweak one knob of a loaded pipeline.
+    # tweak one knob of a loaded pipeline. Success flashes (msg) come from
+    # base.html; this page adds its own error flash for load problems.
     pipelines = pipeline_store.list_pipelines()
-    msg_is_error = False
+    error_msg = ""
     param_values = url_params
     if pipeline:
         loaded = next((p for p in pipelines if p.name == pipeline), None)
         if loaded is None:
-            msg, msg_is_error = f"No pipeline named '{pipeline}'", True
+            error_msg = f"No pipeline named '{pipeline}'"
         else:
             chosen_ids = [st.script_id for st in loaded.steps if st.script_id in by_id]
             mode = "chain"
@@ -405,9 +406,8 @@ def run_page(
             param_values = merged
             dropped = len(loaded.steps) - len(chosen_ids)
             if dropped:
-                msg = (f"Pipeline '{pipeline}': {dropped} step(s) skipped — "
-                       "script(s) no longer exist")
-                msg_is_error = True
+                error_msg = (f"Pipeline '{pipeline}': {dropped} step(s) skipped — "
+                             "script(s) no longer exist")
 
     # Values belong to the chosen steps — a script dropped from the run
     # does not keep its values in rebuilt links.
@@ -463,7 +463,7 @@ def run_page(
         mode=mode, label=label,
         param_values=param_values,
         pipeline_names=[p.name for p in pipelines],
-        msg=msg, msg_is_error=msg_is_error,
+        msg=msg, error_msg=error_msg,
     )
 
 
@@ -607,6 +607,35 @@ async def save_pipeline_page(request: Request):
         return _render_error(request, exc, back=run_url)
     return RedirectResponse(
         run_url + "&" + urlencode({"msg": f"Pipeline '{name}' saved"}), status_code=303)
+
+
+@router.post("/pipelines/delete")
+async def delete_pipeline_page(request: Request):
+    """The Load card's 🗑 button — deletes a saved pipeline, zero JS.
+
+    Shares the Load form (a formaction + formmethod override on the
+    button), so the selected name and the hidden logs come along; success
+    redirects back to /run with a flash.
+    """
+    if redirect := _need_login(request):
+        return redirect
+    form = await request.form()
+    name = (form.get("pipeline") or "").strip()
+    log_names = form.getlist("logs")
+    cat = (form.get("cat") or "").strip()
+
+    back_pairs = [("logs", n) for n in log_names]
+    if cat:
+        back_pairs.append(("cat", cat))
+    back = "/run?" + urlencode(back_pairs, safe=":") if back_pairs else "/run"
+    if not name:
+        return _render_error(request, HTTPException(422, "No pipeline selected"), back=back)
+    try:
+        pipelines_api.delete_pipeline(name)
+    except HTTPException as exc:
+        return _render_error(request, exc, back=back)
+    return RedirectResponse(
+        back + "&" + urlencode({"msg": f"Pipeline '{name}' deleted"}), status_code=303)
 
 
 # --- jobs list ------------------------------------------------------------

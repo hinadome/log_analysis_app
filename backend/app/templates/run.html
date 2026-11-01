@@ -29,8 +29,8 @@
 {% if missing_logs %}
 <div class="flash bad">Log no longer available: <span class="mono">{{ missing_logs | join(', ') }}</span></div>
 {% endif %}
-{% if msg %}
-<div class="flash {{ 'bad' if msg_is_error else 'ok' }}">{{ msg }}</div>
+{% if error_msg %}
+<div class="flash bad">{{ error_msg }}</div>
 {% endif %}
 
 {% if not selected_logs %}
@@ -95,6 +95,8 @@
       </select>
     </label>
     <button class="btn" type="submit">Load</button>
+    <button class="btn danger sm" type="submit" formaction="/pipelines/delete" formmethod="post"
+            title="Delete this saved pipeline from the server">🗑 Delete</button>
     <span class="muted">replaces the steps below with this chain — parameters included</span>
   </div>
   {% for l in selected_logs %}<input type="hidden" name="logs" value="{{ l }}">{% endfor %}
