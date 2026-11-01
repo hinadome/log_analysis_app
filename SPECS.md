@@ -223,7 +223,19 @@ same list. The name is the identity: saving an existing name replaces it.
 | `POST /api/pipelines` | save (upsert): `{name, steps: [{script_id, params}]}` → `{"pipeline": Pipeline}`. Validation matches submission — 404 unknown script, 422 bad params / empty name / empty steps — so a stored pipeline always loads cleanly. Steps keep their order; params are a validated snapshot (non-default values, typed) |
 | `DELETE /api/pipelines/{name}` | remove; 404 unknown |
 
-`Pipeline` = `{name, steps: [{script_id, params}], created_at, updated_at}`. |
+`Pipeline` = `{name, steps: [{script_id, params}], created_at, updated_at}`.
+
+The process, end to end: **save** validates like a submission and stores
+a typed snapshot (non-default values, order preserved) under the name —
+upsert replaces, `created_at` kept. **Load** (React 📂 / python UI
+`?pipeline=`, §5.1) replaces the current step selection in order, forces
+chain mode, and prefills the stored parameters; steps whose scripts no
+longer exist are skipped (React: toast; python UI: error flash), and
+explicit `p::` URL values win over the stored ones. **Run** is nothing
+special: the loaded steps are submitted as a plain chain (§4), on any
+log. The python UI's save redirect and every rebuilt `/run` link carry
+the full configuration (`scripts` in order + `p::` values), so a
+configured run's URL is shareable as-is. |
 
 ### Meta
 

@@ -289,6 +289,52 @@ by shutdown records `cancelled: "Cancelled by server shutdown"`.
 so a process that re-enters the app — e.g. one TestClient per test — gets a
 fully armed executor instead of one stuck in shutdown state.
 
+### 4.8 Saved pipelines — stored chain configurations
+
+A saved pipeline is a **named, validated snapshot of a chain
+configuration** — ordered steps with their parameters — and nothing more.
+Executing one is not a new code path: loading it just produces a normal
+chain submission (§4.1), so the entire engine above is reused unchanged.
+
+**Saving.** Both UIs save through the same validation and store:
+
+- React runbar 💾 → `POST /api/pipelines` (`routers/pipelines.py`)
+- python UI runbar 💾 → `POST /pipelines/save` (`pages.py`) — a
+  `formaction` sibling of Run reusing the `/submit` form's fields, so the
+  ordered scripts, mode and every `p::` parameter come along; on success
+  it redirects to the same fully-configured `/run` URL
+
+The router validates each step like a submission (`_validate_params`:
+unknown script 404, bad params 422), so a stored pipeline is a typed
+snapshot that always loads cleanly. `pipeline_store` persists it to
+`data/pipelines.json` — lock-guarded read-modify-write, atomic tmp +
+replace, the **name is the identity** (saving an existing name replaces
+it, `created_at` kept), corrupt entries skipped on read.
+
+**Loading.** A load replaces the current step selection (in order) and
+forces chain mode; stored parameters prefill the forms:
+
+- React 📂 replaces the drafted steps (`defaultParams` merged with the
+  stored ones; steps whose scripts no longer exist are dropped with a
+  toast).
+- python UI `?pipeline=<name>` — the run page merges in the stored steps
+  and parameters (stringified: booleans `true`/`false`, lists
+  comma-joined — the same shapes the form submits). Scripts that no
+  longer exist are skipped with an error flash. Explicit `p::` URL
+  values still win over the stored ones, so a shared link can tweak one
+  knob of a loaded pipeline.
+
+**Sharing.** The python UI's `/run` carries parameter values as
+`p::<script_id>::<param>` query params through Updates, category chips
+and step reorders, so the URL of a configured run is complete on its
+own — the save button redirects to exactly that URL.
+
+**Migration.** The React UI's chains used to live in browser
+localStorage. On first load after login, `migrateLegacyChains`
+(`presets.js`) moves them to the server: names already saved there win, a
+failed move keeps the local copy so the next load retries, and the
+legacy key is removed only after every name is accounted for.
+
 ## 5. Job state machine
 
 ```

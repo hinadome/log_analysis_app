@@ -44,8 +44,8 @@ built with Vite — or `python` — Jinja2 pages rendered by the backend with
 zero build tooling. Both serve the same `/api` and the same session
 cookie, so either can be pointed at the same data. See
 [ARCHITECTURE.md §8](ARCHITECTURE.md#8-frontend-architecture) for the
-differences (short version: presets, saved pipelines and notifications
-are React-only; the python UI trades them for deep-linkable URLs and no
+differences (short version: parameter presets and notifications are
+React-only; the python UI trades them for deep-linkable URLs and no
 Node dependency).
 
 `start` runs in the background: logs append to `.run/*.log`, PIDs live in
@@ -472,9 +472,8 @@ step N's input from the preceding completed step's persisted output.
 Deleting a step of a
 still-live chain cancels the chain first — later steps may depend on that
 step's output; deleting steps of a finished chain just removes them.
-Submissions can carry an optional **label** (searchable in the Jobs panel),
-and the whole ordered step list can be saved as a named **pipeline preset**
-(💾 Save / 📂 Load in chain mode). Compressed inputs (`.gz`/`.bz2`/`.xz`) are
+Submissions can carry an optional **label** (searchable in the Jobs panel).
+Compressed inputs (`.gz`/`.bz2`/`.xz`) are
 decompressed automatically, whether the selected log or a previous step's
 output. Chained steps also
 receive `JOB_ORIGINAL_LOG` (the originally selected file) in addition to
@@ -486,6 +485,29 @@ Type rendering: `boolean` → flag only when true; `multi` → repeated flag per
 value; everything else → `--flag value`. Commands are tokenized with shell
 rules but executed **without a shell** (exec), so parameter values are never
 interpreted as shell syntax.
+
+### Saved pipelines
+
+A saved pipeline is a whole chain configuration — ordered scripts plus
+their parameters — stored on the server in `data/pipelines.json`, so every
+browser and both UIs share the same list. The lifecycle:
+
+1. **Save** — 💾 in the runbar (either UI). Saving validates like a
+   submission, so a stored pipeline always loads cleanly; the name is the
+   identity (saving it again replaces it). The python UI redirects to the
+   same fully-configured `/run` URL, which doubles as a shareable link —
+   parameter values ride along as `p::` query params.
+2. **Load** — 📂 (React) or the "Saved pipelines" card on the run page
+   (python UI). Loading replaces the current steps in order, forces chain
+   mode and prefills every parameter; steps whose scripts were deleted in
+   the meantime are skipped. Explicit URL values win over the stored ones,
+   so a shared link can tweak one knob of a loaded pipeline.
+3. **Run** — nothing special: the loaded steps are submitted as a plain
+   chain on any log.
+4. **Delete** — 🗑 (either UI) or `DELETE /api/pipelines/{name}`.
+
+Chains saved by older versions in the browser's localStorage move to the
+server automatically on first load.
 
 ### Script runtime environment
 
