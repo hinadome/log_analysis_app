@@ -237,11 +237,55 @@ log. The python UI's save redirect and every rebuilt `/run` link carry
 the full configuration (`scripts` in order + `p::` values), so a
 configured run's URL is shareable as-is. |
 
+### Schedules
+
+A schedule is a saved pipeline (§ Pipelines) set to run on one log at
+cron-defined times. Stored on the server (`data/schedules.json`); the name
+is the identity, like pipelines. Fired by the in-process ticker.
+
+| Method & Path | Description |
+|---|---|
+| `GET /api/schedules` | `{"schedules": [Schedule + next_due + cron_desc]}` sorted by name |
+| `POST /api/schedules` | save (upsert): `{name, cron, pipeline, log, label?, enabled}` → `{"schedule": …}`. Validation: 422 empty name / unparseable or never-matching cron, 404 unknown pipeline/log, 400 path escape — and the pipeline's steps are re-validated like a submission, so a schedule is runnable as saved |
+| `POST /api/schedules/{name}/toggle` | flip `enabled`; 404 unknown |
+| `POST /api/schedules/{name}/run` | fire now (ignores the clock and `enabled`): submits the pipeline as a chain with the schedule's name — or its label — as the job label → `{result, job_ids}`, where result is `ok: N job(s) submitted` \| `skipped: previous run still active (N job(s))` \| `error: …`. Skips and errors are recorded in the schedule's bookkeeping, never raised |
+| `DELETE /api/schedules/{name}` | remove; 404 unknown |
+
+`Schedule` = `{name, cron, pipeline, log, label, enabled, created_at,
+updated_at, last_run_at, last_result, last_job_ids}` — the last three are
+the ticker's bookkeeping; the save API never writes them.
+
+Cron syntax: the standard five fields (minute hour day-of-month month
+day-of-week) with `*`, `*/n`, `a-b`, `a-b/n`, comma lists, Vixie-style
+`a/n` (steps from a to the field maximum), `jan`…`dec`/`sun`…`sat` names
+(3-letter or full-prefix, case-insensitive; 0 and 7 are both Sunday), and
+the classic day/day-of-week OR rule when both fields are restricted.
+Times are server-local, minute-granular; a stored expression always
+matches something within a four-year window (Feb 30 is rejected at save).
+
+Firing semantics (normative):
+
+- the ticker wakes every 30 seconds and fires each enabled schedule whose
+  cron matches the current minute, at most once per minute (`last_run_at`
+  is the double-fire guard);
+- a fire goes through the normal submission path as a chain — scheduled
+  runs are ordinary jobs: labels, history, retention and
+  `MAX_CONCURRENT_JOBS` apply unchanged;
+- overlap: if any job of the previous fire is still queued, waiting or
+  running, the fire is skipped and recorded — never two of the same
+  schedule at once;
+- a minute lost to a restart (or a disabled scheduler) is lost: no
+  catch-up, no retries, no backfill;
+- a schedule that fails at fire time (pipeline deleted, log gone, script
+  removed) records `error: …` — the ticker survives its schedules;
+- `LOGSMITH_SCHEDULER=0` stops the ticker; schedules stay listed and
+  editable, and `/run` still fires them on demand.
+
 ### Meta
 
 | Method & Path | Description |
 |---|---|
-| `GET /api/health` | `{status, logs_dir, scripts_dir, data_dir, max_concurrent_jobs, auth_required, script_editing, docker_sandbox, sandbox_image, job_retention_days, data_dir_size}` |
+| `GET /api/health` | `{status, logs_dir, scripts_dir, data_dir, max_concurrent_jobs, auth_required, script_editing, docker_sandbox, sandbox_image, job_retention_days, scheduler, data_dir_size}` |
 
 Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
@@ -260,6 +304,11 @@ missing.
 | `POST /submit` | form submission: one submission per selected log (fan-out), parallel or chain; single job → 303 to its page, else 303 to the jobs list |
 | `POST /pipelines/save` | the runbar's 💾 button (a `formaction` sibling of Run reusing `/submit`'s fields plus `pipeline_name`): saves the configured steps as a pipeline (validated like the API, §5) and 303-redirects back to the same fully-configured `/run` URL with a success flash — that URL doubles as the shareable link |
 | `POST /pipelines/delete` | the Load card's 🗑 button (same form via `formaction` + `formmethod` overrides, posting the selected `pipeline` + hidden `logs`/`cat`): deletes it and 303-redirects to `/run` with a flash; 404 unknown name |
+| `GET /schedules` | the cron view: every schedule as a table (name, cron + plain-language label, pipeline, log, next fire, last run/result) with ▶ Run now / ⏸ Pause–⏵ Resume / 🗑 Delete buttons, plus the create form (name, cron with examples, pipeline + log selects, optional label, enabled checkbox). `?cron=` prefills the expression — the preset chips are plain links; `?schedule=<name>` loads one for editing (same identity rule as pipelines: re-save replaces, new name forks) |
+| `POST /schedules/save` | the create/edit form: saves (validated exactly like the API, §5 Schedules) and 303-redirects to `/schedules` with a flash |
+| `POST /schedules/toggle` | a row's ⏸/⏵ button (`name` field): flips `enabled`, 303-redirect with a flash |
+| `POST /schedules/run` | a row's ▶ Run now button: fires through the ticker's path; the redirect flash carries the result (`ok:`/`skipped:` as a message, `error:` as an error flash) |
+| `POST /schedules/delete` | a row's 🗑 button (`name` field): deletes and 303-redirects with a flash |
 | `GET /jobs?q=&status=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |
 | `GET /jobs/{id}/result.csv?sortcol=&sortdir=` | the table view as CSV (`output.csv`), sorted as shown; 422 when the output is not a JSON table |
@@ -452,6 +501,7 @@ UIs can adapt.
 | `LOGSMITH_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
 | `LOGSMITH_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages, §5.1); same as `run.sh --ui` |
+| `LOGSMITH_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable (§5 Schedules), they just never fire on their own |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation (`run.sh --cert-hostname names` regenerates the certificate with them) |
 | `JOB_RETENTION_DAYS` | `0` | startup auto-delete window (0 = keep forever) |
 

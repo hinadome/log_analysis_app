@@ -597,6 +597,30 @@ pre.output.has-err { color: var(--red); }
 /* ---------- command copy ---------- */
 .cmd-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
+/* ---------- schedules (cron-fired pipelines) ---------- */
+.schedules-panel { margin-top: 24px; }
+.schedules-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.schedules-panel h2 { margin: 0; font-size: 15px; }
+.schedules-panel > .small { margin: 6px 0 0; }
+.schedule-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 12px 0 4px; }
+.schedule-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.4px; color: var(--dim); }
+.schedule-form input, .schedule-form select { text-transform: none; letter-spacing: 0; }
+.schedule-form .preset-chips { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.schedule-form-actions { grid-column: 1 / -1; display: flex; align-items: center;
+  justify-content: flex-end; gap: 14px; }
+.preset-chips .chip { cursor: pointer; }
+.schedule-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+.schedule-table th { text-align: left; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.4px; color: var(--dim); padding: 4px 10px 4px 0; }
+.schedule-table td { padding: 6px 10px 6px 0; border-top: 1px solid var(--border);
+  vertical-align: top; }
+.schedule-table .row-actions { white-space: nowrap; text-align: right; }
+.schedule-table tr.paused-row td { opacity: 0.55; }
+.schedule-table tr.paused-row td .badge { opacity: 1; }
+.small { font-size: 11.5px; }
+.block { display: block; }
+
 /* ---------- scrollbars & responsive ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 6px; }

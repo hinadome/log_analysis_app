@@ -91,6 +91,39 @@ class Pipeline(BaseModel):
     updated_at: str = ""
 
 
+class ScheduleSaveRequest(BaseModel):
+    name: str
+    cron: str
+    pipeline: str
+    log: str
+    label: str | None = None
+    enabled: bool = True
+
+
+class Schedule(BaseModel):
+    """A saved pipeline set to run on one log at cron-defined times.
+
+    The bookkeeping fields are written by the scheduler, never by the
+    save API: `last_run_at` is the local-time minute of the last fire
+    (naive ISO, matching the cron matcher's clock — it doubles as the
+    double-fire guard for the 30-second ticker), and `last_result` /
+    `last_job_ids` describe what that fire did. A schedule disabled at
+    fire time simply does not run; a fire missed while the server was
+    down is not caught up.
+    """
+    name: str
+    cron: str
+    pipeline: str              # saved pipeline name; fires as a chain
+    log: str                   # log path as saved (name or absolute)
+    label: str | None = None   # job label; defaults to the schedule name
+    enabled: bool = True
+    created_at: str = ""
+    updated_at: str = ""
+    last_run_at: str | None = None
+    last_result: str | None = None    # "ok: …" | "skipped: …" | "error: …"
+    last_job_ids: list[str] = Field(default_factory=list)
+
+
 class JobCreateRequest(BaseModel):
     log_path: str
     mode: Literal["parallel", "chain"] = "parallel"

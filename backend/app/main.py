@@ -17,10 +17,11 @@ from fastapi.staticfiles import StaticFiles
 from . import auth
 from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
                      DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING,
-                     DOCKER_SANDBOX, SANDBOX_IMAGE)
-from .routers import jobs, logs, pipelines, scripts
+                     DOCKER_SANDBOX, SANDBOX_IMAGE, SCHEDULER_ENABLED)
+from .routers import jobs, logs, pipelines, schedules, scripts
 from .services import decompress_cache
 from .services.job_store import JobStore
+from .services.scheduler import scheduler
 
 jobs_store: JobStore = jobs.store
 
@@ -50,7 +51,14 @@ async def lifespan(app: FastAPI):
         if which("docker") is None:
             print("WARNING: LOGSMITH_DOCKER_SANDBOX=1 but the docker CLI is "
                   "not on PATH — every job will fail until Docker is installed.")
+    # The cron ticker. Schedules whose minute was missed while the server
+    # was down stay missed — no catch-up by design.
+    if SCHEDULER_ENABLED:
+        scheduler.start()
+        print(f"scheduler: enabled (checking schedules every "
+              f"{scheduler.interval:.0f}s, local time)")
     yield
+    await scheduler.shutdown()
     await jobs.executor.shutdown()
 
 
@@ -84,6 +92,7 @@ app.include_router(logs.router, prefix="/api")
 app.include_router(scripts.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(pipelines.router, prefix="/api")
+app.include_router(schedules.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["meta"])
@@ -99,6 +108,7 @@ def health():
         "docker_sandbox": DOCKER_SANDBOX,
         "sandbox_image": SANDBOX_IMAGE if DOCKER_SANDBOX else None,
         "job_retention_days": JOB_RETENTION_DAYS,
+        "scheduler": SCHEDULER_ENABLED,
         "data_dir_size": _dir_size(DATA_DIR),
     }
 

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Schedules · LogSmith{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Schedules</h1>
+  <div class="head-actions muted">server-local time · overlap is skipped · a fire missed while
+    the server was down stays missed</div>
+</div>
+
+{% if schedules %}
+<table class="list">
+  <thead><tr>
+    <th>Name</th>
+    <th>When</th>
+    <th>Pipeline</th>
+    <th>Log</th>
+    <th>Next fire</th>
+    <th>Last run</th>
+    <th></th>
+  </tr></thead>
+  <tbody>
+  {% for s in schedules %}
+  <tr>
+    <td><strong>{{ s.name }}</strong>
+      {% if not s.enabled %}<span class="badge">paused</span>{% endif %}</td>
+    <td class="mono">{{ s.cron }}<br><span class="muted">{{ s.cron_desc }}</span></td>
+    <td>{{ s.pipeline }}</td>
+    <td class="mono">{{ s.log }}</td>
+    <td class="mono muted">{{ s.next_due | dt }}</td>
+    <td>
+      {% if s.last_run_at %}<span class="mono muted">{{ s.last_run_at | dt }}</span><br>{% endif %}
+      <span class="muted">{{ s.last_result or 'never run' }}</span>
+    </td>
+    <td class="row-actions">
+      <form method="post" action="/schedules/run" class="inline">
+        <input type="hidden" name="name" value="{{ s.name }}">
+        <button class="btn sm" type="submit" title="Run this schedule's pipeline now, ignoring the clock">▶ Run now</button>
+      </form>
+      <form method="post" action="/schedules/toggle" class="inline">
+        <input type="hidden" name="name" value="{{ s.name }}">
+        <button class="btn ghost sm" type="submit">{{ '⏵ Resume' if not s.enabled else '⏸ Pause' }}</button>
+      </form>
+      <form method="post" action="/schedules/delete" class="inline">
+        <input type="hidden" name="name" value="{{ s.name }}">
+        <button class="btn danger sm" type="submit" title="Delete this schedule">🗑</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted card">No schedules yet.{% if not pipeline_names %} First
+  <a href="/">save a pipeline</a> from the Run page — a schedule is a saved pipeline set to run on a log.{% endif %}</p>
+{% endif %}
+
+<h2>{% if edit %}Edit{% else %}Create{% endif %} a schedule</h2>
+
+<form method="post" action="/schedules/save" class="card">
+  <div class="grid2">
+    <label class="field">name
+      <input type="text" name="name" maxlength="80" required value="{{ edit.name if edit else '' }}"
+             placeholder="nightly errors">
+    </label>
+    <label class="field">cron
+      <input type="text" name="cron" required value="{{ edit.cron if edit else preset_cron }}"
+             placeholder="0 8 * * *">
+      <span class="muted">minute hour day month weekday — e.g. <span class="mono">*/5 * * * *</span> every 5 min,
+        <span class="mono">0 8 * * *</span> daily 08:00, <span class="mono">0 9 * * mon-fri</span> weekdays 09:00</span>
+    </label>
+    <label class="field">pipeline
+      <select name="pipeline" required>
+        {% for n in pipeline_names %}
+        <option value="{{ n }}" {{ 'selected' if edit and edit.pipeline == n }}>{{ n }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field">log
+      <select name="log" required>
+        {% for l in logs %}
+        <option value="{{ l.name }}" {{ 'selected' if edit and edit.log == l.name }}>{{ l.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field">label <span class="muted">(optional — job label; defaults to the name)</span>
+      <input type="text" name="label" maxlength="80" value="{{ edit.label if edit and edit.label else '' }}"
+             placeholder="nightly errors">
+    </label>
+    <label class="inline-opt">
+      <input type="checkbox" name="enabled" {{ 'checked' if not edit or edit.enabled }}>
+      enabled
+    </label>
+  </div>
+  <div class="head-actions">
+    <button class="btn primary" type="submit">💾 Save schedule</button>
+    {% if edit %}<a class="btn ghost sm" href="/schedules">cancel edit</a>{% endif %}
+  </div>
+</form>
+
+{% if not edit %}
+<div class="chips cat-chips">
+  <span class="muted">presets:</span>
+  <a class="chip" href="/schedules?cron=%2A%2F5+%2A+%2A+%2A+%2A">every 5 min</a>
+  <a class="chip" href="/schedules?cron=0+%2A+%2A+%2A+%2A">hourly</a>
+  <a class="chip" href="/schedules?cron=0+8+%2A+%2A+%2A">daily 08:00</a>
+  <a class="chip" href="/schedules?cron=0+9+%2A+%2A+mon-fri">weekdays 09:00</a>
+  <a class="chip" href="/schedules?cron=30+21+%2A+%2A+%2A">daily 21:30</a>
+</div>
+{% endif %}
+{% endblock %}

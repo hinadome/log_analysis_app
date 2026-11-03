@@ -19,10 +19,14 @@ from .jobs import _validate_params
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
 
-def _validated_steps(req: PipelineSaveRequest, scripts: dict[str, ScriptInfo]):
-    """Steps with existing scripts and submission-grade parameter checks."""
+def _validated_steps(steps_in, scripts: dict[str, ScriptInfo]):
+    """Steps with existing scripts and submission-grade parameter checks.
+
+    Shared with the schedules router: a saved pipeline that a schedule
+    points at must be as runnable as one saved through this API.
+    """
     seen: list[tuple[str, dict]] = []
-    for step in req.steps:
+    for step in steps_in:
         script = scripts.get(step.script_id)
         if script is None:
             raise HTTPException(status_code=404, detail=f"Unknown script: {step.script_id}")
@@ -46,7 +50,7 @@ def save_pipeline(req: PipelineSaveRequest):
     if not req.steps:
         raise HTTPException(status_code=422, detail="A pipeline needs at least one step")
     scripts = {s.id: s for s in discover_scripts()}
-    steps = _validated_steps(req, scripts)
+    steps = _validated_steps(req.steps, scripts)
     saved = pipeline_store.save_pipeline(
         name, [PipelineStep(script_id=sid, params=params) for sid, params in steps])
     return {"pipeline": saved.model_dump()}

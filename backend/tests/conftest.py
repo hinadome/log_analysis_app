@@ -88,13 +88,15 @@ def client():
     from fastapi.testclient import TestClient
 
     from app.main import app
-    from app.services import pipeline_store
+    from app.services import pipeline_store, schedule_store
 
     pipeline_store.PIPELINES_FILE.unlink(missing_ok=True)  # no leakage between tests
+    schedule_store.SCHEDULES_FILE.unlink(missing_ok=True)
     wipe_jobs()
     with TestClient(app) as test_client:
         yield test_client
     pipeline_store.PIPELINES_FILE.unlink(missing_ok=True)
+    schedule_store.SCHEDULES_FILE.unlink(missing_ok=True)
     # leaving the context manager runs executor.shutdown() — jobs created
     # by the test are stopped and persisted as cancelled/failed.
 

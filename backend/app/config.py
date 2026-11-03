@@ -54,6 +54,14 @@ SANDBOX_MEMORY = os.environ.get("LOGSMITH_SANDBOX_MEMORY", "512m").strip()
 # because the SPA owns a catch-all route.
 UI = os.environ.get("LOGSMITH_UI", "react").strip().lower()
 
+# The in-process cron ticker (services/scheduler.py): every 30s, fire
+# schedules whose cron expression matches the current minute. Disable with
+# LOGSMITH_SCHEDULER=0 — schedules stay listed and editable, they just
+# never fire on their own (e.g. to hand firing to a system crontab
+# hitting POST /api/schedules/<name>/run instead).
+SCHEDULER_ENABLED = os.environ.get(
+    "LOGSMITH_SCHEDULER", "1").strip().lower() not in ("0", "false", "no", "off")
+
 # Upper bound for a single log file uploaded through the browser (MiB).
 MAX_LOG_UPLOAD_MB = int(os.environ.get("MAX_LOG_UPLOAD_MB", "512"))
 

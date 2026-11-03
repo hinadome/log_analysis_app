@@ -28,11 +28,12 @@ from . import auth
 from .config import LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB, ALLOW_SCRIPT_EDITING, DOCKER_SANDBOX
 from .models import (
     Job, JobCreateRequest, JobSpecIn, PipelineSaveRequest, PipelineStep,
-    ScriptManifest, ScriptUpsertRequest,
+    ScheduleSaveRequest, ScriptManifest, ScriptUpsertRequest,
 )
 from .routers import jobs as jobs_api
 from .routers import logs as logs_api
 from .routers import pipelines as pipelines_api
+from .routers import schedules as schedules_api
 from .routers import scripts as scripts_api
 from .services import pipeline_store
 from .services.scanner import discover_scripts, list_logs
@@ -636,6 +637,91 @@ async def delete_pipeline_page(request: Request):
         return _render_error(request, exc, back=back)
     return RedirectResponse(
         back + "&" + urlencode({"msg": f"Pipeline '{name}' deleted"}), status_code=303)
+
+
+# --- schedules ------------------------------------------------------------
+
+@router.get("/schedules")
+def schedules_page(request: Request, cron: str = ""):
+    """The cron view: every schedule with its clock, plus the create form.
+
+    ?cron= prefills the expression (the preset chips below the form);
+    ?schedule=<name> loads one for editing — saving under the same name
+    replaces it, a new name forks it, exactly like pipelines.
+    """
+    if redirect := _need_login(request):
+        return redirect
+    schedules = schedules_api.list_schedules()["schedules"]  # enriched: next_due, cron_desc
+    name = request.query_params.get("schedule", "")
+    edit = next((s for s in schedules if s["name"] == name), None) if name else None
+    return _page(request, "schedules.html", nav="schedules",
+                 schedules=schedules,
+                 pipeline_names=[p.name for p in pipeline_store.list_pipelines()],
+                 logs=list_logs(), edit=edit, preset_cron=cron)
+
+
+@router.post("/schedules/save")
+async def save_schedule_page(request: Request):
+    if redirect := _need_login(request):
+        return redirect
+    form = await request.form()
+    req = ScheduleSaveRequest(
+        name=(form.get("name") or "").strip(),
+        cron=(form.get("cron") or "").strip(),
+        pipeline=(form.get("pipeline") or "").strip(),
+        log=(form.get("log") or "").strip(),
+        label=(form.get("label") or "").strip() or None,
+        enabled=form.get("enabled") not in (None, "", "off", "false"),
+    )
+    try:
+        schedules_api.save_schedule(req)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/schedules")
+    return RedirectResponse(
+        "/schedules?" + urlencode({"msg": f"Schedule '{req.name}' saved"}), status_code=303)
+
+
+@router.post("/schedules/toggle")
+async def toggle_schedule_page(request: Request):
+    if redirect := _need_login(request):
+        return redirect
+    name = ((await request.form()).get("name") or "").strip()
+    try:
+        out = schedules_api.toggle_schedule(name)
+        state = "resumed" if out["schedule"]["enabled"] else "paused"
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/schedules")
+    return RedirectResponse(
+        "/schedules?" + urlencode({"msg": f"Schedule '{name}' {state}"}), status_code=303)
+
+
+@router.post("/schedules/run")
+async def run_schedule_page(request: Request):
+    """The table's ▶ button — same fire path as the ticker, so overlap
+    with the previous run is skipped and recorded here too."""
+    if redirect := _need_login(request):
+        return redirect
+    name = ((await request.form()).get("name") or "").strip()
+    try:
+        out = await schedules_api.run_schedule(name)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/schedules")
+    result = out["result"]
+    flash = {"err" if result.startswith("error") else "msg": f"{name}: {result}"}
+    return RedirectResponse("/schedules?" + urlencode(flash), status_code=303)
+
+
+@router.post("/schedules/delete")
+async def delete_schedule_page(request: Request):
+    if redirect := _need_login(request):
+        return redirect
+    name = ((await request.form()).get("name") or "").strip()
+    try:
+        schedules_api.delete_schedule(name)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/schedules")
+    return RedirectResponse(
+        "/schedules?" + urlencode({"msg": f"Schedule '{name}' deleted"}), status_code=303)
 
 
 # --- jobs list ------------------------------------------------------------

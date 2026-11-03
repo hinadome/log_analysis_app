@@ -203,6 +203,16 @@ Vite proxy talks HTTPS to the backend.
   runbar; the python UI has a "Saved pipelines" card on the run page with
   Load and 🗑 Delete buttons, plus a 💾 button in the runbar. A loaded
   pipeline is a ready-to-run, fully configured chain.
+- **Scheduled runs (cron)** — a schedule is a saved pipeline + a log + a
+  5-field cron expression (`0 8 * * *` = daily at 08:00, server-local
+  time). An in-process ticker fires it through the normal submission
+  path, so scheduled runs are ordinary jobs (labelled with the
+  schedule's name) — history, retention and the concurrency cap apply
+  unchanged. Overlapping runs are skipped (visibly recorded, never
+  queued behind each other), and a fire missed while the server was down
+  stays missed — no catch-up, no retries, no backfill. Each schedule
+  shows next fire, last run/result, with run-now, pause/resume and
+  delete in both UIs; preset chips build common expressions.
 - **Fan-out over logs** — arm extra logs with the ＋ toggle in the log list
   and one Run submits the same scripts against each of them ("3 logs × 2
   steps = 6 jobs"), e.g. the same counter across all rotated files.
@@ -509,6 +519,36 @@ browser and both UIs share the same list. The lifecycle:
 Chains saved by older versions in the browser's localStorage move to the
 server automatically on first load.
 
+### Schedules (cron)
+
+A schedule runs a **saved pipeline on one log at cron-defined times** —
+"run the errors pipeline on app.log every night at 08:00". Schedules are
+stored in `data/schedules.json` and fired by an in-process ticker that
+wakes every 30 seconds (server-local time, minute granularity).
+
+- **Creating one** — the Schedules panel (React, below the runbar) or the
+  `/schedules` page (python UI): name, cron expression, pipeline, log and
+  an optional job label. Preset chips build common expressions
+  (`*/5 * * * *`, hourly, daily 08:00, weekdays 09:00). Saving validates
+  everything up front: the expression must parse (and match something
+  within four years — Feb 30 is rejected), the pipeline must exist and
+  still be runnable, and the log must resolve.
+- **What fires** — the pipeline's steps as a chain through the normal
+  submission path: scheduled runs are ordinary jobs carrying the
+  schedule's name (or its label), so job history, search, retention and
+  `MAX_CONCURRENT_JOBS` all apply unchanged. Failures at fire time (log
+  deleted, script removed) land in the schedule's last-result field.
+- **Bounds, by design** — if the previous run is still active at fire
+  time, the fire is skipped and recorded (`skipped: previous run still
+  active`) — never two of the same schedule at once. If the server was
+  down at fire time, that fire is missed: no catch-up, no retries, no
+  backfill. This is a workbench, not Airflow.
+- **Managing** — Run now (▶, ignores the clock), Pause/Resume, 🗑 Delete;
+  the list shows each schedule's next fire, last run and last result.
+  `LOGSMITH_SCHEDULER=0` disables the ticker — schedules stay listed and
+  editable, and you can fire them from a system crontab hitting
+  `POST /api/schedules/{name}/run` if you'd rather own the clock.
+
 ### Script runtime environment
 
 Each script process receives:
@@ -541,6 +581,11 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | GET | `/api/pipelines` | saved pipelines (reusable chains) — shared by every browser and both UIs |
 | POST | `/api/pipelines` | save a pipeline `{name, steps: [{script_id, params}]}` (upsert by name, validated like a submission) |
 | DELETE | `/api/pipelines/{name}` | remove a saved pipeline |
+| GET | `/api/schedules` | saved schedules, each enriched with `next_due` (local time) and `cron_desc` |
+| POST | `/api/schedules` | save a schedule `{name, cron, pipeline, log, label?, enabled}` (upsert by name; cron, pipeline and log validated) |
+| POST | `/api/schedules/{name}/toggle` | pause/resume a schedule |
+| POST | `/api/schedules/{name}/run` | fire now — the same path the ticker uses, so overlap with a live run is skipped and recorded |
+| DELETE | `/api/schedules/{name}` | remove a schedule |
 | GET | `/api/auth/status` | whether a password is required |
 | POST | `/api/auth/login` `/logout` | password → session cookie (login is rate-limited: 5 failures/min per client) |
 | GET | `/api/jobs` | list jobs (optional `?status=`, `?q=` free-text search over label/script/log/ids, `?limit=&offset=` paging; returns `total`) |
@@ -575,6 +620,7 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `LOGSMITH_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
 | `LOGSMITH_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
+| `LOGSMITH_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable, they just never fire on their own |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |
 | `JOB_RETENTION_DAYS` | `0` | auto-delete jobs older than N days at startup (0 = keep forever) |
 

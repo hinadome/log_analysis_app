@@ -9,6 +9,7 @@ import ScriptPicker from "./components/ScriptPicker.jsx";
 import ScriptEditor from "./components/ScriptEditor.jsx";
 import ParamForm from "./components/ParamForm.jsx";
 import JobsPanel from "./components/JobsPanel.jsx";
+import SchedulesPanel from "./components/SchedulesPanel.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
@@ -57,6 +58,7 @@ export default function App() {
   const [mode, setMode] = useState("parallel"); // parallel | chain
   const [label, setLabel] = useState("");      // optional tag for a submission
   const [pipelines, setPipelines] = useState([]); // server-side saved chains, shared with the python UI
+  const [schedules, setSchedules] = useState([]); // cron-fired pipelines, shared with the python UI
   const [jobs, setJobs] = useState([]);
   const [jobsTotal, setJobsTotal] = useState(0);
   const [jobsLimit, setJobsLimit] = useState(200); // how much of the history to fetch
@@ -88,6 +90,11 @@ export default function App() {
 
   const loadPipelines = useCallback(
     () => api.listPipelines().then((r) => setPipelines(r.pipelines || [])).catch(() => {}),
+    []
+  );
+
+  const loadSchedules = useCallback(
+    () => api.listSchedules().then((r) => setSchedules(r.schedules || [])).catch(() => {}),
     []
   );
 
@@ -152,9 +159,10 @@ export default function App() {
     if (auth === "logged_in") {
       loadAll();
       loadPipelines();
+      loadSchedules();
       refreshJobs();
     }
-  }, [auth, loadAll, loadPipelines, refreshJobs]);
+  }, [auth, loadAll, loadPipelines, loadSchedules, refreshJobs]);
 
   // one-time per page load: chains saved by the old localStorage UI move
   // to the server, so every browser and the python UI see them. A failed
@@ -324,6 +332,51 @@ export default function App() {
     try {
       await api.deletePipeline(name);
       setPipelines((list) => list.filter((p) => p.name !== name));
+    } catch (e) {
+      showError(e);
+    }
+  };
+
+  // ---------- schedules (cron-fired pipelines) ----------
+
+  const saveSchedule = async (body) => {
+    try {
+      await api.saveSchedule(body);
+      await loadSchedules();
+      setToast({ kind: "ok", text: `Schedule "${body.name}" saved — it fires on the server's clock` });
+    } catch (e) {
+      showError(e);
+    }
+  };
+
+  const removeSchedule = async (name) => {
+    try {
+      await api.deleteSchedule(name);
+      setSchedules((list) => list.filter((s) => s.name !== name));
+    } catch (e) {
+      showError(e);
+    }
+  };
+
+  const toggleSchedule = async (name) => {
+    try {
+      const r = await api.toggleSchedule(name);
+      setSchedules((list) => list.map((s) => (s.name === name ? r.schedule : s)));
+      setToast({ kind: "ok", text: `Schedule "${name}" ${r.schedule.enabled ? "resumed" : "paused"}` });
+    } catch (e) {
+      showError(e);
+    }
+  };
+
+  const runScheduleNow = async (name) => {
+    try {
+      const r = await api.runSchedule(name);
+      loadSchedules();
+      refreshJobs();
+      // "skipped: previous run still active" and fire errors come back as a
+      // result, not an exception — toast them honestly
+      const failed = String(r.result || "").startsWith("error");
+      setToast({ kind: failed ? "error" : "ok", text: `${name}: ${r.result}` });
     } catch (e) {
       showError(e);
     }
@@ -643,6 +696,17 @@ export default function App() {
                   {busy ? "Starting…" : mode === "chain" ? "Run chain ▸" : "Run ▸"}
                 </button>
               </div>
+
+              <SchedulesPanel
+                schedules={schedules}
+                pipelines={pipelines}
+                logs={logs}
+                defaultLog={selectedLog && !selectedLog.custom ? selectedLog.name : ""}
+                onSave={saveSchedule}
+                onToggle={toggleSchedule}
+                onRun={runScheduleNow}
+                onDelete={removeSchedule}
+              />
             </div>
 
             <JobsPanel

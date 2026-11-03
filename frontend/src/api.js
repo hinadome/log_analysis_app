@@ -71,6 +71,15 @@ export const api = {
     request("/api/pipelines", { method: "POST", body: JSON.stringify(body) }),
   deletePipeline: (name) =>
     request(`/api/pipelines/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  listSchedules: () => request("/api/schedules"),
+  saveSchedule: (body) =>
+    request("/api/schedules", { method: "POST", body: JSON.stringify(body) }),
+  deleteSchedule: (name) =>
+    request(`/api/schedules/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  toggleSchedule: (name) =>
+    request(`/api/schedules/${encodeURIComponent(name)}/toggle`, { method: "POST" }),
+  runSchedule: (name) =>
+    request(`/api/schedules/${encodeURIComponent(name)}/run`, { method: "POST" }),
   jobFileUrl: (id, name) => `/api/jobs/${id}/files/${encodeURIComponent(name)}`,
   jobEventsUrl: (id) => `/api/jobs/${id}/events`,
 };

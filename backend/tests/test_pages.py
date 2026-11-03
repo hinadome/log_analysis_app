@@ -296,6 +296,98 @@ def test_delete_pipeline_via_load_card(client):
     assert "No pipeline named" in res.text
 
 
+# --- schedules (cron-fired pipelines) ---------------------------------------
+
+def _make_pipeline(client):
+    assert client.post("/api/pipelines", json={
+        "name": "my chain",
+        "steps": [{"script_id": "grep_search", "params": {"pattern": "ERROR"}}],
+    }).status_code == 200
+
+
+def test_schedules_page_create_and_list(client):
+    """The cron view renders with the nav link, and the create form saves
+    a schedule that appears with its clock and plain-language label."""
+    _make_pipeline(client)
+    res = client.get("/schedules")
+    assert res.status_code == 200
+    assert 'href="/schedules"' in res.text          # nav link (base.html)
+    assert "No schedules yet" in res.text
+
+    res = client.post("/schedules/save", data={
+        "name": "every five", "cron": "*/5 * * * *",
+        "pipeline": "my chain", "log": LOG, "label": "", "enabled": "on",
+    }, follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"].startswith("/schedules?")
+
+    page = client.get(res.headers["location"])
+    assert "Schedule &#39;every five&#39; saved" in page.text  # msg flash
+    assert "every five" in page.text
+    assert "*/5 * * * *" in page.text
+    assert "every 5 minutes" in page.text            # cron_desc
+    assert "never run" in page.text
+
+    schedules = client.get("/api/schedules").json()["schedules"]
+    assert [s["name"] for s in schedules] == ["every five"]
+
+
+def test_schedules_page_form_validation(client):
+    _make_pipeline(client)
+    res = client.post("/schedules/save", data={
+        "name": "bad", "cron": "0 8 * *", "pipeline": "my chain", "log": LOG})
+    assert res.status_code == 422
+    assert "5 fields" in res.text
+
+    res = client.post("/schedules/save", data={
+        "name": "bad", "cron": "0 8 * * *", "pipeline": "ghost", "log": LOG})
+    assert res.status_code == 404
+
+
+def test_schedules_edit_toggle_run_delete(client):
+    _make_pipeline(client)
+    client.post("/schedules/save", data={
+        "name": "nightly", "cron": "0 8 * * *",
+        "pipeline": "my chain", "log": LOG, "enabled": "on"})
+
+    # ?schedule= prefills the form with the stored configuration
+    page = client.get("/schedules", params={"schedule": "nightly"})
+    assert 'value="nightly"' in page.text
+    assert 'value="0 8 * * *"' in page.text
+    assert "Edit a schedule" in page.text
+
+    # a preset chip (?cron=) prefills a fresh form instead
+    page = client.get("/schedules", params={"cron": "*/15 * * * *"})
+    assert 'value="*/15 * * * *"' in page.text
+    assert "Create a schedule" in page.text
+
+    # toggle → paused, visibly
+    res = client.post("/schedules/toggle", data={"name": "nightly"}, follow_redirects=False)
+    assert res.status_code == 303
+    page = client.get(res.headers["location"])
+    assert "Schedule &#39;nightly&#39; paused" in page.text
+    assert '<span class="badge">paused</span>' in page.text
+
+    # run now: a real submission labelled with the schedule's name
+    res = client.post("/schedules/run", data={"name": "nightly"}, follow_redirects=False)
+    assert res.status_code == 303
+    page = client.get(res.headers["location"])
+    assert "nightly: ok: 1 job(s) submitted" in page.text
+    jobs = client.get("/api/jobs").json()["jobs"]
+    assert [j["label"] for j in jobs] == ["nightly"]
+
+    # delete
+    res = client.post("/schedules/delete", data={"name": "nightly"}, follow_redirects=False)
+    assert res.status_code == 303
+    assert client.get("/api/schedules").json()["schedules"] == []
+
+
+def test_schedules_page_requires_pipeline(client):
+    """No saved pipelines — the page says so instead of an empty select."""
+    page = client.get("/schedules")
+    assert "save a pipeline" in page.text
+
+
 def test_run_page_flags_missing_typed_path(client):
     res = client.get("/run", params={"log": "/no/such/file.log"})
     assert res.status_code == 200

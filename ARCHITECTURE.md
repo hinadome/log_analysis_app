@@ -49,13 +49,15 @@ semaphore; the UI is a static React bundle served by the same process.
 ```
 backend/app/
 ├── main.py            App assembly: auth middleware, routers, lifespan
-│                      (reconcile → prune on start; executor.shutdown on stop),
-│                      and the frontend mount: the React SPA from frontend/dist
-│                      or the python pages router, per LOGSMITH_UI
+│                      (reconcile → prune → scheduler start; scheduler +
+│                      executor shutdown on stop), and the frontend mount:
+│                      the React SPA from frontend/dist or the python
+│                      pages router, per LOGSMITH_UI
 ├── config.py          All settings, read from environment variables once
 ├── models.py          Pydantic models: ParamSpec, ScriptManifest, ScriptInfo,
 │                      LogFile, JobSpecIn, JobCreateRequest, Job (incl. chain
-│                      fields), JobStatus literal
+│                      fields), JobStatus literal, PipelineStep/Pipeline,
+│                      Schedule/ScheduleSaveRequest
 ├── auth.py            Shared-password auth: HttpOnly cookie session +
 │                      Bearer token; constant-time comparisons; per-IP
 │                      login rate limiting (5 failures/60s → 429);
@@ -77,6 +79,10 @@ backend/app/
 │                      ?q=/?status= filters + limit/offset paging
 │   └── pipelines.py   Saved pipelines: list / upsert-by-name / delete,
 │                      validated at save time like a submission
+│   └── schedules.py   Saved schedules: list (enriched with next fire) /
+│                      upsert-by-name (cron + pipeline + log validated) /
+│                      toggle / run-now (shares the ticker's fire path) /
+│                      delete
 └── services/
     ├── scanner.py     Discovers logs (recursive, newest first) and scripts
     │                  (flat + directory styles, default commands)
@@ -85,7 +91,18 @@ backend/app/
     ├── pipeline_store.py  pipelines.json persistence: atomic rewrite,
     │                  lock-guarded read-modify-write, corrupt entries
     │                  skipped
+    ├── schedule_store.py  schedules.json persistence: same shape as
+    │                  pipeline_store, plus record_run (the ticker's
+    │                  bookkeeping writes: last_run_at/last_result/
+    │                  last_job_ids)
+    ├── cron.py        The 5-field cron matcher: parse (Vixie semantics —
+    │                  a/n steps, names, day/day-of-week OR rule),
+    │                  matches(), next_after() (day-stepping, 4-year
+    │                  window), describe() for the UIs; zero dependencies
     └── executor.py    Execution engine + chain (pipeline) engine
+    └── scheduler.py   The ticker: one asyncio task, wakes every 30s,
+                       fires due schedules through the normal submission
+                       path; injectable clock for tests
 
 backend/tests/         pytest suite: conftest isolates LOGS_DIR/DATA_DIR to
                        temp dirs before any app import; see §11
@@ -93,7 +110,8 @@ backend/tests/         pytest suite: conftest isolates LOGS_DIR/DATA_DIR to
 frontend/src/
 ├── App.jsx            State orchestration: auth, selection, ordered steps,
 │                      parallel|chain mode, submission label, saved pipelines
-│                      (server-side), job polling, notifications
+│                      (server-side), schedules (cron-fired pipelines),
+│                      job polling, notifications
 ├── api.js             Fetch wrapper; emits a global event on 401
 ├── presets.js         Per-script parameter presets (localStorage) + the
 │                      one-time migration of legacy saved chains → server
@@ -112,6 +130,9 @@ frontend/src/
     ├── JobsPanel.jsx       Job list: badges, server-side search (debounced
     │                      in App), Load-more paging, chain "step 2/3"
     │                      chip, labels, prune
+    ├── SchedulesPanel.jsx  Schedules card: create form with cron preset
+    │                      chips, per-schedule next fire / last result,
+    │                      run-now / pause / delete
     ├── JobDetail.jsx      SSE live view, chain strip, markdown artifacts,
     │                      copy-as-command, re-run (full / from here)
     │                      ⇄ Compare (opens DiffView)
@@ -335,6 +356,48 @@ localStorage. On first load after login, `migrateLegacyChains`
 failed move keeps the local copy so the next load retries, and the
 legacy key is removed only after every name is accounted for.
 
+### 4.9 Scheduled runs — the cron ticker
+
+A schedule is a saved pipeline (§4.8) bound to one log and a cron
+expression, stored in `data/schedules.json`. Firing one is not a new
+execution path: the ticker builds a normal `JobCreateRequest` (mode
+`chain`, label = the schedule's name or its own label) and awaits the
+same `create_jobs` the UIs call — so labels, history, retention,
+`MAX_CONCURRENT_JOBS` and both UIs' job views all apply to scheduled
+runs unchanged.
+
+**The clock.** One asyncio task (`services/scheduler.py`), started by the
+lifespan after the executor, sleeping 30s between ticks; each tick fires
+every enabled schedule whose cron expression matches the current minute
+in server-local time. Double-firing within a minute is guarded by the
+persisted `last_run_at` (written on every fire, skip and error alike), so
+a slow or duplicated tick can never run a schedule twice in one minute.
+`LOGSMITH_SCHEDULER=0` leaves the task unstarted — schedules stay listed
+and editable, and run-now still works.
+
+**Cron matching** (`services/cron.py`, zero dependencies): the five
+standard fields with Vixie semantics — `a/n` steps to the field maximum,
+3-letter or full-prefix month/weekday names, 0 and 7 both Sunday, and
+the day/day-of-week OR rule when both fields are restricted (a leading
+`*`, including `*/n`, counts as unrestricted). `next_after()` steps
+day-by-day rather than minute-by-minute, so a never-matching expression
+is decided within a four-year window — and rejected at save time.
+
+**Bounds, by design.** If any job of the previous fire is still
+queued/waiting/running, the fire is skipped and recorded
+(`skipped: previous run still active`) — never two of the same schedule
+at once, never a queue of them. A minute lost to a restart is lost: no
+catch-up, no retries, no backfill. A schedule that fails at fire time
+(pipeline deleted, log gone, script removed) gets `error: …` recorded —
+one schedule's failure never touches the ticker. Run-now (the ▶ button)
+shares the exact same `fire()` path, so it obeys the same overlap rule.
+
+**Why in-process.** Schedules are operator-sized (a handful), fire at
+minute granularity, and only mean anything while the app runs — an
+external cron daemon would add a dependency to save one 30-second loop.
+When someone genuinely needs Airflow-grade guarantees, the bounded
+surface is the point: export the schedule list and move on.
+
 ## 5. Job state machine
 
 ```
@@ -374,6 +437,11 @@ data/cache/decompressed/                # shared decompressed copies (.gz/.bz2/.
 
 data/pipelines.json                      # saved pipelines: {name: Pipeline}
                                          # atomic rewrite on every save
+
+data/schedules.json                      # saved schedules: {name: Schedule}
+                                         # same rewrite discipline; the
+                                         # ticker's record_run adds
+                                         # last_run_at/last_result/last_job_ids
 ```
 
 `list()` scans directories and returns parsed jobs sorted newest-first. To
@@ -574,11 +642,14 @@ every push and pull request; the repo is under git with `data/`,
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
-| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404) |
+| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, needs-a-pipeline hint) |
 | `test_security.py` | the script authoring lock: API writes 403 (nothing lands on disk), reads/export/job submission unaffected, python UI editor pages bounce and hide actions, health reports the flag, editor works when unlocked |
 | `test_sandbox.py` | the Docker sandbox: the `docker run` wrapper's shape (mounts, no network, uid:gid, JOB_* env, container name, image + command order), compressed-input mounts; e2e (skipped without Docker + image): completion, artifacts owned by the host user, no network, timeout kills the container, every interpreter |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
 | `test_pipelines_api.py` | the saved-pipeline API: save/list/delete round-trip, upsert-by-name (created_at kept), validation (unknown script 404, bad params 422, empty name/steps), delete 404 |
+| `test_cron.py` | the cron matcher: next-fire for every construct (steps, ranges, lists, names, Vixie `a/n`, the day OR rule, Sunday 0/7, leap day), strictly-after semantics, rejection table (field count, ranges, Feb 30, zero steps), `describe()` labels |
+| `test_scheduler.py` | the ticker engine with an injected clock: fires once per matching minute, no double-fire within a minute, no catch-up for minutes lost while down, disabled never fires, overlap skip (recorded, nothing submitted), finished previous run doesn't block, missing pipeline / submission errors recorded not raised, multiple schedules in one tick |
+| `test_schedules_api.py` | the schedule API: save/list round-trip with next_due + cron_desc, upsert keeps bookkeeping, validation (cron 422 incl. never-matching, pipeline/log 404, escape 400, broken pipeline 404), toggle/delete + 404s, run-now submits a real chain labelled with the schedule's name, custom label, missing log recorded as `error:` |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,
