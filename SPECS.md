@@ -8,10 +8,11 @@ Normative functional specification. Implementation details live in
 | Concept | Definition |
 |---|---|
 | **Log** | Any file under `LOGS_DIR` (recursive, hidden entries skipped), listed newest-first. `.gz`/`.bz2`/`.xz` logs are supported and decompressed transparently. A job's input may also be any *existing* file on the machine, reached by absolute `log_path` (§4). |
-| **Script** | An executable under `SCRIPTS_DIR` plus its manifest (or a default command derived from its extension). See §6. |
-| **Job** | One execution of one script against one input. Fully persisted; identified by `YYYYMMDD-HHMMSS-<8hex>`. |
+| **Script** | An executable under `SCRIPTS_DIR` plus its manifest (or a default command derived from its extension). See §6. In multi-user mode scripts have an **owner**: the top level of `SCRIPTS_DIR` is the shared library (ownerless), `scripts/users/<name>/` is that account's private space — ownership is locational, the filesystem is the index (§8.2). |
+| **Job** | One execution of one script against one input. Fully persisted; identified by `YYYYMMDD-HHMMSS-<8hex>`. Carries the submitting account's name as `owner` in multi-user mode; ownerless jobs are shared "system" history (§8.3). |
 | **Chain** | A submission of ≥2 jobs in `mode: "chain"` that run sequentially, each step's input being the previous step's output. |
 | **Artifact** | A file a script writes into its `outputs/` directory (via `{output}` or `$JOB_OUTPUT_DIR`). |
+| **Account** | A username + password record in `data/users.json` (multi-user mode, §8). Roles: `user` (own private space + the shared library), `admin` (oversees everything). |
 
 ## 2. Job statuses
 
@@ -61,6 +62,7 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 | `output_files` | string[] | artifact file names |
 | `chain_id` | string\|null | set for chain steps |
 | `chain_index` / `chain_size` | int | 0-based position / total steps |
+| `owner` | string\|null | the submitting account (multi-user mode); null = a system job — scheduler-fired or submitted before accounts existed |
 | `decompressed_path` | string\|null | cache path of the shared decompressed copy, for compressed inputs |
 | `input_source` | string\|null | `log` \| `prev_output` \| `prev_stdout` — null also for a log-free run |
 | `input_path` | string\|null | the file `{log}` resolved to — null when the run has no input |
@@ -185,9 +187,22 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 
 | Method & Path | Description |
 |---|---|
-| `GET /api/auth/status` | `{"auth_required": bool}` |
-| `POST /api/auth/login` | `{"password": "…"}` → sets HttpOnly cookie; 401 on wrong password; **rate-limited: 5 failed attempts per client IP per 60 s → 429** with `Retry-After` (a successful login clears the counter); no-op success when auth disabled |
-| `POST /api/auth/logout` | clears the session cookie |
+| `GET /api/auth/status` | `{"auth_required": bool}` in legacy/anonymous mode (unchanged shape); multi-user mode adds `"multi_user": true` and `"user": {username, role}` (or null signed out) |
+| `POST /api/auth/login` | `{"username": "…", "password": "…"}` in multi-user mode, `{"password": "…"}` in legacy mode → sets HttpOnly cookie. 401 on a wrong pair (one message — never a confirmation which part was wrong, or that the username exists); **rate-limited: 5 failed attempts per client IP per 60 s → 429** with `Retry-After` (a successful login clears the counter); no-op success when auth disabled |
+| `POST /api/auth/logout` | clears the session cookie — in multi-user mode the session record dies too, so the cookie is dead even if copied |
+
+### Users (multi-user mode, admin only — §8)
+
+| Method & Path | Description |
+|---|---|
+| `GET /api/users` | `{"users": [{id, username, role, created_at, disabled}]}` — never password hashes |
+| `POST /api/users` | `{username, password, role}` → `{"user": …}`. Errors: 422 bad username (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$`, max 32 chars)/password under 4 chars/duplicate name. The **first account ever** (created while no users exist) must have role `admin` — that is the single-user operator bootstrapping multi-user mode, and the response mints a session so they stay signed in as the new admin |
+| `POST /api/users/{name}/password` | `{password}` → resets it and **drops every live session of that user** (including the admin's own, if they reset themselves) |
+| `POST /api/users/{name}/role` | `{role}` (`user`\|`admin`) → promotes/demotes. 422 when demoting the last working admin |
+| `POST /api/users/{name}/disable` `/enable` | disable (drops the user's live sessions; login refuses disabled accounts) / re-enable. 422 when disabling the last working admin — the server must keep one |
+
+403 for non-admins; the single-user operator may create the first account
+(no admin UI exists yet — that is the bootstrap), nothing else.
 
 ### Terminal (flag-gated: `LOGSMITH_TERMINAL`)
 
@@ -221,32 +236,45 @@ disk. `GET /api/health` reports the feature as `"terminal": bool`.
 
 ### Scripts
 
+Script visibility (multi-user mode, §8.2): a regular account sees the shared
+library plus its own private scripts; an admin sees everything. Another
+user's private script answers **404** on every path below — never a
+confirmation it exists.
+
 | Method & Path | Description |
 |---|---|
-| `GET /api/scripts` | `{"scripts": [ScriptInfo]}` — id, name, description, category, command, needs_log (derived: `{log}` in the command), timeout, parameters, script_path, style, output_filename, error |
+| `GET /api/scripts` | `{"scripts": [ScriptInfo]}` — id, name, description, category, command, needs_log (derived: `{log}` in the command), timeout, parameters, script_path, style, output_filename, error, and `owner` (null = shared library, else the owning account) |
 | `GET /api/scripts/{id}` | code + manifest for the editor (flat style only) → `{id, extension, code, manifest}`; 404 unknown, 400 directory-style |
-| `POST /api/scripts` | create a flat-style script. Body: `{id, extension, code, manifest}` (`manifest` per §6). Errors: 409 id exists / 422 bad id (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`), reserved id (`export`), empty code, bad timeout (1–86400), or invalid manifest/parameters / 403 when editing is locked (§8.1) |
-| `PUT /api/scripts/{id}` | update code and/or manifest; a changed `extension` moves the code file. 404 unknown, 400 directory-style, 422 body/path id mismatch, 403 when editing is locked |
-| `DELETE /api/scripts/{id}` | removes the code file and its sidecar. Job history is kept (stdout/artifacts are per-job); jobs of a deleted script can no longer be re-run (404). 403 when editing is locked |
+| `POST /api/scripts` | create a flat-style script. Body: `{id, extension, code, manifest}` (`manifest` per §6). Lands **private** in multi-user mode (`scripts/users/<me>/`), top level (shared) otherwise — admins included: sharing is an explicit step. Errors: 409 id exists (ids are globally unique across shared and private roots) / 422 bad id (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`), reserved id (`export`), empty code, bad timeout (1–86400), or invalid manifest/parameters / 403 when editing is locked (§8.1) |
+| `PUT /api/scripts/{id}` | update code and/or manifest; a changed `extension` moves the code file. Replaces the script **where it lives** (owner unchanged). Edit rights: private → owner or admin; shared → any editor. 404 unknown/invisible, 400 directory-style, 422 body/path id mismatch, 403 when editing is locked |
+| `DELETE /api/scripts/{id}` | removes the code file and its sidecar. Job history is kept (stdout/artifacts are per-job); jobs of a deleted script can no longer be re-run (404). Rights: private → owner or admin; shared → **admin only**. 403 when editing is locked |
+| `POST /api/scripts/{id}/share` | publish a private script into the shared library — owner or admin. A file move (ids don't change, history keeps resolving) → `{"script": …}` with `owner: null`. 422 when already shared |
+| `POST /api/scripts/{id}/unshare` | pull a shared script back out, into the **calling admin's** private space — admin accounts only (a shared script records no origin, so the unsharer takes it over). → `{"script": …}` with the admin as owner. 422 when not shared; 403 in single-user mode (nowhere to move it to) |
 | `GET /api/scripts/{id}/export` | tar.gz download: code + sidecar manifest (flat) or the full directory (directory-style), plus a `RESTORE.txt` explaining where to unpack |
-| `GET /api/scripts/export` | tar.gz of the **whole library**, `logsmith-scripts-<YYYYMMDD>.tar.gz`: flat scripts as top-level code + sidecar pairs, directory-style scripts under their directory names (the single-script export flattens the name away — a library archive cannot, or scripts would collide), plus a `RESTORE.txt` pointing at Import. Declared before the `/{script_id}` routes so the fixed path wins; a read, so it works even when editing is locked. Consequently the id `export` is reserved — every write path (create, update, import in all shapes) rejects it with a 422, because the fixed route would shadow its source fetch |
-| `POST /api/scripts/import` | multipart `file` = tar.gz — any export back: one script, a pack, or a whole-library archive. A top-level `manifest.json` makes it one directory-style script: the whole tree lands in `scripts/<id>/` (the id from `?name=`, else the upload's file name — the single-script export flattens the original directory name away). Otherwise the top level is a mix: flat code + sidecar pairs, and subdirectories each carrying their own `manifest.json` (the export-all shape — the directory name is the id, and it travels with the script). Two scripts claiming one id inside one archive is a 422, as is a subdirectory without a manifest. `?overwrite=1` replaces existing ids first (flat or directory, across styles). Extraction is strict: regular files only (no links/devices), relative paths, no duplicates; 50 MiB archive / 100 MiB unpacked / 2000 members caps; compression is auto-detected (`r:*`) so a plain `.tar` imports too — Safari's "open safe files" gunzips a downloaded .tar.gz into one. All-or-nothing — 422 not-a-tar/bad-paths/orphan-manifest/invisible-file/bad-id/duplicate-id/empty, 409 existing ids (without overwrite), 403 when editing is locked. → `{imported: [ids], scripts: [ScriptInfo]}` |
+| `GET /api/scripts/export` | tar.gz of **everything the caller may see** (shared + own private; an admin's: the whole library), `logsmith-scripts-<YYYYMMDD>.tar.gz`: flat scripts as top-level code + sidecar pairs, directory-style scripts under their directory names (the single-script export flattens the name away — a library archive cannot, or scripts would collide), plus a `RESTORE.txt` pointing at Import. Declared before the `/{script_id}` routes so the fixed path wins; a read, so it works even when editing is locked. Consequently the id `export` is reserved — every write path (create, update, import in all shapes) rejects it with a 422, because the fixed route would shadow its source fetch |
+| `POST /api/scripts/import` | multipart `file` = tar.gz — any export back: one script, a pack, or a whole-library archive. A top-level `manifest.json` makes it one directory-style script: the whole tree lands in `scripts/<id>/` (the id from `?name=`, else the upload's file name — the single-script export flattens the original directory name away). Otherwise the top level is a mix: flat code + sidecar pairs, and subdirectories each carrying their own `manifest.json` (the export-all shape — the directory name is the id, and it travels with the script). Two scripts claiming one id inside one archive is a 422, as is a subdirectory without a manifest. Imported scripts land **private** in multi-user mode (the caller's space); `?overwrite=1` replaces existing ids **where they live** with delete rights — the caller's own private scripts, or anything as admin (another user's private id, and a shared id without admin, stay a 409 that doesn't say whose). Extraction is strict: regular files only (no links/devices), relative paths, no duplicates; 50 MiB archive / 100 MiB unpacked / 2000 members caps; compression is auto-detected (`r:*`) so a plain `.tar` imports too — Safari's "open safe files" gunzips a downloaded .tar.gz into one. All-or-nothing — 422 not-a-tar/bad-paths/orphan-manifest/invisible-file/bad-id/duplicate-id/empty, 409 existing ids (without overwrite), 403 when editing is locked. → `{imported: [ids], scripts: [ScriptInfo]}` |
 
 ### Jobs
 
+Job visibility (multi-user mode, §8.3): a regular user sees their own runs
+plus system runs; an admin sees everything. Another user's job answers
+**404** on every read *and* write path below — cancel/delete included, so a
+403 can never leak a job's existence. Cancelling or deleting a **system**
+job is the admin's alone.
+
 | Method & Path | Description |
 |---|---|
-| `POST /api/jobs` | submission (§4) → `{"jobs": [Job]}`. Errors: 404 unknown script / 404 unknown log — an absolute `log_path` may point anywhere on the machine but must exist / 400 relative path escapes `LOGS_DIR` / 422 bad params or empty list |
-| `GET /api/jobs?status=…&q=…&limit=&offset=` | list jobs (newest first), optionally filtered by status (single value or comma-separated, e.g. `queued,waiting,running` for "active") and/or free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
+| `POST /api/jobs` | submission (§4) → `{"jobs": [Job]}`. Scripts resolve against the caller's visible set — another user's private script is an unknown script. Errors: 404 unknown script / 404 unknown log — an absolute `log_path` may point anywhere on the machine but must exist / 400 relative path escapes `LOGS_DIR` / 422 bad params or empty list |
+| `GET /api/jobs?status=…&q=…&user=…&limit=&offset=` | list jobs (newest first): the caller's own runs plus system runs — an admin's is everyone's, narrowed by `?user=<name>` to one account's runs (for anyone else the parameter can only ever match their own). Optional `status` (single value or comma-separated, e.g. `queued,waiting,running` for "active") and free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
 | `GET /api/jobs/{id}` | job detail incl. tails and `chain_steps` (§3) |
 | `GET /api/jobs/{id}/stdout` `/stderr` | full text (`text/plain`, 20 MB cap) |
 | `GET /api/jobs/{id}/input` | the exact input this job's script received — the selected log, or for chain steps the previous step's output (compressed sources served decompressed). `text/plain`, 20 MB cap; 404 while the step is still waiting, when the source file is gone, and for log-free runs (§4) |
 | `GET /api/jobs/{id}/files/{name}` | download an artifact (name must be a single path segment) |
 | `GET /api/jobs/{id}/events` | SSE: `{"type":"status", status, error, exit_code, started_at, finished_at, stdout_size, stderr_size, output_files, stderr_tail}` and `{"type":"stdout","text"}` deltas; ends with `{"type":"gone"}` if the job is deleted. Stays open while `queued`/`running`/`waiting` |
-| `POST /api/jobs/{id}/cancel` | chain job → cancels whole chain; single job → kills it. 409 if nothing active |
-| `POST /api/jobs/{id}/rerun` | new job / new chain with the same config → `{"job": …}`; chains accept `?from_step=N` (§4.2). Errors: 404 if a script no longer exists / 400 bad `from_step` / 409 unseedable predecessor |
-| `DELETE /api/jobs/{id}` | cancels a live chain first when applicable, then deletes the record |
-| `POST /api/jobs/prune?days=N` | deletes job records older than N days (1–3650) → `{"removed", "retention_days", "cache_removed"}` (files dropped from the shared decompressed cache); 400 when retention is disabled and no `days` given |
+| `POST /api/jobs/{id}/cancel` | chain job → cancels whole chain; single job → kills it. Rights: the owner's, or an admin's (system jobs included). 409 if nothing active |
+| `POST /api/jobs/{id}/rerun` | new job / new chain with the same config → `{"job": …}` — allowed for anything the caller can see; **the new run belongs to the rerunner**. Chains accept `?from_step=N` (§4.2). Errors: 404 if a script no longer exists / 400 bad `from_step` / 409 unseedable predecessor |
+| `DELETE /api/jobs/{id}` | cancels a live chain first when applicable, then deletes the record. Rights as cancel |
+| `POST /api/jobs/prune?days=N` | deletes job records older than N days (1–3650) → `{"removed", "retention_days", "cache_removed"}` (files dropped from the shared decompressed cache); **admin-only in multi-user mode** (it sweeps everyone's history); 400 when retention is disabled and no `days` given |
 
 ### Pipelines
 
@@ -357,15 +385,17 @@ missing.
 | `POST /schedules/delete` | a row's 🗑 button (`name` field): deletes and 303-redirects with a flash |
 | `GET /terminal` | **flag-gated** (`LOGSMITH_TERMINAL`, else 404 and no nav link): an interactive shell **plus** a zero-JS command box — progressive enhancement, one page. The page ships an xterm.js mount (`#term-mount`, a status badge, a hidden "New session" restart button) and keeps the command box (`#term-fallback`: a `command` textarea, run via the terminal service directly — no HTTP — output + exit badge rendered in a `<pre>`, blank input caught with a flash; one command at a time, 30 s timeout, output capped, nothing stored). With JavaScript the shell mounts over the same pty protocol as the React tab and the box is hidden; without it the box is the page. If the shell cannot start (flag flipped, session cap reached), the client says why in the mount and re-reveals the box. Assets: `GET /terminal/assets/{name}` serves an allowlist of four files — vendored `xterm.js` + `addon-fit.js` + `xterm.css` (byte-identical to the React build's, `backend/app/vendor/`) and LogSmith's own `terminal.js` client — 404 for anything else, and 404 for all four while the flag is off |
 | `POST /terminal` | the form target of the same page (same gating): runs `command`, re-renders with the result and the command kept in the textarea |
-| `GET /jobs?q=&status=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page) |
+| `GET /jobs?q=&status=&user=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page); `&user=` narrows to one account's runs (admins see an owner box and an Owner column — "system" for ownerless rows — regular users neither) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |
 | `GET /jobs/{id}/result.csv?sortcol=&sortdir=` | the table view as CSV (`output.csv`), sorted as shown; 422 when the output is not a JSON table |
 | `GET /jobs/{id}/compare[?other=]` | unified line diff of two completed jobs' stdout (difflib, 2000 lines/side); defaults to the latest run of the same script |
 | `POST /jobs/{id}/cancel` `/delete` `/rerun[?from_step]`, `POST /jobs/clear-finished`, `POST /jobs/prune` | form-backed actions; each redirects back (303) |
 | `GET /logs/preview?path=&lines=&tail=1` | head/tail log preview page |
-| `GET /scripts`, `/scripts/new`, `/scripts/{id}/edit` | script list and editor. The page head carries a ⬇ Export all link (always — it's a read): `GET /api/scripts/export`, the whole library as one dated tar.gz. The list also carries the Import card (when editing is on): a multipart form — file picker (`accept=".gz,.tgz,.tar"` — a plain .tar too, since Safari's "open safe files" gunzips downloads), an optional `name` text input (ids a directory-style archive), a "replace existing" checkbox (`overwrite`) — posting to `/scripts/import` and 303-redirecting back with a flash (success names the imported ids; errors arrive as `err=` flashes). Zero JS, same contract as the API |
+| `GET /scripts`, `/scripts/new`, `/scripts/{id}/edit` | script list and editor. The page head carries a ⬇ Export all link (always — it's a read): `GET /api/scripts/export`, everything you may see as one dated tar.gz. The list also carries the Import card (when editing is on): a multipart form — file picker (`accept=".gz,.tgz,.tar"` — a plain .tar too, since Safari's "open safe files" gunzips downloads), an optional `name` text input (ids a directory-style archive), a "replace existing" checkbox (`overwrite`) — posting to `/scripts/import` and 303-redirecting back with a flash (success names the imported ids; errors arrive as `err=` flashes). Zero JS, same contract as the API |
 | `POST /scripts/save`, `/scripts/test-run` (log chosen in the form; runs with manifest defaults), `/scripts/{id}/delete` | editor actions; an id different from the edited one saves as a new script |
-| `GET /login` `POST /login` `POST /logout` | HTML form login against the same rate-limited password check; logout clears the cookie |
+| `POST /scripts/{id}/share` `/unshare` | the Scripts page row actions (owner or admin / admin only), 303-redirect with a flash |
+| `GET /admin/users` `POST /admin/users/*` | **admins only** (single-user mode: the operator — that is the bootstrap): the Users page — account table with role, created, disabled state, and plain forms for create, password reset, role change, disable/enable; every action 303-redirects back with a flash, and the last working admin is protected (422 flash) |
+| `GET /login` `POST /login` `POST /logout` | HTML form login against the same rate-limited check (username + password once accounts exist); logout clears the cookie — and kills the session record |
 | `GET /static/*` | the UI stylesheet (mounted before the pages router) |
 | anything else | an HTML 404 page |
 
@@ -510,20 +540,42 @@ runtime contract above are unchanged, with these differences:
 
 ## 8. Authentication
 
-- `LOGSMITH_TOKEN` set → every `/api/*` route except `/api/auth/*` requires
-  authentication. Two accepted credentials:
-  - session cookie `logsmith_session` (HttpOnly, SameSite=Lax, Secure on
-    HTTPS) obtained via `POST /api/auth/login` (the python UI posts the same
-    check from its HTML form, then guards pages with a redirect to
-    `/login?next=…`)
-  - `Authorization: Bearer <LOGSMITH_TOKEN>` for automation
-- `LOGSMITH_TOKEN` unset → auth disabled, and the launcher is secure by
-  default: a non-local bind generates a strong token into `.run/authtoken`
-  (printed once, reused across restarts) instead of starting open.
-  `LOGSMITH_INSECURE=1` opts out; a local bind (`LOGSMITH_HOST=127.0.0.1`)
-  skips auth entirely.
-- The SPA serves without a token; API calls failing with 401 raise a global
-  event that switches the UI to the login screen.
+Three modes, auto-detected — and re-checked live, so creating the first
+account flips the server without a restart:
+
+- **Multi-user** — `data/users.json` exists with at least one account.
+  Login is username + password; the cookie carries an opaque session id
+  resolved through `data/sessions.json` (file-backed, 7-day max age), so
+  logout, password resets and disabling a user actually revoke access —
+  impossible with a stateless cookie. Passwords are scrypt-hashed; sessions
+  are pruned lazily. Scripts and jobs get owners (§8.2, §8.3); an admin
+  account oversees everything.
+- **Legacy** — no accounts, `LOGSMITH_TOKEN` set: the shared password
+  everyone knows. The cookie is a hash of it, or
+  `Authorization: Bearer <token>` for automation.
+- **Anonymous** — no accounts, no token: local use; whoever runs the
+  server is the operator, with every right (including creating the first
+  account — that is the bootstrap).
+
+Login is rate-limited per client IP in every mode: 5 failed attempts per
+60 s sliding window → 429 with `Retry-After` (a success clears the counter;
+Bearer is unaffected). In multi-user mode one message covers unknown user,
+wrong password and disabled account — never a confirmation which, or that
+the username exists.
+
+Two ways to bootstrap the first admin: the operator (single-user mode)
+opens the Users page or `POST /api/users` and creates it — the first
+account must have role `admin`, and the response mints a session so the
+operator stays signed in as the new admin; or set `LOGSMITH_ADMIN_USER` +
+`LOGSMITH_ADMIN_PASSWORD`, used at startup only while `data/users.json`
+doesn't exist yet. After that, user management lives in the admin UI.
+
+The cookie is `logsmith_session` in every mode — HttpOnly, SameSite=Lax,
+Secure on HTTPS — obtained via `POST /api/auth/login` (the python UI posts
+the same check from its HTML form, then guards pages with a redirect to
+`/login?next=…`). In legacy mode `Authorization: Bearer <LOGSMITH_TOKEN>`
+works for automation. The SPA serves without a token; API calls failing
+with 401 raise a global event that switches the UI to the login screen.
 
 ### 8.1 Script authoring lock
 
@@ -532,10 +584,41 @@ remote code execution by design. `LOGSMITH_ALLOW_SCRIPT_EDITING=0` narrows
 that trust: `POST /api/scripts`, `PUT` and `DELETE /api/scripts/{id}` and
 `POST /api/scripts/import` answer **403** (the python UI also bounces its
 editor pages and hides the editor actions and the Import card), while
-listing, source view, export — one script or the whole library — and job
-submission keep working. `/api/health` reports the state as
-`"script_editing": bool` so the
-UIs can adapt.
+listing, source view, export — one script or the whole visible set — and
+job submission keep working. `/api/health` reports the state as
+`"script_editing": bool` so the UIs can adapt.
+
+### 8.2 Script ownership (multi-user mode)
+
+Ownership is **locational** — the filesystem is the index, no registry to
+keep in sync. The top level of `SCRIPTS_DIR` is the shared library
+(ownerless); `scripts/users/<name>/` is that account's private space,
+discovered by the same rules. The `users/` container itself is never
+mistaken for a script. Script ids stay globally unique across both roots,
+so jobs, pipelines and schedules keep referencing bare ids.
+
+| Action | Who |
+|---|---|
+| see (list, source, export, run, reference in pipelines/schedules) | shared: everyone · private: owner and admins — anyone else gets a 404, never a confirmation it exists |
+| create / import | lands in the caller's private space — admins included; sharing is an explicit step |
+| edit / overwrite-import | replaces the script where it lives (owner unchanged): private → owner or admin · shared → any editor |
+| delete | private → owner or admin · shared → **admin only** |
+| share | owner or admin — a file move into the library; ids don't change, history keeps resolving |
+| unshare | **admin only** — pulls the script into that admin's private space (a shared script records no origin, so the unsharer takes it over) |
+
+### 8.3 Job ownership (multi-user mode)
+
+`Job.owner` records the submitting account; ownerless jobs are **system**
+history — the scheduler firing a schedule (cron or "run now": the same
+no-request path), or anything submitted before accounts existed.
+
+| Action | Who |
+|---|---|
+| see (detail, stdout/stderr/input, artifacts, SSE, list) | own jobs and system jobs · admins: everyone's — another user's job is a 404, never a confirmation it exists |
+| list | regular user: own + system runs · admin: all, narrowed by `?user=<name>` |
+| cancel / delete | the owner's · system jobs: **admin only** — the shared history is everyone's reading, the admin's to manage |
+| rerun | anything the caller can see — **the new run belongs to the rerunner**, the original stays |
+| prune | **admin only** (it sweeps everyone's history) · clear-finished deletes only what the caller may modify |
 
 ## 9. Configuration
 
@@ -550,6 +633,7 @@ UIs can adapt.
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `LOGSMITH_TOKEN` | *(unset)* | UI password; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
+| `LOGSMITH_ADMIN_USER` / `LOGSMITH_ADMIN_PASSWORD` | *(unset)* | first-run bootstrap into multi-user mode: an admin account is created at startup while `data/users.json` doesn't exist yet — ignored afterwards (§8) |
 | `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` = non-local bind with no password (not recommended) |
 | `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` = script write endpoints answer 403 (§8.1); existing scripts stay runnable |
 | `LOGSMITH_DOCKER_SANDBOX` | `0` | `1` = scripts run in throwaway Docker containers (see "Docker sandbox" under the script runtime contract) |

@@ -166,6 +166,23 @@ Vite proxy talks HTTPS to the backend.
   password (printed once, stored in `.run/authtoken`, reused across
   restarts). `LOGSMITH_INSECURE=1` keeps it open, `LOGSMITH_HOST=127.0.0.1`
   makes it local-only with no auth.
+- **Multi-user accounts** *(optional)* — create accounts (username +
+  password, file-backed sessions that revoking actually revokes) and the
+  workbench splits per user while the shared script library stays usable by
+  everyone. Each account has a private script space (`scripts/users/<name>/`)
+  and a private job history: another user's script or job is a 404, never a
+  confirmation it exists. Share a private script to publish it into the
+  library (🔒 chips and ⇪/⇩ buttons in both UIs); scheduled runs and
+  anything submitted before accounts existed are shared "system" history —
+  readable by all, managed by admins. An admin account oversees everything:
+  all scripts and jobs (with per-account filters on the Jobs pages), and a
+  Users page for accounts — create, reset passwords (live sessions die with
+  a reset), disable, promote; the server refuses to demote or disable its
+  last working admin. No accounts means the exact single-user LogSmith as
+  before; the first admin is bootstrapped either from the UI (the
+  single-user operator creates it and stays signed in) or at startup via
+  `LOGSMITH_ADMIN_USER`/`LOGSMITH_ADMIN_PASSWORD`. See
+  [SPECS.md §8](SPECS.md#8-authentication).
 - **Script authoring lock** — scripts are code that runs on the server, so
   the editor is remote code execution by design (trusted-operator tool).
   When other people have the password, `LOGSMITH_ALLOW_SCRIPT_EDITING=0`
@@ -608,16 +625,17 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | GET | `/api/logs` | list log files (recursive, newest first) |
 | GET | `/api/logs/preview?path=…&lines=200[&tail=1]` | first (or last, with `tail=1`) N lines |
 | POST | `/api/logs/upload` | multipart upload of a log file into `logs/` (409 on collision, 413 over `MAX_LOG_UPLOAD_MB`) |
-| GET | `/api/scripts` | scripts + manifests |
+| GET | `/api/scripts` | scripts + manifests — the shared library plus the caller's private scripts (an admin's: everything) |
 | GET | `/api/scripts/{id}` | code + manifest of a script (for the editor) |
-| POST | `/api/scripts` | create a script `{id, extension, code, manifest}` (UI editor) |
-| PUT | `/api/scripts/{id}` | update code/manifest (extension change moves the file) |
-| DELETE | `/api/scripts/{id}` | remove script + manifest (job history is kept) |
+| POST | `/api/scripts` | create a script `{id, extension, code, manifest}` (UI editor) — lands in the caller's private space in multi-user mode, top level (shared) otherwise |
+| PUT | `/api/scripts/{id}` | update code/manifest (extension change moves the file) — private: owner or admin; shared: any editor |
+| DELETE | `/api/scripts/{id}` | remove script + manifest (job history is kept) — private: owner or admin; shared: admin only |
+| POST | `/api/scripts/{id}/share` `/unshare` | move a private script into the shared library (owner or admin) / pull a shared one back out into the calling admin's private space (admin only) — ids don't change, so history keeps resolving |
 | GET | `/api/scripts/{id}/export` | download the script as a tar.gz backup |
-| GET | `/api/scripts/export` | **every** script as one dated tar.gz — flat scripts as top-level pairs, directory-style scripts under their names. The id `export` is reserved (the fixed route beats `/api/scripts/{id}`, so its source could never be fetched) |
+| GET | `/api/scripts/export` | **every** script the caller may see as one dated tar.gz — flat scripts as top-level pairs, directory-style scripts under their names. The id `export` is reserved (the fixed route beats `/api/scripts/{id}`, so its source could never be fetched) |
 | POST | `/api/scripts/import` | multipart tar.gz — any export back: one script, a pack of scripts, or a whole-library archive (flat pairs + manifest-bearing subdirectories). `?name=` ids a directory-style archive (else the file name), `?overwrite=1` replaces existing ids. All-or-nothing: 422 bad archive, 409 existing ids, 403 when editing is locked. A plain `.tar` works too (Safari's "open safe files" gunzips downloads) |
-| POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs. `log_path` optional — a script reading `{log}` without one is a 422 naming it (chain mode checks step 1 only) |
-| POST | `/api/jobs/prune?days=N` | delete jobs older than N days |
+| POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs, owned by the submitter in multi-user mode. `log_path` optional — a script reading `{log}` without one is a 422 naming it (chain mode checks step 1 only) |
+| POST | `/api/jobs/prune?days=N` | delete jobs older than N days — **admin-only in multi-user mode** (it sweeps everyone's history) |
 | GET | `/api/pipelines` | saved pipelines (reusable chains) — shared by every browser and both UIs |
 | POST | `/api/pipelines` | save a pipeline `{name, steps: [{script_id, params}]}` (upsert by name, validated like a submission) |
 | DELETE | `/api/pipelines/{name}` | remove a saved pipeline |
@@ -626,21 +644,24 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | POST | `/api/schedules/{name}/toggle` | pause/resume a schedule |
 | POST | `/api/schedules/{name}/run` | fire now — the same path the ticker uses, so overlap with a live run is skipped and recorded |
 | DELETE | `/api/schedules/{name}` | remove a schedule |
-| GET | `/api/auth/status` | whether a password is required |
-| POST | `/api/auth/login` `/logout` | password → session cookie (login is rate-limited: 5 failures/min per client) |
+| GET | `/api/auth/status` | whether a password is required — in multi-user mode also `multi_user: true` and the signed-in `user` (`{username, role}`, or null) |
+| POST | `/api/auth/login` `/logout` | password → session cookie; multi-user mode takes username + password (login is rate-limited: 5 failures/min per client) |
+| GET/POST | `/api/users` | **admin** — list accounts / create `{username, password, role}` (the first account ever created must be an admin: that is the single-user operator bootstrapping multi-user mode) |
+| POST | `/api/users/{name}/password` `/role` `/disable` `/enable` | **admin** — reset password (kills that user's live sessions), change role, disable (kills sessions) / enable; the last working admin can never be demoted or disabled |
 | POST | `/api/terminal/sessions` | (flag-gated: 404 while `LOGSMITH_TERMINAL` is off) start a shell session → `{id, shell}` (429 at `LOGSMITH_TERMINAL_MAX_SESSIONS`) |
 | GET | `/api/terminal/sessions/{id}/output` | SSE stream of the session's output — `{"type":"output","data":<base64>}` frames, then one `{"type":"exit","code":N}` |
 | POST | `/api/terminal/sessions/{id}/input` | raw body = keystrokes, written to the pty verbatim |
 | POST | `/api/terminal/sessions/{id}/size` | `{cols, rows}` → pty resize + SIGWINCH |
 | DELETE | `/api/terminal/sessions/{id}` | end the session (its whole process group) |
-| GET | `/api/jobs` | list jobs (optional `?status=`, `?q=` free-text search over label/script/log/ids, `?limit=&offset=` paging; returns `total`) |
+| GET | `/api/jobs` | list jobs (optional `?status=`, `?q=` free-text search over label/script/log/ids, `?user=` to narrow to one account's runs — an admin's oversight tool, `?limit=&offset=` paging; returns `total`); a regular user sees their own runs plus system ones (scheduler, pre-accounts), an admin everyone's |
 | GET | `/api/jobs/{id}` | detail incl. stdout/stderr tails |
 | GET | `/api/jobs/{id}/events` | SSE stream (status + stdout deltas) |
 | GET | `/api/jobs/{id}/stdout` `/stderr` | full text |
+| GET | `/api/jobs/{id}/input` | the exact input the script received |
 | GET | `/api/jobs/{id}/files/{name}` | download artifact |
-| POST | `/api/jobs/{id}/cancel` | kill a queued/running job (a whole chain for chain jobs) |
-| POST | `/api/jobs/{id}/rerun` | new job with same config (chain: re-runs the whole chain; `?from_step=N` re-runs only step N onwards, reusing persisted earlier outputs) |
-| DELETE | `/api/jobs/{id}` | delete job record (cancels the chain first if still live) |
+| POST | `/api/jobs/{id}/cancel` | kill a queued/running job (a whole chain for chain jobs) — own jobs, or system ones as admin |
+| POST | `/api/jobs/{id}/rerun` | new job with same config (chain: re-runs the whole chain; `?from_step=N` re-runs only step N onwards, reusing persisted earlier outputs) — allowed for anything the caller can see; the new run belongs to the rerunner |
+| DELETE | `/api/jobs/{id}` | delete job record (cancels the chain first if still live) — own jobs, or system ones as admin |
 
 Interactive docs: https://localhost:8000/docs · full request/response shapes:
 [SPECS.md](SPECS.md#5-api-reference)
@@ -658,6 +679,7 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `LOGSMITH_TOKEN` | *(unset)* | password for the UI; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
+| `LOGSMITH_ADMIN_USER` / `LOGSMITH_ADMIN_PASSWORD` | *(unset)* | first-run bootstrap into multi-user mode: when `data/users.json` doesn't exist yet and both are set, an admin account is created at startup. Afterwards user management lives in the admin UI — these are ignored |
 | `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` keeps a non-local server open with no password (not recommended) |
 | `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` locks the script editor: write endpoints answer 403 in both UIs, existing scripts stay runnable |
 | `LOGSMITH_DOCKER_SANDBOX` | `0` | `1` runs every script in a throwaway Docker container — no network, memory-capped, mounts limited to script + input + outputs |
@@ -697,7 +719,9 @@ re-run), submission pre-flight + spawn-error diagnostics (missing
 interpreters named), the async contract (parallel jobs overlap; the API
 answers mid-run), log preview (head/tail/compressed), upload sanitization
 and caps, saved pipelines (API round-trip + validation, the python UI's
-save/load flow), authentication incl. rate limiting and session expiry, the
+save/load flow), authentication incl. rate limiting and session expiry,
+user accounts and admin management (both auth modes, per-user script
+spaces with sharing, per-user job histories), the
 python UI's page flow (login, submission, fan-out, chains, compare,
 editor, the output table + CSV), plus the frontend's diff/table logic. See
 [ARCHITECTURE.md §11](ARCHITECTURE.md#11-testing) for the invariant → test
@@ -713,7 +737,13 @@ inside `LOGS_DIR`, but the scripts themselves are arbitrary code.
 
 Mitigations built in:
 
-- **Authentication** via `LOGSMITH_TOKEN` (recommended before any LAN exposure)
+- **Authentication** via `LOGSMITH_TOKEN` (recommended before any LAN exposure),
+  or **per-user accounts** — the moment `data/users.json` holds one, login
+  becomes username + password, sessions become file-backed (logout, password
+  resets and disabling a user actually revoke access), scripts and job
+  history become per-user with a shared library, and admin accounts get
+  oversight of everything (see
+  [SPECS.md §8](SPECS.md#8-authentication))
 - Bind address configurable via `LOGSMITH_HOST` (default `0.0.0.0` — all
   interfaces; the start script warns loudly when exposed with no token);
   HTTPS with a local certificate

@@ -21,9 +21,11 @@ setup see [README.md](README.md).
 ┌─────────────┐   discover       │    /api/auth    (login/logout/status)   │
 │  scripts/   │◄────────────────►│    /api/logs    (list/preview)          │
 │ + manifests │                  │    /api/scripts (discover)              │
-└─────────────┘                  │    /api/jobs    (create/list/detail/    │
-        │                        │                   SSE/cancel/rerun/    │
-        │ {script} argv          │                   delete/prune)         │
+│ (shared +   │                  │    /api/jobs    (create/list/detail/    │
+│  per-user)  │                  │                   SSE/cancel/rerun/    │
+└─────────────┘                  │                   delete/prune)         │
+        │                        │    /api/users   (admin, multi-user)     │
+        │ {script} argv          │                                         │
         ▼                        │                                         │
 ┌────────────────┐  job records  │            services                     │
 │  Executor      │◄─────────────►│  scanner    discovery of logs+scripts   │
@@ -55,15 +57,21 @@ backend/app/
 │                      or the python pages router, per LOGSMITH_UI
 ├── config.py          All settings, read from environment variables once
 ├── models.py          Pydantic models: ParamSpec, ScriptManifest, ScriptInfo
-│                      (incl. the derived needs_log computed field), LogFile,
+│                      (incl. the derived needs_log computed field, and
+│                      owner — null = shared library), LogFile,
 │                      JobSpecIn, JobCreateRequest, Job (incl. chain
-│                      fields), JobStatus literal, PipelineStep/Pipeline,
-│                      Schedule/ScheduleSaveRequest
-├── auth.py            Shared-password auth: HttpOnly cookie session +
-│                      Bearer token; constant-time comparisons; per-IP
-│                      login rate limiting (5 failures/60s → 429);
-│                      check_password/apply_session_cookie shared by the
-│                      JSON API login and the HTML form login
+│                      fields and owner), JobStatus literal, PipelineStep/
+│                      Pipeline, Schedule/ScheduleSaveRequest, User
+├── auth.py            Two auth modes, auto-detected: multi-user (accounts
+│                      + file-backed sessions) or the legacy shared
+│                      password. HttpOnly cookie session + Bearer token;
+│                      constant-time comparisons; per-IP login rate
+│                      limiting (5 failures/60s → 429); current_user /
+│                      require_admin — user None is the trusted
+│                      no-identity context (single-user operator, the
+│                      scheduler) with full rights; check_password /
+│                      apply_session_cookie shared by the JSON API login
+│                      and the HTML form login
 ├── pages.py           The python UI (LOGSMITH_UI=python): Jinja2 pages that
 │                      call the routers' functions directly; templates in
 │                      app/templates/, styles in app/static/, xterm.js
@@ -72,34 +80,62 @@ backend/app/
 │   ├── logs.py        GET /api/logs, GET /api/logs/preview (head + tail,
 │   │                  transparent decompression for .gz/.bz2/.xz),
 │   │                  POST /api/logs/upload (multipart, streamed, capped)
-│   ├── scripts.py     GET /api/scripts; editor endpoints (create/update/
-│   │                  delete flat-style scripts, constrained ids so writes
-│   │                  can never escape SCRIPTS_DIR); GET …/export (tar.gz
-│   │                  backup; GET /export = the whole library, declared
+│   ├── scripts.py     GET /api/scripts (visibility-scoped); editor
+│   │                  endpoints (create/update/delete flat-style scripts,
+│   │                  constrained ids so writes can never escape
+│   │                  SCRIPTS_DIR — creates land in the caller's private
+│   │                  space in multi-user mode); share/unshare (file
+│   │                  moves between the private spaces and the shared
+│   │                  library); GET …/export (tar.gz backup; GET /export
+│   │                  = everything the caller may see, declared
 │   │                  before the /{script_id} routes so the fixed path
 │   │                  wins); POST /import — any export back (any
 │   │                  compression — Safari gunzips downloads to .tar),
 │   │                  staged and strictly validated (regular files,
 │   │                  relative paths, size/member caps) before anything
 │   │                  is written
-│   └── jobs.py        Job lifecycle endpoints; two-pass validation for
-│                      create/rerun; chain-aware cancel/delete/rerun;
-│                      ?q=/?status= filters + limit/offset paging
-│   └── pipelines.py   Saved pipelines: list / upsert-by-name / delete,
-│                      validated at save time like a submission
-│   └── schedules.py   Saved schedules: list (enriched with next fire) /
-│                      upsert-by-name (cron + pipeline + log validated) /
-│                      toggle / run-now (shares the ticker's fire path) /
-│                      delete
-│   └── terminal.py    Remote terminal endpoints (every one flag-gated
-│                      to 404 while LOGSMITH_TERMINAL is off): create/
-│                      kill pty sessions, SSE output stream, raw-body
-│                      input, pty resize
+│   ├── jobs.py        Job lifecycle endpoints; two-pass validation for
+│   │                  create/rerun; chain-aware cancel/delete/rerun;
+│   │                  ?q=/?status= filters + limit/offset paging;
+│   │                  ownership gates (_may_see/_may_modify — 404
+│   │                  before 403, so a forbidden job never confirms it
+│   │                  exists) and ?user= narrowing for admins
+│   ├── pipelines.py   Saved pipelines: list / upsert-by-name / delete,
+│   │                  validated at save time like a submission (steps
+│   │                  resolve against the caller's visible scripts)
+│   ├── schedules.py   Saved schedules: list (enriched with next fire) /
+│   │                  upsert-by-name (cron + pipeline + log validated) /
+│   │                  toggle / run-now (shares the ticker's fire path) /
+│   │                  delete
+│   ├── terminal.py    Remote terminal endpoints (every one flag-gated
+│   │                  to 404 while LOGSMITH_TERMINAL is off): create/
+│   │                  kill pty sessions, SSE output stream, raw-body
+│   │                  input, pty resize
+│   └── users.py       Admin user management: list / create / password
+│                      reset (drops the user's live sessions) / role
+│                      change / disable / enable; the single-user
+│                      operator may create the first account (the
+│                      bootstrap — its response mints the session);
+│                      the last working admin can never be demoted or
+│                      disabled
 └── services/
     ├── scanner.py     Discovers logs (recursive, newest first) and scripts
     │                  (flat + directory styles, default commands — which
     │                  include {log}, so a script is log-free only through
-    │                  its manifest command)
+    │                  its manifest command); multi-root: the shared
+    │                  library plus every scripts/users/<name>/ private
+    │                  space, owner attributed by location
+    ├── script_access.py  The visibility layer over the scanner: whose
+    │                  eyes see which scripts (visible_by_id for routers,
+    │                  may_share/may_unshare, private_dir for landing
+    │                  creations) — a regular account: shared + own;
+    │                  admins and the no-identity context: everything
+    ├── user_store.py  users.json persistence (mtime-cached reads, atomic
+    │                  writes, scrypt hashes): the accounts list — its
+    │                  mere existence flips auth into multi-user mode
+    ├── session_store.py  sessions.json: opaque cookie id → username,
+    │                  the mapping that makes logout, password resets
+    │                  and disabling actually revoke access; lazily pruned
     ├── job_store.py   Filesystem persistence; parse cache keyed by
     │                  (mtime, size); list_chain; reconcile; prune
     ├── pipeline_store.py  pipelines.json persistence: atomic rewrite,
@@ -138,26 +174,34 @@ frontend/src/
 ├── hooks.js           useInterval
 ├── fmt.js             Byte formatting
 └── components/
-    ├── LoginView.jsx      Password screen
+    ├── LoginView.jsx      Password screen (username + password too,
+    │                      once the server has accounts)
     ├── LogPicker.jsx      Log list + upload dropzone + preview modal
     │                      (Head ⇡ / Tail ⇣ toggle)
     ├── ScriptPicker.jsx   Script cards (click = add a step), ⬇ Export all
-    │                      (library tar.gz, always visible — a read), ＋ New /
-    │                      ✏️ edit opening the script editor, ⬆ Import
-    │                      (tar.gz upload; a 409 offers to replace)
+    │                      (everything you may see, always visible — a
+    │                      read), ＋ New / ✏️ edit opening the script
+    │                      editor, ⬆ Import (tar.gz upload; a 409 offers
+    │                      to replace); 🔒 private badges and ⇪/⇩
+    │                      share/unshare where the role allows
     ├── ScriptEditor.jsx   Browser editor: code, manifest fields, JSON
     │                      parameters — writes flat-style files via the API;
     │                      copy-code + tar.gz backup buttons
     ├── ParamForm.jsx       Per-step parameter card, ↑/↓ ordering, presets
     ├── JobsPanel.jsx       Job list: badges, server-side search (debounced
     │                      in App), Load-more paging, chain "step 2/3"
-    │                      chip, labels, prune
+    │                      chip, labels, prune (admin), owner chips + the
+    │                      per-account filter for admins, cancel/delete
+    │                      only on rows the viewer may manage
     ├── SchedulesPanel.jsx  Schedules card: create form with cron preset
     │                      chips, per-schedule next fire / last result,
     │                      run-now / pause / delete
+    ├── UsersPanel.jsx      Admin account management: create, reset
+    │                      password, disable/enable, role changes
     ├── JobDetail.jsx      SSE live view, chain strip, markdown artifacts,
-    │                      copy-as-command, re-run (full / from here)
-    │                      ⇄ Compare (opens DiffView)
+    │                      copy-as-command, re-run (full / from here),
+    │                      ⇄ Compare (opens DiffView), owner meta row
+    │                      and gated cancel/delete
     └── DiffView.jsx       Unified line diff (hand-rolled LCS, 2000-line
                            cap) of two completed jobs' stdout
 
@@ -511,6 +555,13 @@ route that would otherwise swallow the page routes.
 
 Single-page React app; state lives in `App.jsx`:
 
+- **Identity**: `refreshIdentity` reads `/api/auth/status` — `multi_user`
+  and the signed-in `user` drive the login view (username field appears
+  with accounts), the Users nav link and every permission check
+  (`isAdmin` = an admin account, or the whole app while no accounts
+  exist). `me` flows down to the panels: ScriptPicker's 🔒 badges and
+  share/unshare buttons, JobsPanel's owner chips + per-account filter +
+  gated prune/cancel/delete, JobDetail's owner row and gated actions.
 - **Routing**: the URL hash is the source of truth — `#/` is home,
   `#/job/<id>` the job view, `#/terminal` the terminal tab (`useHashRoute` +
   `parseRoute` validating the job id shape). Refresh, browser back/forward
@@ -565,6 +616,13 @@ deep-linkable URL. Design points:
 - **Auth**: `/login` is an HTML form posting to the same rate-limited
   `check_password`/`apply_session_cookie` pair the JSON API uses
   (`auth.py`); pages redirect to `/login?next=…` when a session is missing.
+- **Multi-user pages**: `_page()` hands every template `current_user`,
+  `is_admin` and `multi_user` — the nav grows a Users link for admins,
+  `/admin/users` manages accounts with plain forms (create, reset,
+  disable, role), the jobs page carries the Owner column and the
+  per-account filter for admins, the scripts page the Owner column with
+  share/unshare forms, and every action button renders only where the
+  viewer has the right (the routers enforce it regardless).
 - **Forms over fetch**: state changes are POST forms that redirect (303)
   — the run config (`/run?logs=&scripts=` is a shareable GET), the
   submission fan-out (`/submit` posts one `JobCreateRequest` per selected
@@ -607,6 +665,24 @@ deep-linkable URL. Design points:
   (gitignored, mode 600, reused across restarts) — an exposed server is
   never open unless `LOGSMITH_INSECURE=1` says so explicitly. A local bind
   skips auth entirely.
+- **Multi-user ownership** (once `data/users.json` holds an account —
+  auto-detected live, no restart): login becomes username + password with
+  file-backed sessions (`data/sessions.json`, opaque cookie ids), so
+  logout, password resets and disabling a user actually revoke access.
+  Scrypt password hashes. Each account owns a private script space
+  (`scripts/users/<name>/` — ownership is locational, the filesystem is
+  the index) and its job history (`Job.owner`); the shared script library
+  and ownerless "system" jobs (scheduler, pre-accounts) stay visible to
+  everyone. **Invisible means 404**: another user's private script or job
+  answers 404 on every read *and* write path — including cancel and
+  delete, where visibility is checked before rights so a 403 can never
+  confirm existence. Modifying system history (cancel, delete, prune) is
+  admin-only; reruns belong to the rerunner; admins oversee everything
+  (`?user=` narrowing, the Users page — create, reset, disable, roles,
+  with the last working admin protected from demotion/disable). With no
+  accounts, every one of these gates is a no-op: single-user deployments
+  behave byte-for-byte like before, the no-identity context (the operator,
+  the scheduler) holding full rights.
 - **No shell**: commands are tokenized with `shlex` but executed via `exec`
   — parameter values are literal argv tokens and can never inject syntax.
 - **Path containment**: log paths resolve strictly inside `LOGS_DIR`.
@@ -670,6 +746,13 @@ verify:
    chain first, so nothing reads a vanished input.
 7. **Single live instance per chain** — rerun replaces a still-running chain
    instead of duplicating it.
+8. **Invisible means non-existent** — in multi-user mode, another user's
+   private script or job answers 404 on every path, reads and writes alike
+   (rights are checked only after visibility, so a 403 never confirms
+   existence); ids are globally unique so a 409 can't either.
+9. **Ownership is locational and additive** — no-identity contexts (the
+   single-user operator, the scheduler) keep the full pre-multi-user view,
+   so with no accounts on disk every ownership gate is a no-op.
 
 ## 11. Testing
 
@@ -713,10 +796,17 @@ every push and pull request; the repo is under git with `data/`,
 | `test_scheduler.py` | the ticker engine with an injected clock: fires once per matching minute, no double-fire within a minute, no catch-up for minutes lost while down, disabled never fires, overlap skip (recorded, nothing submitted), finished previous run doesn't block, inline steps fire as a chain (log-free), neither-pipeline-nor-steps error, missing pipeline / submission errors recorded not raised, multiple schedules in one tick |
 | `test_schedules_api.py` | the schedule API: save/list round-trip with next_due + cron_desc + target, upsert keeps bookkeeping, validation (cron 422 incl. never-matching, pipeline/log/script 404, escape 400, broken pipeline 404, pipeline XOR steps 422, log-required-iff-first-step-needs-it), inline-steps save/toggle/run-now, toggle/delete + 404s, run-now submits a real chain labelled with the schedule's name, custom label, missing log recorded as `error:` |
 | `test_terminal.py` | the remote terminal: flag off = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`LOGSMITH_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), and the python UI page (nav link, run, blank-input flash, the interactive-shell markup with the command box as fallback, vendored assets serving + traversal/allowlist + hidden while off) |
+| `test_users_auth.py` | the multi-user foundation: store round-trip (hashes, roles, disabled), login contract (username+password, one 401 message, disabled refusal, live mode flip on first account), session revocation on password change, hand-edited users.json picked up live |
+| `test_users_admin.py` | the admin surface: 403 for non-admins, create/reset/role/disable/enable incl. last-admin protection, the bootstrap (single-user operator creates the first admin and stays signed in), the python UI Users page |
+| `test_scripts_ownership.py` | script ownership (invariant 8/9): locational attribution by the scanner, visibility (another's private = 404 everywhere incl. runs and pipeline references), private-landing creates, globally-unique ids (409s that don't say whose), edit/delete rights, share/unshare flows and edges (incl. directory scripts, the single-user 403), import destination/overwrite rights, export-all visibility, rerun-after-unshare, the python UI page |
+| `test_jobs_ownership.py` | job ownership: owner tagging on submit, the 404 wall (incl. cancel/delete — visibility before rights), system jobs readable by all but admin-managed, list scoping + `?user=` narrowing, rerun belongs to the rerunner, prune/clear-finished rights, the python UI pages |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,
 (2) gap tolerance, (3) `test_api` atomic-validation cases, (4) decompression
 tests in `test_executor` + `test_chains`, (5) TestClient per test exercising
 lifespan shutdown, (6) delete-live-chain API test, (7) rerun-replaces +
-partial-rerun tests in `test_api`.
+partial-rerun tests in `test_api`, (8) the 404 walls + non-revealing 409s in
+`test_scripts_ownership` + `test_jobs_ownership`, (9) the no-identity
+full-rights cases threaded through all four multi-user modules (single-user
+creates, unshare 403, prune as operator).
