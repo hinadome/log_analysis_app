@@ -3,7 +3,8 @@ import { cx } from "../fmt.js";
 import { StepHead } from "./ui.jsx";
 
 export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEditScript,
-                                       onImport, canEditScripts = true }) {
+                                       onImport, canEditScripts = true, me = null,
+                                       onShare = null, onUnshare = null }) {
   const [cat, setCat] = useState("");
   const fileInput = useRef(null);
   const categories = useMemo(
@@ -76,7 +77,28 @@ export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEd
               <span className="script-name">{s.name}</span>
               {s.category && <span className="chip">{s.category}</span>}
               {counts[s.id] > 0 && <span className="chip accent">×{counts[s.id]}</span>}
+              {s.owner && (
+                <span className="chip" title={me && s.owner === me.username
+                  ? "Your private script — visible only to you and admins. Share it to let everyone run it."
+                  : `${s.owner}'s private script`}>
+                  {me && s.owner === me.username ? "🔒 private" : `🔒 ${s.owner}`}
+                </span>
+              )}
               {s.error && <span className="badge failed">broken</span>}
+              {onShare && s.owner && (me?.role === "admin" || me?.username === s.owner) && (
+                <button
+                  className="icon-btn"
+                  title="Move this script into the shared library — every user will see and run it"
+                  onClick={(e) => { e.stopPropagation(); onShare(s); }}
+                >⇪</button>
+              )}
+              {onUnshare && !s.owner && me?.role === "admin" && (
+                <button
+                  className="icon-btn"
+                  title="Pull this script out of the shared library, into your private scripts"
+                  onClick={(e) => { e.stopPropagation(); onUnshare(s); }}
+                >⇩</button>
+              )}
               {canEditScripts && (
                 <button
                   className="icon-btn"

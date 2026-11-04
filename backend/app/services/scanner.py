@@ -12,6 +12,13 @@ Directory style: scripts/foo/ with a manifest.json inside. The manifest may
 
 Manifest fields: name, description, command, timeout, parameters,
              output_filename. See README.md for the full reference.
+
+Ownership (multi-user mode) is locational: scripts/ at the top level is
+the shared library, while scripts/users/<name>/ is that account's private
+space — same discovery rules, and the account is reported as `owner`.
+Ids are unique across both, so jobs/pipelines/schedules keep referencing
+bare ids; who may see or run what is script_access's call, not the
+scanner's.
 """
 from __future__ import annotations
 
@@ -34,6 +41,11 @@ DEFAULT_INTERPRETERS = {
 }
 
 _HIDDEN = {".", "_"}
+
+# Container directory under SCRIPTS_DIR holding the per-account private
+# script spaces: scripts/users/<name>/ belongs to that account (see
+# services/script_access.py). Must never be discovered as a script itself.
+USERS_SUBDIR = "users"
 
 
 def _default_command(script_path: Path) -> str:
@@ -62,7 +74,7 @@ def _load_manifest(path: Path) -> ScriptManifest:
 
 
 def _to_info(script_id: str, manifest: ScriptManifest, script_path: Path, style: str,
-             error: str | None = None) -> ScriptInfo:
+             error: str | None = None, owner: str | None = None) -> ScriptInfo:
     return ScriptInfo(
         id=script_id,
         name=manifest.name or script_id,
@@ -75,16 +87,18 @@ def _to_info(script_id: str, manifest: ScriptManifest, script_path: Path, style:
         style=style,
         output_filename=manifest.output_filename,
         error=error,
+        owner=owner,
     )
 
 
-def discover_scripts() -> list[ScriptInfo]:
-    """Find every usable script in SCRIPTS_DIR."""
-    if not SCRIPTS_DIR.is_dir():
-        return []
+def _scan_directory(directory: Path, owner: str | None) -> list[ScriptInfo]:
+    """Discover the scripts directly inside one directory.
 
+    Used for the shared library root (owner=None) and for each account's
+    private space (owner=<username>); the discovery rules are identical.
+    """
     infos: list[ScriptInfo] = []
-    for entry in sorted(SCRIPTS_DIR.iterdir()):
+    for entry in sorted(directory.iterdir()):
         if entry.name.startswith(tuple(_HIDDEN)):
             continue
 
@@ -95,13 +109,14 @@ def discover_scripts() -> list[ScriptInfo]:
                     manifest = _load_manifest(sidecar)
                 except Exception as exc:
                     infos.append(_to_info(entry.stem, ScriptManifest(name=entry.stem),
-                                          entry, "flat", error=f"bad manifest: {exc}"))
+                                          entry, "flat", error=f"bad manifest: {exc}",
+                                          owner=owner))
                     continue
             elif entry.suffix.lower() in DEFAULT_INTERPRETERS:
                 manifest = ScriptManifest(name=entry.stem, timeout=DEFAULT_TIMEOUT)
             else:
                 continue  # unknown type without a manifest -> ignore
-            infos.append(_to_info(entry.stem, manifest, entry, "flat"))
+            infos.append(_to_info(entry.stem, manifest, entry, "flat", owner=owner))
 
         elif entry.is_dir():
             manifest_file = entry / "manifest.json"
@@ -111,14 +126,43 @@ def discover_scripts() -> list[ScriptInfo]:
                 manifest = _load_manifest(manifest_file)
             except Exception as exc:
                 infos.append(_to_info(entry.name, ScriptManifest(name=entry.name),
-                                      entry, "directory", error=f"bad manifest: {exc}"))
+                                      entry, "directory", error=f"bad manifest: {exc}",
+                                      owner=owner))
                 continue
             entry_file = entry / manifest.entry if manifest.entry else _first_entry(entry)
             if entry_file is None or not entry_file.is_file():
                 infos.append(_to_info(entry.name, manifest, entry, "directory",
-                                      error="manifest has no usable entry file"))
+                                      error="manifest has no usable entry file",
+                                      owner=owner))
                 continue
-            infos.append(_to_info(entry.name, manifest, entry_file, "directory"))
+            infos.append(_to_info(entry.name, manifest, entry_file, "directory",
+                                  owner=owner))
+
+    return infos
+
+
+def discover_scripts() -> list[ScriptInfo]:
+    """Find every usable script: the shared library plus every account's
+    private space.
+
+    Ids are globally unique across those roots (the writers enforce it),
+    so jobs, pipelines and schedules keep referencing bare ids. Callers
+    that must respect visibility filter through script_access.
+    """
+    if not SCRIPTS_DIR.is_dir():
+        return []
+
+    infos: list[ScriptInfo] = []
+    for entry in _scan_directory(SCRIPTS_DIR, owner=None):
+        if entry.id == USERS_SUBDIR:
+            continue  # the per-user container, not a script
+        infos.append(entry)
+
+    users_root = SCRIPTS_DIR / USERS_SUBDIR
+    if users_root.is_dir():
+        for user_dir in sorted(users_root.iterdir()):
+            if user_dir.is_dir() and not user_dir.name.startswith(tuple(_HIDDEN)):
+                infos.extend(_scan_directory(user_dir, owner=user_dir.name))
 
     return infos
 

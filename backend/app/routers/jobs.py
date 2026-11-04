@@ -7,15 +7,15 @@ import mimetypes
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from ..config import LOGS_DIR, STDOUT_TAIL_BYTES, JOB_RETENTION_DAYS
+from .. import auth
 from ..models import Job, JobCreateRequest, ScriptInfo
-from ..services import decompress_cache
+from ..services import decompress_cache, script_access
 from ..services.executor import Executor
 from ..services.job_store import JobStore
-from ..services.scanner import discover_scripts
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -130,14 +130,19 @@ def _job_detail(job: Job) -> dict:
 
 
 @router.post("")
-async def create_jobs(req: JobCreateRequest):
+async def create_jobs(req: JobCreateRequest, request: Request = None):
+    """Submit jobs. Scripts resolve against the caller's visible set —
+    another user's private script is an unknown script — except when called
+    without a request (the scheduler firing a shared schedule), which runs
+    with the system's full view."""
     if not req.jobs:
         raise HTTPException(status_code=422, detail="No jobs requested")
     log = _resolve_log(req.log_path) if (req.log_path or "").strip() else None
 
     # Pass 1: validate every spec up front. A bad spec must fail the whole
     # request rather than leave half-created jobs that are never submitted.
-    scripts = {s.id: s for s in discover_scripts()}
+    user = auth.current_user(request) if request is not None else None
+    scripts = script_access.visible_by_id(user)
     plan: list[tuple[ScriptInfo, dict]] = []
     for spec in req.jobs:
         script = scripts.get(spec.script_id)
@@ -287,7 +292,8 @@ async def delete_job(job_id: str):
 
 
 @router.post("/{job_id}/rerun")
-async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
+async def rerun_job(job_id: str, request: Request = None,
+                    from_step: int | None = Query(None, ge=1)):
     """Re-run a job. For chains: the whole chain, or only from `from_step` on.
 
     `from_step` (1-based step number) re-runs only that step and the ones
@@ -295,11 +301,12 @@ async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
     completed step — earlier steps are not executed again.
     """
     job = _get_job_or_404(job_id)
+    user = auth.current_user(request) if request is not None else None
 
     if job.chain_id:
         old_steps = store.list_chain(job.chain_id)
         log = _resolve_log(old_steps[0].log_path) if old_steps[0].log_path else None
-        scripts = {s.id: s for s in discover_scripts()}
+        scripts = script_access.visible_by_id(user)
         # Validate every step before creating anything — a missing script
         # must not leave half-created jobs behind.
         plan: list[tuple[ScriptInfo, dict]] = []
@@ -366,7 +373,7 @@ async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
         return {"job": first}
 
     log = _resolve_log(job.log_path) if job.log_path else None
-    scripts = {s.id: s for s in discover_scripts()}
+    scripts = script_access.visible_by_id(user)
     script = scripts.get(job.script_id)
     if script is None or script.error:
         raise HTTPException(status_code=404, detail=f"Script no longer available: {job.script_id}")

@@ -9,11 +9,11 @@ missing, at load time).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
+from .. import auth
 from ..models import PipelineSaveRequest, PipelineStep, ScriptInfo
-from ..services import pipeline_store
-from ..services.scanner import discover_scripts
+from ..services import pipeline_store, script_access
 from .jobs import _validate_params
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
@@ -43,13 +43,15 @@ def list_pipelines():
 
 
 @router.post("")
-def save_pipeline(req: PipelineSaveRequest):
+def save_pipeline(req: PipelineSaveRequest, request: Request):
     name = (req.name or "").strip()[:80]
     if not name:
         raise HTTPException(status_code=422, detail="Pipeline name is empty")
     if not req.steps:
         raise HTTPException(status_code=422, detail="A pipeline needs at least one step")
-    scripts = {s.id: s for s in discover_scripts()}
+    # the caller's scripts — a pipeline may only reference what its author
+    # can see and run (other users' private scripts don't exist for them)
+    scripts = script_access.visible_by_id(auth.current_user(request))
     steps = _validated_steps(req.steps, scripts)
     saved = pipeline_store.save_pipeline(
         name, [PipelineStep(script_id=sid, params=params) for sid, params in steps])

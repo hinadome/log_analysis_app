@@ -56,6 +56,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ role }),
     }),
+
+  // --- script sharing (multi-user) ---
+  shareScript: (id) => request(`/api/scripts/${id}/share`, { method: "POST" }),
+  unshareScript: (id) => request(`/api/scripts/${id}/unshare`, { method: "POST" }),
   health: () => request("/api/health"),
   listLogs: () => request("/api/logs"),
   listScripts: () => request("/api/scripts"),

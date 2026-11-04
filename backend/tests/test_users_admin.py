@@ -19,13 +19,60 @@ def admin(client, users_file, sessions_file, fresh_logins):
     return users_file
 
 
+class _AsUser:
+    """One account's voice on the shared fixture client.
+
+    A second TestClient(app) would look simpler, but without its context
+    manager each of its requests runs on its own throwaway event loop —
+    executor.submit's asyncio.create_task dies with that loop as soon as
+    the response returns, and every job comes back "cancelled". So all
+    accounts share the fixture client (one lifespan, one event loop),
+    and this wrapper speaks as exactly one of them: a per-request Cookie
+    header, which overrides whatever cookie the jar holds without ever
+    touching it.
+    """
+
+    def __init__(self, client, session):
+        self._client = client
+        self._session = session
+
+    def _as_account(self, kwargs):
+        headers = {"Cookie": f"logsmith_session={self._session}",
+                   **(kwargs.get("headers") or {})}
+        return {**kwargs, "headers": headers}
+
+    def get(self, *args, **kwargs):
+        return self._client.get(*args, **self._as_account(kwargs))
+
+    def post(self, *args, **kwargs):
+        return self._client.post(*args, **self._as_account(kwargs))
+
+    def put(self, *args, **kwargs):
+        return self._client.put(*args, **self._as_account(kwargs))
+
+    def delete(self, *args, **kwargs):
+        return self._client.delete(*args, **self._as_account(kwargs))
+
+
 def as_user(client, username, password):
-    """A second client sharing the same app, logged in as someone else."""
-    from fastapi.testclient import TestClient
-    from app.main import app
-    other = TestClient(app)
-    assert login(other, username, password).status_code == 200
-    return other
+    """The shared fixture client speaking as one account.
+
+    Logs in through the real endpoint (so minting, the disabled check and
+    the rate-limit slate all run) and hands back the wrapper above. The
+    login would leave the fixture client switched to that account, so the
+    identity it had before — usually the admin fixture's — is restored
+    on the way out.
+    """
+    jar = [ck.value for ck in client.cookies.jar if ck.name == "logsmith_session"]
+    before = jar[0] if jar else None
+    res = client.post("/api/auth/login",
+                      json={"username": username, "password": password})
+    assert res.status_code == 200, res.text
+    session = res.headers["set-cookie"].split(";")[0].split("=", 1)[1]
+    client.cookies.delete("logsmith_session")   # every domain flavor at once
+    if before is not None:
+        client.cookies.set("logsmith_session", before)
+    return _AsUser(client, session)
 
 
 # --- permissions ---------------------------------------------------------------

@@ -12,13 +12,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
+from .. import auth
 from ..models import PipelineStep, Schedule, ScheduleSaveRequest
-from ..services import pipeline_store, schedule_store
+from ..services import pipeline_store, schedule_store, script_access
 from ..services.cron import CronError, describe, parse_cron
 from ..services.scheduler import next_due, scheduler
-from ..services.scanner import discover_scripts
 from .jobs import _resolve_log
 from .pipelines import _validated_steps
 
@@ -44,7 +44,7 @@ def list_schedules():
 
 
 @router.post("")
-def save_schedule(req: ScheduleSaveRequest):
+def save_schedule(req: ScheduleSaveRequest, request: Request):
     name = (req.name or "").strip()[:80]
     if not name:
         raise HTTPException(status_code=422, detail="Schedule name is empty")
@@ -54,7 +54,9 @@ def save_schedule(req: ScheduleSaveRequest):
     except CronError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    scripts = {s.id: s for s in discover_scripts()}
+    # validated against the caller's scripts; firing resolves again as the
+    # system, which sees everything (shared schedules are a shared resource)
+    scripts = script_access.visible_by_id(auth.current_user(request))
     pipeline_name: str | None = None
     if (req.pipeline or "").strip() and req.steps:
         raise HTTPException(status_code=422, detail=(

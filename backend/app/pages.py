@@ -38,7 +38,8 @@ from .routers import schedules as schedules_api
 from .routers import scripts as scripts_api
 from .routers import users as users_api
 from .services import pipeline_store
-from .services.scanner import discover_scripts, list_logs
+from .services import script_access
+from .services.scanner import list_logs
 from .services.terminal import terminal as terminal_service
 
 router = APIRouter(include_in_schema=False)
@@ -296,7 +297,7 @@ def logout():
 def home(request: Request, cat: str = ""):
     if redirect := _need_login(request):
         return redirect
-    scripts = discover_scripts()
+    scripts = script_access.visible_scripts(auth.current_user(request))
     categories = sorted({s.category for s in scripts if s.category})
     # A hand-edited ?cat= that no script carries shows everything, not an
     # empty table that looks like a broken filter.
@@ -371,7 +372,7 @@ def run_page(
     missing = [n for n in selected if not _usable(n)]
     selected = [n for n in selected if _usable(n)]
 
-    all_scripts = discover_scripts()
+    all_scripts = script_access.visible_scripts(auth.current_user(request))
     categories = sorted({s.category for s in all_scripts if s.category})
     cat = cat if cat in categories else ""
     # The table is filtered for browsing; chosen steps stay chosen via their
@@ -537,7 +538,7 @@ async def submit(request: Request):
     if not script_ids:
         return _render_error(request, HTTPException(422, "No script selected"), back=run_url)
 
-    by_id = {s.id: s for s in discover_scripts()}
+    by_id = script_access.visible_by_id(auth.current_user(request))
     unknown = [s for s in script_ids if s not in by_id]
     if unknown:
         return _render_error(request, HTTPException(404, f"Unknown script: {', '.join(unknown)}"),
@@ -555,7 +556,7 @@ async def submit(request: Request):
             ]
             req = JobCreateRequest(log_path=log_name, mode=mode,
                                    label=label or None, jobs=specs)
-            created.extend((await jobs_api.create_jobs(req))["jobs"])
+            created.extend((await jobs_api.create_jobs(req, request))["jobs"])
     except HTTPException as exc:
         return _render_error(request, exc, back=run_url)
 
@@ -586,7 +587,7 @@ async def save_pipeline_page(request: Request):
     label = (form.get("label") or "").strip()
     cat = (form.get("cat") or "").strip()
 
-    by_id = {s.id: s for s in discover_scripts()}
+    by_id = script_access.visible_by_id(auth.current_user(request))
     pairs = [("logs", n) for n in log_names]
     pairs += [("scripts", s) for s in script_ids]
     pairs.append(("mode", mode))
@@ -618,7 +619,7 @@ async def save_pipeline_page(request: Request):
         req = PipelineSaveRequest(name=name, steps=[
             PipelineStep(script_id=sid, params=_parse_form_params(form, by_id[sid]))
             for sid in script_ids])
-        pipelines_api.save_pipeline(req)
+        pipelines_api.save_pipeline(req, request)
     except HTTPException as exc:
         return _render_error(request, exc, back=run_url)
     return RedirectResponse(
@@ -720,7 +721,7 @@ def schedules_page(
             "enabled": enabled != "false",
         }
 
-    by_id = {s.id: s for s in discover_scripts()}
+    by_id = script_access.visible_by_id(auth.current_user(request))
     param_script = by_id.get(form["script"]) if form["script"] else None
     schedule_scripts = sorted(
         (s for s in by_id.values() if not s.error),
@@ -745,7 +746,7 @@ async def save_schedule_page(request: Request):
     # the API XOR-checks both empty / both set, same as every client.
     steps: list[PipelineStep] = []
     if script:
-        by_id = {s.id: s for s in discover_scripts()}
+        by_id = script_access.visible_by_id(auth.current_user(request))
         if script not in by_id:
             return _render_error(request, HTTPException(404, f"Unknown script: {script}"),
                                   back="/schedules")
@@ -764,7 +765,7 @@ async def save_schedule_page(request: Request):
         enabled=form.get("enabled") not in (None, "", "off", "false"),
     )
     try:
-        schedules_api.save_schedule(req)
+        schedules_api.save_schedule(req, request)
     except HTTPException as exc:
         return _render_error(request, exc, back="/schedules")
     return RedirectResponse(
@@ -899,7 +900,7 @@ async def job_rerun(request: Request, job_id: str):
     from_step_raw = (form.get("from_step") or "").strip()
     try:
         from_step = int(from_step_raw) if from_step_raw else None
-        result = await jobs_api.rerun_job(job_id, from_step)
+        result = await jobs_api.rerun_job(job_id, request, from_step)
     except (ValueError, HTTPException) as exc:
         detail = str(getattr(exc, "detail", exc))
         return _render_error(request, HTTPException(422, detail), back=f"/jobs/{job_id}")
@@ -1058,13 +1059,13 @@ def scripts_page(request: Request):
     if redirect := _need_login(request):
         return redirect
     return _page(request, "scripts.html", nav="scripts",
-                 scripts=discover_scripts(),
+                 scripts=script_access.visible_scripts(auth.current_user(request)),
                  allow_editing=ALLOW_SCRIPT_EDITING)
 
 
-def _script_form_values(sid: str) -> dict:
+def _script_form_values(request: Request, sid: str) -> dict:
     if sid:
-        src = scripts_api.get_script_source(sid)
+        src = scripts_api.get_script_source(sid, request)
         return {
             "id": sid,
             "original_id": sid,
@@ -1117,7 +1118,7 @@ def script_new(request: Request):
     if not ALLOW_SCRIPT_EDITING:
         return RedirectResponse("/scripts?" + urlencode(
             {"err": "Script editing is disabled on this server"}), status_code=303)
-    return _script_form_context(request, _script_form_values(""))
+    return _script_form_context(request, _script_form_values(request, ""))
 
 
 @router.get("/scripts/{script_id}/edit")
@@ -1128,7 +1129,7 @@ def script_edit(request: Request, script_id: str):
         return RedirectResponse("/scripts?" + urlencode(
             {"err": "Script editing is disabled on this server"}), status_code=303)
     try:
-        values = _script_form_values(script_id)
+        values = _script_form_values(request, script_id)
     except HTTPException as exc:
         return _render_error(request, exc, back="/scripts")
     return _script_form_context(request, values)
@@ -1165,7 +1166,7 @@ def _script_upsert_request(form) -> ScriptUpsertRequest:
         raise HTTPException(422, detail=f"Invalid script: {exc.errors()[0]['msg']}")
 
 
-def _save_script(form) -> str:
+def _save_script(request: Request, form) -> str:
     """Create or update from the form; returns the saved script id.
 
     An existing id that differs from `original_id` saves as a new script
@@ -1174,9 +1175,9 @@ def _save_script(form) -> str:
     original = (form.get("original_id") or "").strip()
     req = _script_upsert_request(form)
     if original and req.id == original:
-        scripts_api.update_script(original, req)
+        scripts_api.update_script(original, req, request)
     else:
-        scripts_api.create_script(req)
+        scripts_api.create_script(req, request)
     return req.id
 
 
@@ -1188,7 +1189,7 @@ async def script_save(request: Request):
         return _render_error(request, _editing_disabled(), back="/scripts")
     form = await request.form()
     try:
-        sid = _save_script(form)
+        sid = _save_script(request, form)
     except HTTPException as exc:
         return _script_form_context(request, _form_values_from(form),
                                      form_error=str(exc.detail),
@@ -1215,10 +1216,10 @@ async def script_test_run(request: Request):
                                     form_error="Pick a log for the test run",
                                     status_code=422)
     try:
-        sid = _save_script(form)
+        sid = _save_script(request, form)
         result = await jobs_api.create_jobs(JobCreateRequest(
             log_path=log, mode="parallel",
-            jobs=[JobSpecIn(script_id=sid, params={})]))
+            jobs=[JobSpecIn(script_id=sid, params={})]), request)
     except HTTPException as exc:
         return _script_form_context(request, _form_values_from(form),
                                     form_error=str(exc.detail),
@@ -1233,7 +1234,7 @@ def script_delete(request: Request, script_id: str):
     if not ALLOW_SCRIPT_EDITING:
         return _render_error(request, _editing_disabled(), back="/scripts")
     try:
-        scripts_api.delete_script(script_id)
+        scripts_api.delete_script(script_id, request)
     except HTTPException as exc:
         return _render_error(request, exc, back="/scripts")
     return RedirectResponse("/scripts?" + urlencode({"msg": f"Deleted {script_id}"}), status_code=303)
@@ -1255,6 +1256,7 @@ async def script_import(request: Request, file: UploadFile = File(...),
         result = await scripts_api.import_scripts(
             file=file, name=(name or "").strip(),
             overwrite=overwrite in ("1", "true", "on", "yes"),
+            request=request,
         )
     except HTTPException as exc:
         return RedirectResponse("/scripts?" + urlencode({"err": str(exc.detail)}),
@@ -1262,6 +1264,33 @@ async def script_import(request: Request, file: UploadFile = File(...),
     ids = ", ".join(result["imported"])
     return RedirectResponse("/scripts?" + urlencode(
         {"msg": f"Imported {len(result['imported'])} script(s): {ids}"}), status_code=303)
+
+
+# --- scripts: share / unshare (multi-user) -------------------------------------
+
+@router.post("/scripts/{script_id}/share")
+def script_share(request: Request, script_id: str):
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        scripts_api.share_script(script_id, request)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/scripts")
+    return RedirectResponse("/scripts?" + urlencode(
+        {"msg": f"Shared {script_id} — it is now in the shared library"}), status_code=303)
+
+
+@router.post("/scripts/{script_id}/unshare")
+def script_unshare(request: Request, script_id: str):
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        scripts_api.unshare_script(script_id, request)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/scripts")
+    return RedirectResponse("/scripts?" + urlencode(
+        {"msg": f"Unshared {script_id} — it moved to your private scripts"}),
+        status_code=303)
 
 
 # --- users (admin) -----------------------------------------------------------

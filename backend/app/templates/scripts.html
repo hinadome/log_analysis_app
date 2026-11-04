@@ -33,7 +33,7 @@ the directory name away): name the script here. Ignored for flat scripts.">
 {% endif %}
 
 <table class="list">
-  <thead><tr><th>Script</th><th>Description</th><th>Params</th><th>Style</th><th></th></tr></thead>
+  <thead><tr><th>Script</th><th>Description</th><th>Params</th><th>Style</th><th>Owner</th><th></th></tr></thead>
   <tbody>
   {% for s in scripts %}
   <tr>
@@ -41,12 +41,27 @@ the directory name away): name the script here. Ignored for flat scripts.">
     <td>{% if s.error %}<span class="err-text">broken manifest: {{ s.error }}</span>{% else %}{{ s.description or '—' }}{% endif %}</td>
     <td class="muted">{{ s.parameters | length }}</td>
     <td class="muted">{{ s.style }}</td>
+    <td class="muted">{% if s.owner %}{% if current_user and s.owner == current_user.username %}you (private){% else %}{{ s.owner }} (private){% endif %}{% else %}<span class="ok-text">shared</span>{% endif %}</td>
     <td class="row-actions">
       {% if s.style == 'flat' and allow_editing %}
       <a class="btn sm" href="/scripts/{{ s.id }}/edit">Edit</a>
       {% endif %}
       <a class="btn ghost sm" href="/api/scripts/{{ s.id }}/export">Export</a>
-      {% if s.style == 'flat' and allow_editing %}
+      {% if multi_user %}
+      {% if s.owner and (is_admin or (current_user and current_user.username == s.owner)) %}
+      <form method="post" action="/scripts/{{ s.id }}/share" class="inline">
+        <button class="btn ghost sm" type="submit"
+                title="Move this script into the shared library — every user will see and run it">⇪ Share</button>
+      </form>
+      {% elif not s.owner and is_admin %}
+      <form method="post" action="/scripts/{{ s.id }}/unshare" class="inline"
+            onsubmit="return confirm('Unshare &quot;{{ s.id }}&quot;? It moves out of the shared library into your private scripts; other users lose access.')">
+        <button class="btn ghost sm" type="submit"
+                title="Pull this script out of the shared library, into your private space">⇩ Unshare</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if s.style == 'flat' and allow_editing and (is_admin or (s.owner and current_user and current_user.username == s.owner)) %}
       <form method="post" action="/scripts/{{ s.id }}/delete" class="inline"
             onsubmit="return confirm('Delete script &quot;{{ s.id }}&quot;? The code and manifest files are permanently removed. Job history is kept, but jobs of this script can no longer be re-run.')">
         <button class="btn danger sm" type="submit">Delete</button>

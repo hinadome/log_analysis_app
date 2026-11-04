@@ -63,11 +63,32 @@ export default function App() {
     setToast({ kind: "error", text: String(e.message || e) });
   }, []);
 
+  const loadScripts = useCallback(
+    () => api.listScripts().then((r) => setScripts(r.scripts)).catch(() => {}),
+    []
+  );
   const loadAll = useCallback(() => {
     api.listLogs().then((r) => setLogs(r.logs)).catch(() => {});
-    api.listScripts().then((r) => setScripts(r.scripts)).catch(() => {});
+    loadScripts();
     api.health().then(setHealth).catch(() => {});
-  }, []);
+  }, [loadScripts]);
+
+  // sharing is a move between the private space and the shared library —
+  // the script keeps its id, so jobs, pipelines and schedules keep working
+  const shareScript = useCallback(async (s) => {
+    try {
+      await api.shareScript(s.id);
+      setToast({ kind: "ok", text: `Shared ${s.id} — every user can now run it` });
+      loadScripts();
+    } catch (e) { showError(e); }
+  }, [loadScripts, showError]);
+  const unshareScript = useCallback(async (s) => {
+    try {
+      await api.unshareScript(s.id);
+      setToast({ kind: "ok", text: `Unshared ${s.id} — it moved to your private scripts` });
+      loadScripts();
+    } catch (e) { showError(e); }
+  }, [loadScripts, showError]);
 
   const loadPipelines = useCallback(
     () => api.listPipelines().then((r) => setPipelines(r.pipelines || [])).catch(() => {}),
@@ -620,6 +641,9 @@ export default function App() {
                 onEditScript={(s) => setScriptEditor(s.id)}
                 canEditScripts={health?.script_editing !== false}
                 onImport={importScriptFile}
+                me={authUser}
+                onShare={shareScript}
+                onUnshare={unshareScript}
               />
               {(steps.length > 0 || mode === "chain") && (
                 <section className="card step">

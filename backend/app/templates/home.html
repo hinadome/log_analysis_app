@@ -39,7 +39,7 @@
     {% for s in scripts %}
       <tr>
         <td class="cb"><input type="checkbox" name="scripts" value="{{ s.id }}" {% if s.error %}disabled{% endif %}></td>
-        <td><b>{{ s.name or s.id }}</b>{% if not s.needs_log %} <span class="badge" title="the command has no {log} — runs without one">log-free</span>{% endif %}<br><span class="mono muted">{{ s.id }}</span></td>
+        <td><b>{{ s.name or s.id }}</b>{% if not s.needs_log %} <span class="badge" title="the command has no {log} — runs without one">log-free</span>{% endif %}{% if s.owner %} <span class="badge" title="{% if current_user and s.owner == current_user.username %}your private script — share it from the Scripts page if others should see it{% else %}{{ s.owner }}'s private script{% endif %}">private</span>{% endif %}<br><span class="mono muted">{{ s.id }}</span></td>
         <td>{% if s.error %}<span class="err-text">broken manifest: {{ s.error }}</span>{% else %}{{ s.description or '—' }}{% endif %}</td>
         <td class="muted">{{ s.parameters | length }}</td>
       </tr>

@@ -1,14 +1,20 @@
 """Script discovery and management endpoints.
 
 The editor endpoints write ordinary flat-style scripts (code file + sidecar
-manifest) into SCRIPTS_DIR — the same files a user could create by hand.
-Writing scripts is within the trust model: scripts are arbitrary code running
-as the server user by design (see ARCHITECTURE.md §9), and ids/extensions
-are constrained so a request can never escape SCRIPTS_DIR.
+manifest) — the same files a user could create by hand. In multi-user mode
+they land in the caller's private space (scripts/users/<name>/); otherwise
+in SCRIPTS_DIR, the shared library. Writing scripts is within the trust
+model: scripts are arbitrary code running as the server user by design
+(see ARCHITECTURE.md §9), and ids/extensions are constrained so a request
+can never escape those directories.
 
 When that trust is not shared — other people have the password — set
 LOGSMITH_ALLOW_SCRIPT_EDITING=0: the write endpoints below then answer 403,
 and reads (list, source view, export, running jobs) keep working.
+
+Visibility: a regular account sees the shared library plus its own private
+scripts; another user's private script answers 404 like a missing one.
+Admins see everything (see services/script_access.py).
 """
 from __future__ import annotations
 
@@ -21,10 +27,12 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
 
+from .. import auth
 from ..config import SCRIPTS_DIR, ALLOW_SCRIPT_EDITING
-from ..models import ScriptUpsertRequest
+from ..models import ScriptInfo, ScriptUpsertRequest
+from ..services import script_access
 from ..services.scanner import DEFAULT_INTERPRETERS, discover_scripts
 
 router = APIRouter(prefix="/scripts", tags=["scripts"])
@@ -71,23 +79,29 @@ _DEFAULT_COMMAND = {
 
 
 @router.get("")
-def get_scripts():
-    return {"scripts": discover_scripts()}
+def get_scripts(request: Request):
+    """The caller's scripts: the shared library plus their own private ones
+    (an admin sees everything). Other users' private scripts are not here."""
+    return {"scripts": script_access.visible_scripts(auth.current_user(request))}
 
 
 # Declared BEFORE the /{script_id} routes: a fixed path must win over the
 # parameter, or "export" would be read as a script id.
 @router.get("/export")
-def export_all_scripts():
-    """Every script in one tar.gz — the full backup / server-to-server move.
+def export_all_scripts(request: Request):
+    """Every script the caller can see, in one tar.gz — the backup /
+    server-to-server move.
 
     Flat scripts land as top-level code + sidecar pairs; directory-style
     scripts keep their directory name (the single-script export flattens
     it away — a whole-library archive cannot, or scripts would collide).
     Import takes the result back whole: mixed flat pairs and manifest-
     bearing subdirectories are exactly what it understands.
+
+    Private scripts of other users are never in the archive — an export
+    contains exactly what the caller may see and run.
     """
-    scripts = discover_scripts()
+    scripts = script_access.visible_scripts(auth.current_user(request))
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for script in scripts:
@@ -133,10 +147,20 @@ def _find(script_id: str):
     return None
 
 
-def _get_flat_or_404(script_id: str):
+def _find_visible(script_id: str, user):
+    """A script the caller may see, or 404.
+
+    Another user's private script answers exactly like a missing one —
+    never a confirmation that it exists.
+    """
     script = _find(script_id)
-    if script is None:
+    if script is None or script not in script_access.visible_scripts(user):
         raise HTTPException(status_code=404, detail=f"Script not found: {script_id}")
+    return script
+
+
+def _get_flat_or_404(script_id: str, user):
+    script = _find_visible(script_id, user)
     if script.style != "flat":
         raise HTTPException(
             status_code=400,
@@ -183,9 +207,9 @@ def _validate(req: ScriptUpsertRequest) -> dict:
 
 
 @router.get("/{script_id}")
-def get_script_source(script_id: str):
+def get_script_source(script_id: str, request: Request):
     """Code + manifest for the UI editor (flat scripts only)."""
-    script = _get_flat_or_404(script_id)
+    script = _get_flat_or_404(script_id, auth.current_user(request))
     code_path = Path(script.script_path)
     try:
         code = code_path.read_text(encoding="utf-8")
@@ -210,15 +234,19 @@ def get_script_source(script_id: str):
 
 
 @router.post("")
-def create_script(req: ScriptUpsertRequest):
+def create_script(req: ScriptUpsertRequest, request: Request):
     _require_editing_enabled()
+    # global uniqueness across shared and every private space — the 409
+    # deliberately doesn't say whose script the id collides with
     if _find(req.id) is not None:
         raise HTTPException(status_code=409, detail=f"A script named '{req.id}' already exists")
     manifest = _validate(req)
-    code_path = SCRIPTS_DIR / f"{req.id}.{req.extension}"
-    manifest_path = SCRIPTS_DIR / f"{req.id}.json"
+    # multi-user: creations start private to the caller (admins too —
+    # sharing is then an explicit step); single-user: the shared library
+    target_dir = script_access.destination_dir(auth.current_user(request))
+    code_path = target_dir / f"{req.id}.{req.extension}"
+    manifest_path = target_dir / f"{req.id}.json"
     try:
-        SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
         _write_code(code_path, req.code)
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
@@ -233,15 +261,22 @@ def create_script(req: ScriptUpsertRequest):
 
 
 @router.put("/{script_id}")
-def update_script(script_id: str, req: ScriptUpsertRequest):
+def update_script(script_id: str, req: ScriptUpsertRequest, request: Request):
     _require_editing_enabled()
     if req.id != script_id:
         raise HTTPException(status_code=422, detail="Body id and path id don't match")
-    script = _get_flat_or_404(script_id)
+    user = auth.current_user(request)
+    script = _get_flat_or_404(script_id, user)
+    if not script_access.may_edit(script, user):
+        raise HTTPException(status_code=403,
+                            detail="Only the owner or an admin may edit a private script")
     manifest = _validate(req)
+    # write where the script already lives — an update never moves it,
+    # so ownership (and sharing state) is preserved
+    script_dir = Path(script.script_path).parent
     old_code_path = Path(script.script_path)
-    code_path = SCRIPTS_DIR / f"{script_id}.{req.extension}"
-    manifest_path = SCRIPTS_DIR / f"{script_id}.json"
+    code_path = script_dir / f"{script_id}.{req.extension}"
+    manifest_path = script_dir / f"{script_id}.json"
     try:
         _write_code(code_path, req.code)
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -253,9 +288,13 @@ def update_script(script_id: str, req: ScriptUpsertRequest):
 
 
 @router.delete("/{script_id}")
-def delete_script(script_id: str):
+def delete_script(script_id: str, request: Request):
     _require_editing_enabled()
-    script = _get_flat_or_404(script_id)
+    user = auth.current_user(request)
+    script = _get_flat_or_404(script_id, user)
+    if not script_access.may_delete(script, user):
+        raise HTTPException(status_code=403,
+                            detail="Shared scripts can only be deleted by an admin")
     code_path = Path(script.script_path)
     try:
         code_path.unlink(missing_ok=True)
@@ -266,11 +305,9 @@ def delete_script(script_id: str):
 
 
 @router.get("/{script_id}/export")
-def export_script(script_id: str):
+def export_script(script_id: str, request: Request):
     """Download a script as a tar.gz — code + manifest (+ support files)."""
-    script = _find(script_id)
-    if script is None:
-        raise HTTPException(status_code=404, detail=f"Script not found: {script_id}")
+    script = _find_visible(script_id, auth.current_user(request))
 
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -310,6 +347,68 @@ def export_script(script_id: str):
         media_type="application/gzip",
         headers={"Content-Disposition": f'attachment; filename="{script_id}.tar.gz"'},
     )
+
+
+# --- sharing (multi-user mode) -------------------------------------------------
+#
+# Moving a script between the shared library and a private space is a
+# file move — ownership is locational (see services/script_access.py).
+# Share: the owner (or an admin) publishes into scripts/. Unshare: an
+# admin pulls a script out into their own private space — a shared script
+# records no origin, so the admin who unshares takes it over. The ids
+# don't change, so jobs, pipelines and schedules keep working.
+
+
+def _move_script_files(script: ScriptInfo, dest_dir: Path) -> None:
+    """Move one script's files into dest_dir (which must be free)."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    code_path = Path(script.script_path)
+    if script.style == "flat":
+        sources = [code_path]
+        sidecar = code_path.with_suffix(".json")
+        if sidecar.is_file():
+            sources.append(sidecar)
+        for src in sources:
+            target = dest_dir / src.name
+            if target.exists():
+                raise HTTPException(
+                    409, detail=f"'{target}' already exists but is not a script the "
+                                "scanner knows — resolve it by hand first")
+            shutil.move(str(src), str(target))
+    else:
+        target = dest_dir / script.id
+        if target.exists():
+            raise HTTPException(
+                409, detail=f"'{target}' already exists but is not a script the "
+                            "scanner knows — resolve it by hand first")
+        shutil.move(str(code_path.parent), str(target))
+
+
+@router.post("/{script_id}/share")
+def share_script(script_id: str, request: Request):
+    """Publish a private script into the shared library (owner or admin)."""
+    user = auth.current_user(request)
+    script = _find_visible(script_id, user)
+    if script.owner is None:
+        raise HTTPException(422, detail=f"'{script_id}' is already shared")
+    if not script_access.may_share(script, user):
+        raise HTTPException(403, detail="Only the owner or an admin may share a script")
+    _move_script_files(script, SCRIPTS_DIR)
+    return {"script": _find(script_id)}
+
+
+@router.post("/{script_id}/unshare")
+def unshare_script(script_id: str, request: Request):
+    """Pull a shared script back out of the library, into the calling
+    admin's private space (admin only — the script becomes theirs)."""
+    user = auth.current_user(request)
+    script = _find_visible(script_id, user)
+    if script.owner is not None:
+        raise HTTPException(422, detail=f"'{script_id}' is not a shared script")
+    if not script_access.may_unshare(script, user):
+        raise HTTPException(403, detail="Only an admin account may unshare a script")
+    _move_script_files(script, script_access.private_dir(user.username))
+    return {"script": _find(script_id)}
 
 
 # --- import (the export's counterpart) ---------------------------------------
@@ -434,17 +533,27 @@ def _remove_existing(script) -> None:
     code_path = Path(script.script_path)
     if script.style == "directory":
         script_dir = code_path.parent
-        # paranoia: only ever rmtree a direct child of SCRIPTS_DIR
-        if script_dir.parent == SCRIPTS_DIR and script_dir.name == script.id:
+        # paranoia: only ever rmtree the script's own directory, located
+        # exactly where the scanner found it (shared root or a private space)
+        expected_parent = (script_access.private_dir(script.owner)
+                           if script.owner else SCRIPTS_DIR)
+        if script_dir.parent == expected_parent and script_dir.name == script.id:
             shutil.rmtree(script_dir, ignore_errors=True)
         return
     code_path.unlink(missing_ok=True)
     code_path.with_suffix(".json").unlink(missing_ok=True)
 
 
+def _existing_target_dir(script: ScriptInfo) -> Path:
+    """The directory an existing script occupies — where an overwriting
+    import replaces it (keeping its location, and with it its owner)."""
+    p = Path(script.script_path)
+    return p.parent if script.style == "flat" else p.parent.parent
+
+
 @router.post("/import")
 async def import_scripts(file: UploadFile = File(...), name: str = "",
-                         overwrite: bool = False):
+                         overwrite: bool = False, request: Request = None):
     """Import script(s) from a tar.gz — the export format, or a pack of them.
 
     A top-level manifest.json makes it one directory-style script (id from
@@ -452,10 +561,17 @@ async def import_scripts(file: UploadFile = File(...), name: str = "",
     name away); otherwise the top level is a mix of flat scripts (code +
     sidecar pairs, several allowed) and subdirectories that each carry
     their own manifest.json — the export-all shape, taken back whole.
-    Existing ids are a 409 unless ?overwrite=1 replaces them first.
+
+    In multi-user mode imports land in the caller's private space (admins
+    included — sharing is then an explicit step). Ids are unique across
+    shared and private spaces, so an existing id is a 409 — without
+    saying whose — unless ?overwrite=1 replaces it, which is only allowed
+    for scripts the caller may delete (an overwrite replaces a script
+    where it lives, keeping its owner).
     All-or-nothing: nothing is written until everything validates.
     """
     _require_editing_enabled()
+    user = auth.current_user(request) if request is not None else None
 
     data = bytearray()
     while chunk := await file.read(1024 * 1024):
@@ -516,13 +632,25 @@ async def import_scripts(file: UploadFile = File(...), name: str = "",
         conflicts = [sid for kind, sid, _ in plan if sid in existing]
         if conflicts and not overwrite:
             raise HTTPException(409, detail=f"Script(s) already exist: {', '.join(conflicts)} — pass ?overwrite=1 (or the checkbox in the UI) to replace them")
+        if conflicts:
+            # replacing another user's private script (or the shared
+            # library as a non-admin) is not the caller's to do
+            forbidden = [sid for sid in conflicts
+                         if not script_access.may_delete(existing[sid], user)]
+            if forbidden:
+                raise HTTPException(409, detail=f"Script(s) already exist and you may not replace them: {', '.join(forbidden)}")
 
         # write (only after everything above validated)
+        dest_root = script_access.destination_dir(user)
         try:
-            SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+            dest_root.mkdir(parents=True, exist_ok=True)
             for kind, sid, source in plan:
+                # an overwrite replaces its script where it lives — the
+                # location (and so the owner) is preserved
+                target_dir = (_existing_target_dir(existing[sid])
+                              if overwrite and sid in existing else dest_root)
                 if kind == "directory":
-                    target = SCRIPTS_DIR / sid
+                    target = target_dir / sid
                     if sid in existing:
                         _remove_existing(existing[sid])
                     if target.exists():
@@ -535,7 +663,7 @@ async def import_scripts(file: UploadFile = File(...), name: str = "",
                     if sid in existing:
                         _remove_existing(existing[sid])
                     code = source.read_text(encoding="utf-8")
-                    code_path = SCRIPTS_DIR / source.name
+                    code_path = target_dir / source.name
                     _write_code(code_path, code)
                     written.append(code_path)
                     sidecar = source.with_suffix(".json")

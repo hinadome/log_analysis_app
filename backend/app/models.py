@@ -58,6 +58,10 @@ class ScriptInfo(BaseModel):
     timeout: int
     parameters: list[ParamSpec] = Field(default_factory=list)
     script_path: str
+    # Username of the account this script belongs to (its private space,
+    # scripts/users/<name>/) — None means the shared library at the top
+    # level of scripts/. Ownership is locational: no index file.
+    owner: str | None = None
     style: Literal["flat", "directory"] = "flat"
     output_filename: str | None = None
     error: str | None = None  # set when the manifest failed to load
