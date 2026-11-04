@@ -108,9 +108,11 @@ backend/app/
 │   │                  toggle / run-now (shares the ticker's fire path) /
 │   │                  delete
 │   ├── terminal.py    Remote terminal endpoints (every one flag-gated
-│   │                  to 404 while LOGSMITH_TERMINAL is off): create/
-│   │                  kill pty sessions, SSE output stream, raw-body
-│   │                  input, pty resize
+│   │                  to 404 while LOGSMITH_TERMINAL is off; admin-only
+│   │                  in multi-user mode — a shell as the server user
+│   │                  is the one surface no regular account reaches):
+│   │                  create/kill pty sessions, SSE output stream,
+│   │                  raw-body input, pty resize
 │   └── users.py       Admin user management: list / create / password
 │                      reset (drops the user's live sessions) / role
 │                      change / disable / enable; the single-user
@@ -566,8 +568,11 @@ Single-page React app; state lives in `App.jsx`:
   `#/job/<id>` the job view, `#/terminal` the terminal tab (`useHashRoute` +
   `parseRoute` validating the job id shape). Refresh, browser back/forward
   and shareable job links all work without server-side routing.
-- **TerminalPanel** (rendered only while `health.terminal` is on — the
-  topbar link appears and disappears with it): one xterm.js instance per
+- **TerminalPanel** (rendered only while `health.terminal` is on **and the
+  viewer is an admin** — the topbar link appears and disappears with both;
+  a manually-entered `#/terminal` as a regular account gets a plain
+  access-denied card, never a panel that could only fail): one xterm.js
+  instance per
   mount, `POST /api/terminal/sessions` to create, an EventSource on the
   output stream (base64 JSON frames; the exit frame closes it), keystrokes
   POSTed verbatim from `term.onData`, a debounced resize → `POST …/size`,
@@ -622,7 +627,9 @@ deep-linkable URL. Design points:
   disable, role), the jobs page carries the Owner column and the
   per-account filter for admins, the scripts page the Owner column with
   share/unshare forms, and every action button renders only where the
-  viewer has the right (the routers enforce it regardless).
+  viewer has the right (the routers enforce it regardless). The
+  terminal page and its nav link are admin-only in multi-user mode,
+  alongside the flag.
 - **Forms over fetch**: state changes are POST forms that redirect (303)
   — the run config (`/run?logs=&scripts=` is a shareable GET), the
   submission fan-out (`/submit` posts one `JobCreateRequest` per selected
@@ -677,7 +684,8 @@ deep-linkable URL. Design points:
   answers 404 on every read *and* write path — including cancel and
   delete, where visibility is checked before rights so a 403 can never
   confirm existence. Modifying system history (cancel, delete, prune) is
-  admin-only; reruns belong to the rerunner; admins oversee everything
+  admin-only; reruns belong to the rerunner; the remote terminal (a shell
+  as the server user) is admin-only too; admins oversee everything
   (`?user=` narrowing, the Users page — create, reset, disable, roles,
   with the last working admin protected from demotion/disable). With no
   accounts, every one of these gates is a no-op: single-user deployments
@@ -795,7 +803,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_cron.py` | the cron matcher: next-fire for every construct (steps, ranges, lists, names, Vixie `a/n`, the day OR rule, Sunday 0/7, leap day), strictly-after semantics, rejection table (field count, ranges, Feb 30, zero steps), `describe()` labels |
 | `test_scheduler.py` | the ticker engine with an injected clock: fires once per matching minute, no double-fire within a minute, no catch-up for minutes lost while down, disabled never fires, overlap skip (recorded, nothing submitted), finished previous run doesn't block, inline steps fire as a chain (log-free), neither-pipeline-nor-steps error, missing pipeline / submission errors recorded not raised, multiple schedules in one tick |
 | `test_schedules_api.py` | the schedule API: save/list round-trip with next_due + cron_desc + target, upsert keeps bookkeeping, validation (cron 422 incl. never-matching, pipeline/log/script 404, escape 400, broken pipeline 404, pipeline XOR steps 422, log-required-iff-first-step-needs-it), inline-steps save/toggle/run-now, toggle/delete + 404s, run-now submits a real chain labelled with the schedule's name, custom label, missing log recorded as `error:` |
-| `test_terminal.py` | the remote terminal: flag off = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`LOGSMITH_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), and the python UI page (nav link, run, blank-input flash, the interactive-shell markup with the command box as fallback, vendored assets serving + traversal/allowlist + hidden while off) |
+| `test_terminal.py` | the remote terminal: flag off = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`LOGSMITH_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), the python UI page (nav link, run, blank-input flash, the interactive-shell markup with the command box as fallback, vendored assets serving + traversal/allowlist + hidden while off), and the multi-user gate (a regular account: 403s + hidden nav link + the page refusing; flag-off still a plain 404 — the feature's existence is not revealed; the admin keeps the full lifecycle) |
 | `test_users_auth.py` | the multi-user foundation: store round-trip (hashes, roles, disabled), login contract (username+password, one 401 message, disabled refusal, live mode flip on first account), session revocation on password change, hand-edited users.json picked up live |
 | `test_users_admin.py` | the admin surface: 403 for non-admins, create/reset/role/disable/enable incl. last-admin protection, the bootstrap (single-user operator creates the first admin and stays signed in), the python UI Users page |
 | `test_scripts_ownership.py` | script ownership (invariant 8/9): locational attribution by the scanner, visibility (another's private = 404 everywhere incl. runs and pipeline references), private-landing creates, globally-unique ids (409s that don't say whose), edit/delete rights, share/unshare flows and edges (incl. directory scripts, the single-user 403), import destination/overwrite rights, export-all visibility, rerun-after-unshare, the python UI page |

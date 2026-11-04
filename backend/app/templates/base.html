@@ -17,7 +17,7 @@
     <a href="/jobs" class="{{ 'on' if nav == 'jobs' }}">Jobs</a>
     <a href="/schedules" class="{{ 'on' if nav == 'schedules' }}">Schedules</a>
     <a href="/scripts" class="{{ 'on' if nav == 'scripts' }}">Scripts</a>
-    {% if terminal_enabled %}<a href="/terminal" class="{{ 'on' if nav == 'terminal' }}">⌨ Terminal</a>{% endif %}
+    {% if terminal_enabled and is_admin %}<a href="/terminal" class="{{ 'on' if nav == 'terminal' }}">⌨ Terminal</a>{% endif %}
     {% if is_admin %}<a href="/admin/users" class="{{ 'on' if nav == 'users' }}">👤 Users</a>{% endif %}
   </nav>
   {% if auth_required %}

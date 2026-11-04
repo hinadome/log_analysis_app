@@ -1432,12 +1432,18 @@ def terminal_page(request: Request):
 
     The interactive shell lives in the React tab — a pty cannot be driven
     from plain HTML forms. While LOGSMITH_TERMINAL is off this is a 404,
-    matching what the API does.
+    matching what the API does; with accounts on it is admin-only (a
+    shell as the server user is the one surface no regular account
+    should reach — the single-user operator keeps it).
     """
     if redirect := _need_login(request):
         return redirect
     if not TERMINAL_ENABLED:
         raise HTTPException(status_code=404, detail="Terminal is disabled")
+    try:
+        auth.require_admin(request)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/")
     return _page(request, "terminal.html", nav="terminal")
 
 
@@ -1447,6 +1453,10 @@ async def terminal_run(request: Request):
         return redirect
     if not TERMINAL_ENABLED:
         raise HTTPException(status_code=404, detail="Terminal is disabled")
+    try:
+        auth.require_admin(request)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/")
     form = await request.form()
     command = (form.get("command") or "").strip()
     if not command:

@@ -204,10 +204,14 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 403 for non-admins; the single-user operator may create the first account
 (no admin UI exists yet — that is the bootstrap), nothing else.
 
-### Terminal (flag-gated: `LOGSMITH_TERMINAL`)
+### Terminal (flag-gated: `LOGSMITH_TERMINAL`; admin-only in multi-user mode)
 
 Every endpoint below answers **404 while the flag is off** (also off whenever
-`LOGSMITH_ALLOW_SCRIPT_EDITING=0` — a shell beats the script editor). The
+`LOGSMITH_ALLOW_SCRIPT_EDITING=0` — a shell beats the script editor). With
+accounts on (§8) the shell is the **admin's** — a regular account gets 403
+on every endpoint and the `/terminal` page an error (the single-user
+operator keeps full access: the flag alone decides). The flag is checked
+first, so flag-off stays a plain 404 for everyone. The
 transport is SSE + POST (no WebSocket): it adds no dependency and rides the
 same HTTP auth middleware as the rest of the API — EventSource cannot send
 headers, but the session cookie needs none.
@@ -619,6 +623,9 @@ no-request path), or anything submitted before accounts existed.
 | cancel / delete | the owner's · system jobs: **admin only** — the shared history is everyone's reading, the admin's to manage |
 | rerun | anything the caller can see — **the new run belongs to the rerunner**, the original stays |
 | prune | **admin only** (it sweeps everyone's history) · clear-finished deletes only what the caller may modify |
+
+The remote terminal (§ Terminal section) is admin-only in multi-user mode
+too — same reasoning, stronger: it is a shell as the server user.
 
 ## 9. Configuration
 

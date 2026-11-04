@@ -21,6 +21,7 @@ import app.main as main_module
 import app.pages as pages_module
 import app.routers.terminal as terminal_router
 import app.services.terminal as terminal_service
+from test_users_admin import as_user
 
 
 @pytest.fixture
@@ -183,6 +184,67 @@ def test_session_survives_disconnect(client, terminal_on):
                   for e in events if e["type"] == "output")
     assert b"still-alive-xyz" in out
     assert [e for e in events if e["type"] == "exit"]
+
+
+# --- multi-user: the shell is the admin's -----------------------------------
+
+def test_multi_user_regular_user_gets_403s(client, terminal_on,
+                                           users_file, sessions_file, fresh_logins):
+    """A terminal is a shell as the server user — the one surface no
+    regular account should reach. Every endpoint answers 403 (the feature
+    exists, it just isn't theirs), the page an error, the nav link hides."""
+    users_file.create("admin", "admin-pw", role="admin")
+    users_file.create("alice", "alice-pw")
+    alice = as_user(client, "alice", "alice-pw")
+
+    for method, path in (("post", "/api/terminal/sessions"),
+                         ("get", "/api/terminal/sessions/abc/output"),
+                         ("post", "/api/terminal/sessions/abc/input"),
+                         ("delete", "/api/terminal/sessions/abc")):
+        assert getattr(alice, method)(path).status_code == 403, path
+    # a valid body too — the gate beats any validation nitpicks
+    res = alice.post("/api/terminal/sessions/abc/size", json={"cols": 80, "rows": 24})
+    assert res.status_code == 403
+
+    # the python UI: no nav link, the page and its runner refuse
+    assert 'href="/terminal"' not in alice.get("/").text
+    assert alice.get("/terminal").status_code == 403
+    assert alice.post("/terminal", data={"command": "echo hi"}).status_code == 403
+
+
+def test_multi_user_flag_off_beats_rights(client, users_file, sessions_file,
+                                          fresh_logins):
+    """With the flag off the feature does not exist — a regular user gets
+    the same 404 as everyone else, never a 403 that reveals it's compiled
+    in but withheld."""
+    users_file.create("admin", "admin-pw", role="admin")
+    users_file.create("alice", "alice-pw")
+    alice = as_user(client, "alice", "alice-pw")
+
+    assert alice.post("/api/terminal/sessions").status_code == 404
+    assert alice.get("/terminal").status_code == 404
+
+
+def test_multi_user_admin_keeps_the_terminal(client, terminal_on,
+                                             users_file, sessions_file,
+                                             fresh_logins):
+    users_file.create("admin", "admin-pw", role="admin")
+    users_file.create("alice", "alice-pw")
+    admin = as_user(client, "admin", "admin-pw")
+
+    # the full lifecycle over the API
+    res = admin.post("/api/terminal/sessions")
+    assert res.status_code == 200
+    sid = res.json()["id"]
+    assert admin.post(f"/api/terminal/sessions/{sid}/input",
+                      content="echo admin-only\nexit\n").status_code == 200
+    assert admin.delete(f"/api/terminal/sessions/{sid}").status_code == 200
+
+    # and the python UI page + nav link
+    assert 'href="/terminal"' in admin.get("/").text
+    res = admin.post("/terminal", data={"command": "echo page-as-admin"})
+    assert res.status_code == 200
+    assert "page-as-admin" in res.text
 
 
 # --- the one-shot command box (python UI) -----------------------------------

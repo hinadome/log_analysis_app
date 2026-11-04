@@ -2,10 +2,13 @@
 
 Everything hides behind LOGSMITH_TERMINAL (config.TERMINAL_ENABLED): while
 the flag is off, every endpoint answers 404 as if the feature did not
-exist. The transport is deliberately SSE + POST rather than a WebSocket —
-it needs no extra dependency and rides the same HTTP auth middleware as
-the rest of the API (and EventSource cannot send headers, but the
-session cookie needs none).
+exist. With accounts on (multi-user mode) the shell is admin-only — a
+terminal is a shell as the server user, the one surface no regular
+account should reach; the single-user operator keeps it. The transport is
+deliberately SSE + POST rather than a WebSocket — it needs no extra
+dependency and rides the same HTTP auth middleware as the rest of the
+API (and EventSource cannot send headers, but the session cookie needs
+none).
 
 Protocol (SSE frames, JSON like the job events stream):
     data: {"type": "output", "data": "<base64 pty bytes>"}
@@ -20,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from .. import auth
 from ..config import TERMINAL_ENABLED, TERMINAL_MAX_SESSIONS
 from ..services.terminal import SessionDead, SessionLimit, terminal
 
@@ -29,10 +33,13 @@ router = APIRouter(prefix="/terminal", tags=["terminal"])
 MAX_INPUT_BYTES = 256 * 1024
 
 
-def _gated(sid: str | None = None):
-    """404 while the feature is off (hide it); also resolve the session."""
+def _gated(request: Request, sid: str | None = None):
+    """404 while the feature is off (hide it); 403 for non-admins once
+    accounts exist (require_admin is a no-op for the single-user operator);
+    also resolve the session."""
     if not TERMINAL_ENABLED:
         raise HTTPException(status_code=404, detail="Not found")
+    auth.require_admin(request)
     if sid is not None:
         session = terminal.get(sid)
         if session is None:
@@ -47,8 +54,8 @@ class SizeBody(BaseModel):
 
 
 @router.post("/sessions")
-async def create_session():
-    _gated()
+async def create_session(request: Request):
+    _gated(request)
     try:
         session = terminal.create()
     except SessionLimit:
@@ -60,8 +67,8 @@ async def create_session():
 
 
 @router.get("/sessions/{sid}/output")
-async def session_output(sid: str):
-    session = _gated(sid)
+async def session_output(sid: str, request: Request):
+    session = _gated(request, sid)
     return StreamingResponse(
         terminal.stream_output(session),
         media_type="text/event-stream",
@@ -72,7 +79,7 @@ async def session_output(sid: str):
 @router.post("/sessions/{sid}/input")
 async def session_input(sid: str, request: Request):
     """Raw body = keystrokes, exactly as typed (no JSON wrapper)."""
-    session = _gated(sid)
+    session = _gated(request, sid)
     data = await request.body()
     if len(data) > MAX_INPUT_BYTES:
         raise HTTPException(status_code=413,
@@ -87,8 +94,8 @@ async def session_input(sid: str, request: Request):
 
 
 @router.post("/sessions/{sid}/size")
-async def session_size(sid: str, body: SizeBody):
-    session = _gated(sid)
+async def session_size(sid: str, body: SizeBody, request: Request):
+    session = _gated(request, sid)
     try:
         terminal.resize(session, body.cols, body.rows)
     except SessionDead:
@@ -99,8 +106,8 @@ async def session_size(sid: str, body: SizeBody):
 
 
 @router.delete("/sessions/{sid}")
-async def kill_session(sid: str):
-    _gated()
+async def kill_session(sid: str, request: Request):
+    _gated(request)
     if not terminal.kill(sid):
         raise HTTPException(status_code=404, detail="Unknown terminal session")
     return {"ok": True}

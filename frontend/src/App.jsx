@@ -616,7 +616,7 @@ export default function App() {
               👤 Users
             </a>
           )}
-          {health?.terminal && (
+          {health?.terminal && isAdmin && (
             <a className={`btn ghost sm ${view.name === "terminal" ? "on" : ""}`}
                href="#/terminal" title="Interactive shell on the server (LOGSMITH_TERMINAL)">
               ⌨ Terminal
@@ -841,7 +841,20 @@ export default function App() {
             />
           </>
         ) : view.name === "terminal" ? (
-          <TerminalPanel onBack={() => { goHome(); refreshJobs(); }} />
+          isAdmin ? (
+            <TerminalPanel onBack={() => { goHome(); refreshJobs(); }} />
+          ) : multiUser && authUser ? (
+            // the server enforces it; this just avoids mounting a panel
+            // that could only fail — the shell is the admin's
+            <div className="card">
+              <h2>Terminal</h2>
+              <p className="muted">
+                The terminal is an admin feature — a shell on the server is
+                not part of a regular account's workbench.
+              </p>
+              <button className="btn" onClick={goHome}>← Back</button>
+            </div>
+          ) : null // still resolving who is asking — no flash of a denial
         ) : view.name === "users" ? (
           <UsersPanel
             me={authUser}

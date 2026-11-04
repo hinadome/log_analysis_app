@@ -155,7 +155,9 @@ Vite proxy talks HTTPS to the backend.
   `/terminal` page, where the same shell is progressive enhancement — with
   JavaScript it mounts (xterm.js vendored into the repo, no Node needed),
   without it the page's command box stands in. Off also means *hidden*:
-  every terminal endpoint answers 404.
+  every terminal endpoint answers 404. In multi-user mode the shell is
+  **admin-only** — a regular account gets a 403 and no nav link; the
+  single-user operator keeps it.
 - **File artifacts** — anything a script writes to its `outputs/` directory is
   viewable/downloadable in the browser; Markdown files render nicely.
 - **Authentication** — `LOGSMITH_TOKEN` requires a password for the UI
@@ -175,7 +177,8 @@ Vite proxy talks HTTPS to the backend.
   library (🔒 chips and ⇪/⇩ buttons in both UIs); scheduled runs and
   anything submitted before accounts existed are shared "system" history —
   readable by all, managed by admins. An admin account oversees everything:
-  all scripts and jobs (with per-account filters on the Jobs pages), and a
+  all scripts and jobs (with per-account filters on the Jobs pages), the
+  remote terminal (admin-only in multi-user mode), and a
   Users page for accounts — create, reset passwords (live sessions die with
   a reset), disable, promote; the server refuses to demote or disable its
   last working admin. No accounts means the exact single-user LogSmith as
@@ -648,7 +651,7 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | POST | `/api/auth/login` `/logout` | password → session cookie; multi-user mode takes username + password (login is rate-limited: 5 failures/min per client) |
 | GET/POST | `/api/users` | **admin** — list accounts / create `{username, password, role}` (the first account ever created must be an admin: that is the single-user operator bootstrapping multi-user mode) |
 | POST | `/api/users/{name}/password` `/role` `/disable` `/enable` | **admin** — reset password (kills that user's live sessions), change role, disable (kills sessions) / enable; the last working admin can never be demoted or disabled |
-| POST | `/api/terminal/sessions` | (flag-gated: 404 while `LOGSMITH_TERMINAL` is off) start a shell session → `{id, shell}` (429 at `LOGSMITH_TERMINAL_MAX_SESSIONS`) |
+| POST | `/api/terminal/sessions` | (flag-gated: 404 while `LOGSMITH_TERMINAL` is off; **admin-only in multi-user mode** — 403 otherwise) start a shell session → `{id, shell}` (429 at `LOGSMITH_TERMINAL_MAX_SESSIONS`) |
 | GET | `/api/terminal/sessions/{id}/output` | SSE stream of the session's output — `{"type":"output","data":<base64>}` frames, then one `{"type":"exit","code":N}` |
 | POST | `/api/terminal/sessions/{id}/input` | raw body = keystrokes, written to the pty verbatim |
 | POST | `/api/terminal/sessions/{id}/size` | `{cols, rows}` → pty resize + SIGWINCH |
