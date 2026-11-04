@@ -621,8 +621,9 @@ deep-linkable URL. Design points:
   have (they run as the server user by design).
 - **Script authoring lock** (`LOGSMITH_ALLOW_SCRIPT_EDITING=0`): authoring
   is remote code execution by design, so it can be switched off without
-  losing anything else — every write endpoint (API and both UIs) answers
-  403, reads/export/job submission keep working, and `/api/health` reports
+  losing anything else — every write endpoint (create/update/delete and
+  import, API and both UIs) answers 403, reads (listing, source view, both
+  exports) and job submission keep working, and `/api/health` reports
   `script_editing: false` so the UIs hide their editor entry points.
 - **Remote terminal** (`LOGSMITH_TERMINAL`, default off): an interactive
   shell is strictly more powerful than script authoring, so it is opt-in

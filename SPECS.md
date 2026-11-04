@@ -230,7 +230,7 @@ disk. `GET /api/health` reports the feature as `"terminal": bool`.
 | `DELETE /api/scripts/{id}` | removes the code file and its sidecar. Job history is kept (stdout/artifacts are per-job); jobs of a deleted script can no longer be re-run (404). 403 when editing is locked |
 | `GET /api/scripts/{id}/export` | tar.gz download: code + sidecar manifest (flat) or the full directory (directory-style), plus a `RESTORE.txt` explaining where to unpack |
 | `GET /api/scripts/export` | tar.gz of the **whole library**, `logsmith-scripts-<YYYYMMDD>.tar.gz`: flat scripts as top-level code + sidecar pairs, directory-style scripts under their directory names (the single-script export flattens the name away — a library archive cannot, or scripts would collide), plus a `RESTORE.txt` pointing at Import. Declared before the `/{script_id}` routes so the fixed path wins; a read, so it works even when editing is locked. Consequently the id `export` is reserved — every write path (create, update, import in all shapes) rejects it with a 422, because the fixed route would shadow its source fetch |
-| `POST /api/scripts/import` | multipart `file` = tar.gz — any export back: one script, a pack of flat scripts, or a whole-library archive. A top-level `manifest.json` makes it one directory-style script: the whole tree lands in `scripts/<id>/` (the id from `?name=`, else the upload's file name — the single-script export flattens the original directory name away). Otherwise the top level is a mix: flat code + sidecar pairs, and subdirectories each carrying their own `manifest.json` (the export-all shape — the directory name is the id, and it travels with the script). Two scripts claiming one id inside one archive is a 422, as is a subdirectory without a manifest. `?overwrite=1` replaces existing ids first (flat or directory, across styles). Extraction is strict: regular files only (no links/devices), relative paths, no duplicates; 50 MiB archive / 100 MiB unpacked / 2000 members caps; compression is auto-detected (`r:*`) so a plain `.tar` imports too — Safari's "open safe files" gunzips a downloaded .tar.gz into one. All-or-nothing — 422 not-a-tar/bad-paths/orphan-manifest/invisible-file/bad-id/duplicate-id/empty, 409 existing ids (without overwrite), 403 when editing is locked. → `{imported: [ids], scripts: [ScriptInfo]}` |
+| `POST /api/scripts/import` | multipart `file` = tar.gz — any export back: one script, a pack, or a whole-library archive. A top-level `manifest.json` makes it one directory-style script: the whole tree lands in `scripts/<id>/` (the id from `?name=`, else the upload's file name — the single-script export flattens the original directory name away). Otherwise the top level is a mix: flat code + sidecar pairs, and subdirectories each carrying their own `manifest.json` (the export-all shape — the directory name is the id, and it travels with the script). Two scripts claiming one id inside one archive is a 422, as is a subdirectory without a manifest. `?overwrite=1` replaces existing ids first (flat or directory, across styles). Extraction is strict: regular files only (no links/devices), relative paths, no duplicates; 50 MiB archive / 100 MiB unpacked / 2000 members caps; compression is auto-detected (`r:*`) so a plain `.tar` imports too — Safari's "open safe files" gunzips a downloaded .tar.gz into one. All-or-nothing — 422 not-a-tar/bad-paths/orphan-manifest/invisible-file/bad-id/duplicate-id/empty, 409 existing ids (without overwrite), 403 when editing is locked. → `{imported: [ids], scripts: [ScriptInfo]}` |
 
 ### Jobs
 
@@ -529,10 +529,12 @@ runtime contract above are unchanged, with these differences:
 
 Scripts are arbitrary code running as the server user, so the editor is
 remote code execution by design. `LOGSMITH_ALLOW_SCRIPT_EDITING=0` narrows
-that trust: `POST /api/scripts`, `PUT` and `DELETE /api/scripts/{id}` answer
-**403** (the python UI also bounces its editor pages and hides the editor
-actions), while listing, source view, export and job submission keep
-working. `/api/health` reports the state as `"script_editing": bool` so the
+that trust: `POST /api/scripts`, `PUT` and `DELETE /api/scripts/{id}` and
+`POST /api/scripts/import` answer **403** (the python UI also bounces its
+editor pages and hides the editor actions and the Import card), while
+listing, source view, export — one script or the whole library — and job
+submission keep working. `/api/health` reports the state as
+`"script_editing": bool` so the
 UIs can adapt.
 
 ## 9. Configuration

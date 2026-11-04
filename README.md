@@ -169,9 +169,10 @@ Vite proxy talks HTTPS to the backend.
 - **Script authoring lock** — scripts are code that runs on the server, so
   the editor is remote code execution by design (trusted-operator tool).
   When other people have the password, `LOGSMITH_ALLOW_SCRIPT_EDITING=0`
-  locks it down: creating, changing or deleting scripts answers 403 in both
-  UIs while the scripts on disk stay runnable — "run the vetted analyses
-  only".
+  locks it down: creating, changing, deleting or importing scripts answers
+  403 in both UIs while the scripts on disk stay runnable — and exportable,
+  single-script or the whole library, for a backup before an upgrade —
+  "run the vetted analyses only".
 - **Docker sandbox** — `LOGSMITH_DOCKER_SANDBOX=1` runs every script inside
   a throwaway container instead of directly on the host: no network, a
   memory cap, and only the script, its input (read-only) and the output
@@ -277,7 +278,7 @@ Vite proxy talks HTTPS to the backend.
   `scripts/`, so hand-added scripts and UI-created ones are interchangeable.
   One-click **backup** (tar.gz download) and code copy make deletes
   non-scary, and **Import** brings a backup back — or moves scripts between
-  servers (a pack of flat scripts in one archive works too). **Export all**
+  servers (a pack of scripts in one archive works too). **Export all**
   grabs the whole library as one dated tar.gz, which Import restores whole —
   the server-to-server move, or the before-an-upgrade snapshot. The bundled
   samples cover every editor language — Python, Bash (`.sh`/`.bash`/`.zsh`),
@@ -614,7 +615,7 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | DELETE | `/api/scripts/{id}` | remove script + manifest (job history is kept) |
 | GET | `/api/scripts/{id}/export` | download the script as a tar.gz backup |
 | GET | `/api/scripts/export` | **every** script as one dated tar.gz — flat scripts as top-level pairs, directory-style scripts under their names. The id `export` is reserved (the fixed route beats `/api/scripts/{id}`, so its source could never be fetched) |
-| POST | `/api/scripts/import` | multipart tar.gz — any export back: one script, a pack of flat scripts, or a whole-library archive (flat pairs + manifest-bearing subdirectories). `?name=` ids a directory-style archive (else the file name), `?overwrite=1` replaces existing ids. All-or-nothing: 422 bad archive, 409 existing ids, 403 when editing is locked. A plain `.tar` works too (Safari's "open safe files" gunzips downloads) |
+| POST | `/api/scripts/import` | multipart tar.gz — any export back: one script, a pack of scripts, or a whole-library archive (flat pairs + manifest-bearing subdirectories). `?name=` ids a directory-style archive (else the file name), `?overwrite=1` replaces existing ids. All-or-nothing: 422 bad archive, 409 existing ids, 403 when editing is locked. A plain `.tar` works too (Safari's "open safe files" gunzips downloads) |
 | POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs. `log_path` optional — a script reading `{log}` without one is a 422 naming it (chain mode checks step 1 only) |
 | POST | `/api/jobs/prune?days=N` | delete jobs older than N days |
 | GET | `/api/pipelines` | saved pipelines (reusable chains) — shared by every browser and both UIs |

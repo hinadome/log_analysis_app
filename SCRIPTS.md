@@ -577,3 +577,33 @@ Steps execute in array order.
 
 Drop any of them on a log from the Run page, or open them in the editor
 (✏️) to see manifest and code side by side.
+
+## Backing up and moving scripts
+
+Every script is ordinary files, so `cp -r scripts/ backup/` is already a
+backup. The Export/Import buttons wrap that in one archive you can hand to
+a browser:
+
+- **One script** — ⬇ Backup in the editor, or Export in the scripts list
+  (both UIs). A flat script packs its code + manifest sidecar; a
+  directory-style script packs the whole directory, support files and all
+  (`data/`, lookup tables, anything it reads at runtime). A `RESTORE.txt`
+  inside explains where to unpack by hand.
+- **The whole library** — ⬇ Export all (React script picker, or the
+  Scripts page head in the python UI) downloads one dated
+  `logsmith-scripts-YYYYMMDD.tar.gz`: flat scripts as code + manifest
+  pairs, directory-style scripts under their names. Handy before an
+  upgrade, or for moving everything to another server. It's a read, so it
+  works even where editing is locked down.
+
+**Import** (⬆ in the React picker, the Import card on the python UI's
+Scripts page) takes any of those back — one script, a pack of
+scripts, or a whole-library archive. An id that already exists on the
+target is an error unless you choose *replace* (the React dialog offers,
+the python UI has a checkbox); everything else about the archive is
+validated first, so an import either lands whole or changes nothing.
+A plain `.tar` imports too — Safari's "open safe files" gunzips
+downloads — and a directory-style archive from a *single-script* export
+has lost its directory name along the way: give it an id in the import
+form's name field (whole-library archives don't need this; the names
+travel inside them).
