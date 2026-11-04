@@ -502,9 +502,9 @@ Terminal states: `completed`, `failed`, `cancelled`, `skipped`.
 On restart, `reconcile()` maps any `queued`/`waiting`/`running` job to
 `failed: "Interrupted by server restart"` — jobs never survive a restart.
 
-## 6. Persistence (`services/job_store.py`)
+## 6. Persistence (filesystem stores)
 
-One directory per job, JSON as the source of truth, no database:
+No database — directories and JSON files are the source of truth:
 
 ```
 data/jobs/20261029-110333-88914512/     # id = timestamp + 8 hex chars
@@ -524,6 +524,16 @@ data/schedules.json                      # saved schedules: {name: Schedule}
                                          # same rewrite discipline; the
                                          # ticker's record_run adds
                                          # last_run_at/last_result/last_job_ids
+
+data/users.json                          # accounts (multi-user mode): {users:
+                                         # [{id, username, password_hash,
+                                         # role, created_at, disabled}]} —
+                                         # passwords only as scrypt hashes
+
+data/sessions.json                       # {sessions: {<opaque sid>: {user,
+                                         # created_at, last_seen}}} — the
+                                         # cookie holds just the sid; this
+                                         # mapping is what revoking means
 ```
 
 `list()` scans directories and returns parsed jobs sorted newest-first. To
@@ -536,6 +546,21 @@ callers receive copies so mutating a listed job can't corrupt the cache.
 race a deletion fail silently (OSError is swallowed in `save`) — a deleted
 job is never resurrected by an in-flight runner. `prune()` removes job dirs
 older than the retention window using the timestamp embedded in the id.
+
+The account and session stores (`services/user_store.py`,
+`services/session_store.py`, multi-user mode) follow the same file-is-truth
+discipline: reads are mtime-cached — hand-editing or wiping `users.json`
+takes effect without a restart, which is what keeps the auth-mode flip
+live — and writes are atomic (temp + rename), because a half-written
+accounts file would lock everybody out. A password exists only as its
+scrypt hash (random 16-byte salt per user, stored as
+`scrypt$N$r$p$salt_hex$hash_hex`, verified constant-time, ~50 ms per
+check). The browser cookie carries only the opaque session id;
+`sessions.json` maps it to a username, so logout, password resets and
+disabling a user revoke access for real — the same lazy pruning drops
+sessions older than 7 days. Per-user scripts live outside `data/`
+entirely: ownership is locational, `scripts/users/<name>/` being the
+account's private space, attributed by the scanner's multi-root discovery.
 
 ## 7. Live streaming (SSE)
 
