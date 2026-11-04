@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 ParamType = Literal["string", "integer", "float", "boolean", "enum", "multi"]
 JobStatus = Literal["queued", "waiting", "running", "completed", "failed", "cancelled", "skipped"]
@@ -50,6 +50,18 @@ class ScriptInfo(BaseModel):
     output_filename: str | None = None
     error: str | None = None  # set when the manifest failed to load
 
+    @computed_field
+    @property
+    def needs_log(self) -> bool:
+        """Whether the command reads the input log ({log} placeholder).
+
+        Derived, not declared: a script without {log} in its command can
+        run without a selected log. A script that reads $JOB_LOG_PATH
+        directly instead of the placeholder is on its own — the env var
+        is only set when a log was selected.
+        """
+        return "{log}" in self.command
+
 
 class ScriptUpsertRequest(BaseModel):
     """Create or replace a script through the UI editor (flat style)."""
@@ -94,14 +106,21 @@ class Pipeline(BaseModel):
 class ScheduleSaveRequest(BaseModel):
     name: str
     cron: str
-    pipeline: str
-    log: str
+    pipeline: str | None = None
+    steps: list[PipelineStep] = Field(default_factory=list)  # inline: script(s), no pipeline
+    log: str = ""
     label: str | None = None
     enabled: bool = True
 
 
 class Schedule(BaseModel):
-    """A saved pipeline set to run on one log at cron-defined times.
+    """A saved pipeline — or inline steps — set to run on one log at
+    cron-defined times.
+
+    Exactly one of `pipeline` (a saved pipeline's name, resolved at fire
+    time so editing the pipeline updates the schedule) or `steps` (a
+    validated snapshot owned by the schedule itself) is set; a single
+    script scheduled directly is `steps` of length one.
 
     The bookkeeping fields are written by the scheduler, never by the
     save API: `last_run_at` is the local-time minute of the last fire
@@ -113,8 +132,9 @@ class Schedule(BaseModel):
     """
     name: str
     cron: str
-    pipeline: str              # saved pipeline name; fires as a chain
-    log: str                   # log path as saved (name or absolute)
+    pipeline: str | None = None      # saved pipeline name; fires as a chain
+    steps: list[PipelineStep] = Field(default_factory=list)
+    log: str = ""                    # log path as saved; empty = log-free
     label: str | None = None   # job label; defaults to the schedule name
     enabled: bool = True
     created_at: str = ""
@@ -125,7 +145,7 @@ class Schedule(BaseModel):
 
 
 class JobCreateRequest(BaseModel):
-    log_path: str
+    log_path: str = ""  # optional: scripts without {log} run without one
     mode: Literal["parallel", "chain"] = "parallel"
     label: str | None = None  # optional user tag for the whole submission
     jobs: list[JobSpecIn]

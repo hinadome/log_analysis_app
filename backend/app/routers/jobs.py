@@ -133,7 +133,7 @@ def _job_detail(job: Job) -> dict:
 async def create_jobs(req: JobCreateRequest):
     if not req.jobs:
         raise HTTPException(status_code=422, detail="No jobs requested")
-    log = _resolve_log(req.log_path)
+    log = _resolve_log(req.log_path) if (req.log_path or "").strip() else None
 
     # Pass 1: validate every spec up front. A bad spec must fail the whole
     # request rather than leave half-created jobs that are never submitted.
@@ -149,14 +149,24 @@ async def create_jobs(req: JobCreateRequest):
                                 detail=f"Script '{script.id}' has a broken manifest: {script.error}")
         plan.append((script, _validate_params(script, spec.params)))
 
+    # Without a log, only scripts that don't read {log} can run. In chain
+    # mode only the first step reads the log (the rest read the previous
+    # step's output), so the check narrows to position 0.
+    if log is None:
+        for script, _ in (plan[:1] if req.mode == "chain" else plan):
+            if script.needs_log:
+                raise HTTPException(status_code=422, detail=(
+                    f"Script '{script.id}' reads its input through {{log}} — "
+                    "select a log, or drop this script"))
+
     # Pass 2: create the jobs (validation can no longer fail here).
     label = (req.label or "").strip()[:80] or None
     steps: list[tuple[Job, ScriptInfo]] = [
         (store.create(
             script_id=script.id,
             script_name=script.name,
-            log_path=str(log),
-            log_name=_display_log_name(log),
+            log_path=str(log) if log else "",
+            log_name=_display_log_name(log) if log else "",
             params=params,
             label=label,
         ), script)
@@ -168,7 +178,8 @@ async def create_jobs(req: JobCreateRequest):
         executor.submit_chain(steps, chain_id)
     else:
         for job, script in steps:
-            job.input_source = "log"
+            if log:
+                job.input_source = "log"
             store.save(job)
             executor.submit(job, script)
     return {"jobs": [job for job, _script in steps]}
@@ -287,7 +298,7 @@ async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
 
     if job.chain_id:
         old_steps = store.list_chain(job.chain_id)
-        log = _resolve_log(old_steps[0].log_path)
+        log = _resolve_log(old_steps[0].log_path) if old_steps[0].log_path else None
         scripts = {s.id: s for s in discover_scripts()}
         # Validate every step before creating anything — a missing script
         # must not leave half-created jobs behind.
@@ -339,8 +350,8 @@ async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
             (store.create(
                 script_id=script.id,
                 script_name=script.name,
-                log_path=str(log),
-                log_name=_display_log_name(log),
+                log_path=str(log) if log else "",
+                log_name=_display_log_name(log) if log else "",
                 params=params,
                 label=job.label,
             ), script)
@@ -354,7 +365,7 @@ async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
             start_index=selected[0][1].chain_index, total=original_size)
         return {"job": first}
 
-    log = _resolve_log(job.log_path)
+    log = _resolve_log(job.log_path) if job.log_path else None
     scripts = {s.id: s for s in discover_scripts()}
     script = scripts.get(job.script_id)
     if script is None or script.error:
@@ -363,8 +374,8 @@ async def rerun_job(job_id: str, from_step: int | None = Query(None, ge=1)):
     new_job = store.create(
         script_id=script.id,
         script_name=script.name,
-        log_path=str(log),
-        log_name=_display_log_name(log),
+        log_path=str(log) if log else "",
+        log_name=_display_log_name(log) if log else "",
         params=params,
         label=job.label,
     )

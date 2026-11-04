@@ -46,6 +46,14 @@ def put(name="s", cron="* * * * *", **over):
     return schedule_store.get_schedule(name)
 
 
+def put_inline(name="d", cron="* * * * *", **over):
+    fields = dict(cron=cron, pipeline=None, log="", label=None, enabled=True,
+                  steps=[PipelineStep(script_id="disk_report", params={})])
+    fields.update(over)
+    schedule_store.save_schedule(name, **fields)
+    return schedule_store.get_schedule(name)
+
+
 def stub_submission(monkeypatch, jobs=None, error=None):
     """Redirect the jobs API's create path; records what would have run."""
     calls = []
@@ -91,6 +99,44 @@ def test_next_matching_minute_fires_again(monkeypatch):
 
     assert tick_at(T) == ["s"]
     assert tick_at(datetime(2026, 11, 3, 14, 8, 2)) == ["s"]  # a new minute
+
+
+def test_inline_steps_fire_as_a_chain_without_a_log(monkeypatch):
+    """A schedule's own script(s) fire like a pipeline does — mode=chain,
+    the schedule's name as label, and log_path empty when saved so."""
+    calls = stub_submission(monkeypatch)
+    put_inline()
+
+    assert tick_at(T) == ["d"]
+    req = calls[0]
+    assert req.mode == "chain"
+    assert req.log_path == ""
+    assert req.label == "d"
+    assert [j.script_id for j in req.jobs] == ["disk_report"]
+    assert req.jobs[0].params == {}
+
+
+def test_inline_schedule_survives_pipeline_deletion(monkeypatch):
+    """Inline steps do not resolve anything at fire time — deleting the
+    pipeline (or never having one) does not touch them."""
+    calls = stub_submission(monkeypatch)
+    put_inline()
+    pipeline_store.PIPELINES_FILE.unlink(missing_ok=True)
+
+    assert tick_at(T) == ["d"]
+    assert len(calls) == 1
+
+
+def test_schedule_with_neither_pipeline_nor_steps_records_error(monkeypatch):
+    """A hand-edited store entry with nothing to run fails into the
+    bookkeeping, not into the ticker's face."""
+    stub_submission(monkeypatch)
+    put(pipeline=None, steps=[])
+
+    assert tick_at(T) == ["s"]
+    schedule = schedule_store.get_schedule("s")
+    assert schedule.last_result == ("error: schedule has nothing to run "
+                                    "(neither pipeline nor steps)")
 
 
 def test_non_matching_and_matching_minutes(monkeypatch):

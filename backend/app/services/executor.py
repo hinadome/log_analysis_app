@@ -246,7 +246,7 @@ class Executor:
         if "{output}" in script.command:
             output_path = out_dir / (script.output_filename or "output.txt")
             job.output_file = str(output_path)
-        log_arg = str(self.input_path(job))
+        log_arg = str(self.input_path(job) or "")
         job.command = render_command(script, log_arg, job.params, output_path)
         # Fail fast when the rendered command cannot start (missing
         # interpreter — its own, or the one named in the script's
@@ -285,13 +285,14 @@ class Executor:
             job.chain_size = size
             if i > 0:
                 job.status = "waiting"
-            elif not job.input_path:
+            elif not job.input_path and job.log_path:
                 job.input_source = "log"
             self._store.save(job)
         self.submit(steps[0][0], steps[0][1])
 
-    def input_path(self, job: Job) -> Path:
-        """Path scripts should read: chained input, decompressed copy, or the log.
+    def input_path(self, job: Job) -> Path | None:
+        """Path scripts should read: chained input, decompressed copy, or
+        the log. None for a log-free job (no input file at all).
 
         Both the selected log and a previous step's compressed artifact are
         read from the shared decompressed cache — one copy per unique source
@@ -300,6 +301,8 @@ class Executor:
         materialized file and the Input tab always agree even if the source
         changes underneath (a changed source simply gets a new cache entry).
         """
+        if not (job.input_path or job.log_path):
+            return None
         source = Path(job.input_path or job.log_path)
         if not _is_compressed(source):
             return source
@@ -321,6 +324,8 @@ class Executor:
         asyncio lock per cache path, so the file is decompressed once, off
         the event loop, and the rest find it already there.
         """
+        if not (job.input_path or job.log_path):
+            return  # a log-free run has nothing to materialize
         source = Path(job.input_path or job.log_path)
         opener = _DECOMPRESSORS.get(source.suffix.lower())
         if opener is None:
@@ -428,17 +433,19 @@ class Executor:
     # -- docker sandbox ------------------------------------------------------
 
     def _sandbox_argv(self, job: Job, script: ScriptInfo,
-                       input_path: Path) -> list[str]:
+                       input_path: Path | None) -> list[str]:
         """Wrap a job's command in `docker run` (see module docstring).
 
         Mounts keep the original paths, so the command template rendered
-        with host paths is valid inside the container unchanged.
+        with host paths is valid inside the container unchanged. A log-free
+        job mounts no input at all and gets no JOB_LOG_PATH/JOB_ORIGINAL_LOG.
         """
         out_dir = self._store.outputs_dir(job.id)
-        mounts = [f"{script.script_path}:{script.script_path}:ro",
-                  f"{input_path}:{input_path}:ro"]
+        mounts = [f"{script.script_path}:{script.script_path}:ro"]
+        if input_path is not None:
+            mounts.append(f"{input_path}:{input_path}:ro")
         original = str(job.log_path)
-        if original and original != str(input_path):
+        if input_path is not None and original and original != str(input_path):
             mounts.append(f"{original}:{original}:ro")
         mounts.append(f"{out_dir}:{out_dir}")
 
@@ -452,10 +459,12 @@ class Executor:
             "--workdir", str(out_dir),
             "-e", "HOME=/tmp",
             "-e", f"JOB_ID={job.id}",
-            "-e", f"JOB_LOG_PATH={input_path}",
-            "-e", f"JOB_ORIGINAL_LOG={job.log_path}",
-            "-e", f"JOB_OUTPUT_DIR={out_dir}",
         ]
+        if input_path is not None:
+            argv += ["-e", f"JOB_LOG_PATH={input_path}"]
+        if job.log_path:
+            argv += ["-e", f"JOB_ORIGINAL_LOG={job.log_path}"]
+        argv += ["-e", f"JOB_OUTPUT_DIR={out_dir}"]
         for mount in mounts:
             argv += ["-v", mount]
         argv += [SANDBOX_IMAGE, *job.command]
@@ -561,10 +570,14 @@ class Executor:
                     env = {
                         **os.environ,
                         "JOB_ID": job.id,
-                        "JOB_LOG_PATH": str(input_path),
-                        "JOB_ORIGINAL_LOG": job.log_path,
                         "JOB_OUTPUT_DIR": str(out_dir),
                     }
+                    # A log-free run has neither: the script never saw a
+                    # {log} to begin with (validated at submission).
+                    if input_path is not None:
+                        env["JOB_LOG_PATH"] = str(input_path)
+                    if job.log_path:
+                        env["JOB_ORIGINAL_LOG"] = job.log_path
                 try:
                     proc = await asyncio.create_subprocess_exec(
                         *argv,

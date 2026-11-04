@@ -25,7 +25,7 @@
 
 <div class="meta-grid mono">
   <div><span class="muted">job</span> {{ job.id }}</div>
-  <div><span class="muted">log</span> {{ job.log_name }}</div>
+  <div><span class="muted">log</span> {{ job.log_name or '—' }}{% if not job.log_path %} <span class="muted">(log-free run)</span>{% endif %}</div>
   {% if job.label %}<div><span class="muted">label</span> {{ job.label }}</div>{% endif %}
   <div><span class="muted">created</span> {{ job.created_at | dt }}</div>
   {% if job.started_at %}<div><span class="muted">duration</span> {{ duration }}</div>{% endif %}
@@ -123,7 +123,10 @@ previous step finishes, using that step's output as its input.</p>
 <pre class="io err-text">{{ detail.stderr_tail or '(empty)' }}</pre>
 
 {% elif tab == 'input' %}
-{% if input_missing %}
+{% if input_none %}
+<p class="muted card">No input — this script's command has no <span class="mono">{log}</span>,
+so it ran without a log file.</p>
+{% elif input_missing %}
 <p class="muted card">Input file is not available — waiting steps have no input yet, and a deleted
 log or pruned job data is gone forever.</p>
 {% else %}
@@ -166,14 +169,14 @@ log or pruned job data is gone forever.</p>
   <table class="list">
     <tbody>
     <tr><td>script</td><td class="mono">{{ job.script_id }}</td></tr>
-    <tr><td>log path</td><td class="mono">{{ job.log_path }}</td></tr>
+    <tr><td>log path</td><td class="mono">{% if job.log_path %}{{ job.log_path }}{% else %}— no log (log-free run){% endif %}</td></tr>
     <tr><td>created</td><td class="mono">{{ job.created_at | dt }}</td></tr>
     {% if job.started_at %}<tr><td>started</td><td class="mono">{{ job.started_at | dt }}</td></tr>{% endif %}
     {% if job.finished_at %}<tr><td>finished</td><td class="mono">{{ job.finished_at | dt }}</td></tr>{% endif %}
     <tr><td>stdout</td><td>{{ job.stdout_size | kb }}</td></tr>
     <tr><td>stderr</td><td>{{ job.stderr_size | kb }}</td></tr>
     {% if job.output_file %}<tr><td>artifact</td><td class="mono">{{ job.output_file }}</td></tr>{% endif %}
-    {% if job.chain_id %}<tr><td>chain</td><td class="mono">{{ job.chain_id }} (step {{ job.chain_index + 1 }}/{{ job.chain_size }}, input: {{ job.input_source or 'log' }})</td></tr>{% endif %}
+    {% if job.chain_id %}<tr><td>chain</td><td class="mono">{{ job.chain_id }} (step {{ job.chain_index + 1 }}/{{ job.chain_size }}, input: {{ job.input_source or ('none' if not job.log_path else 'log') }})</td></tr>{% endif %}
     </tbody>
   </table>
 </div>

@@ -56,7 +56,7 @@
       <a href="/jobs/{{ j.id }}">{{ j.script_name }}</a>
       {% if j.chain_id %}<span class="muted"> · step {{ j.chain_index + 1 }}/{{ j.chain_size }}</span>{% endif %}
     </td>
-    <td class="mono">{{ j.log_name }}</td>
+    <td class="mono">{{ j.log_name or '—' }}</td>
     <td>{{ j.label or '' }}</td>
     <td>
       <span class="badge st-{{ j.status }}">{{ j.status }}</span>

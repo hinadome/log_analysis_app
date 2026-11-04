@@ -117,18 +117,28 @@ class Scheduler:
             return record(f"skipped: previous run still active "
                           f"({len(active)} job(s))", [])
 
-        pipeline = pipeline_store.get_pipeline(schedule.pipeline)
-        if pipeline is None:
-            return record(f"error: pipeline '{schedule.pipeline}' not found", [])
+        # What runs: the schedule's own script(s), or the pipeline it
+        # references (resolved at fire time, so editing the pipeline
+        # updates every schedule that points at it).
+        if schedule.steps:
+            steps = schedule.steps
+        elif schedule.pipeline:
+            pipeline = pipeline_store.get_pipeline(schedule.pipeline)
+            if pipeline is None:
+                return record(f"error: pipeline '{schedule.pipeline}' not found", [])
+            steps = pipeline.steps
+        else:
+            return record("error: schedule has nothing to run (neither "
+                          "pipeline nor steps)", [])
 
         label = (schedule.label or "").strip()[:80] or schedule.name
         try:
             response = await jobs.create_jobs(JobCreateRequest(
-                log_path=schedule.log,
+                log_path=schedule.log or "",
                 mode="chain",
                 label=label,
                 jobs=[JobSpecIn(script_id=s.script_id, params=s.params)
-                      for s in pipeline.steps]))
+                      for s in steps]))
         except Exception as exc:  # HTTPException carries the 4xx detail
             detail = getattr(exc, "detail", None) or exc
             return record(f"error: {detail}", [])

@@ -66,6 +66,7 @@ export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEd
               <span className="chip">{s.parameters.length} params</span>
               <span className="chip">{s.timeout}s timeout</span>
               {s.output_filename && <span className="chip accent">file output</span>}
+              {!s.needs_log && <span className="chip accent" title="The command has no {log} — runs without a selected log">no log needed</span>}
             </div>
             <code className="script-cmd mono">$ {s.command}</code>
           </div>

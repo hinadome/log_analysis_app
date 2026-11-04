@@ -85,6 +85,96 @@ def test_save_rejects_schedule_for_broken_pipeline(client):
     assert _save(client, pipeline="ghost").status_code == 404
 
 
+def _save_inline(client, name="disk hourly", script_id="disk_report",
+                 cron="0 * * * *", log=""):
+    return client.post("/api/schedules", json={
+        "name": name, "cron": cron, "pipeline": None,
+        "steps": [{"script_id": script_id, "params": {}}],
+        "log": log, "label": None, "enabled": True})
+
+
+def test_save_inline_steps(client):
+    """A schedule can be a single script with its own parameters — no
+    pipeline needed. The steps are a validated snapshot owned by the
+    schedule; `target` names the script for the UIs."""
+    res = _save_inline(client)
+    assert res.status_code == 200
+    saved = res.json()["schedule"]
+    assert saved["pipeline"] is None
+    assert saved["steps"] == [{"script_id": "disk_report", "params": {}}]
+    assert saved["target"] == "disk_report"
+    assert saved["log"] == ""
+
+
+def test_save_rejects_both_pipeline_and_steps(client):
+    """Pipeline and steps are mutually exclusive — both set, or neither."""
+    _pipeline(client)
+    both = {**SCHEDULE, "steps": [{"script_id": "disk_report", "params": {}}]}
+    assert _save(client, **both).status_code == 422
+
+    neither = {k: v for k, v in SCHEDULE.items() if k != "pipeline"}
+    assert client.post("/api/schedules", json=neither).status_code == 422
+
+
+def test_save_rejects_unknown_inline_script(client):
+    res = client.post("/api/schedules", json={
+        "name": "ghost", "cron": "0 8 * * *", "pipeline": None,
+        "steps": [{"script_id": "gone_script", "params": {}}],
+        "log": "", "label": None, "enabled": True})
+    assert res.status_code == 404
+
+
+def test_save_requires_log_iff_first_step_reads_log(client):
+    """Schedules fire in chain mode, where only position 0 sees the log —
+    so the log requirement narrows to the first step, inline or pipeline."""
+    # inline: a needs-log script with no log
+    res = _save_inline(client, name="no log", script_id="error_counter")
+    assert res.status_code == 422
+    assert "error_counter" in res.json()["detail"]
+
+    # ... and with a log it saves
+    assert _save_inline(client, name="with log", script_id="error_counter",
+                        log="app.log").status_code == 200
+
+    # a log-free first step needs no log
+    assert _save_inline(client, name="disk").status_code == 200
+
+    # same rule through a pipeline: its first step (grep_search) decides
+    _pipeline(client)
+    assert _save(client, log="").status_code == 422
+
+
+def test_toggle_round_trips_steps(client):
+    """Pause/resume keeps an inline schedule's steps intact."""
+    _save_inline(client)
+    res = client.post("/api/schedules/disk hourly/toggle")
+    assert res.status_code == 200
+    paused = res.json()["schedule"]
+    assert paused["enabled"] is False
+    assert paused["pipeline"] is None
+    assert paused["steps"] == [{"script_id": "disk_report", "params": {}}]
+
+    resumed = client.post("/api/schedules/disk hourly/toggle").json()["schedule"]
+    assert resumed["enabled"] is True
+    assert resumed["steps"] == paused["steps"]
+
+
+def test_run_now_inline_steps(client):
+    """Run-now on an inline schedule fires its own steps — as a chain
+    submission, labelled with the schedule's name, log-free here."""
+    _save_inline(client)
+    res = client.post("/api/schedules/disk hourly/run")
+    assert res.status_code == 200
+    out = res.json()
+    assert out["result"] == "ok: 1 job(s) submitted"
+
+    jobs = client.get("/api/jobs").json()["jobs"]
+    assert [j["id"] for j in jobs] == out["job_ids"]
+    assert jobs[0]["script_id"] == "disk_report"
+    assert jobs[0]["log_path"] == ""
+    assert jobs[0]["label"] == "disk hourly"
+
+
 def test_toggle_and_delete(client):
     _pipeline(client)
     _save(client)

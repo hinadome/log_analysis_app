@@ -1,0 +1,25 @@
+{# Shared parameter input control — imported by run.html and schedules.html
+   so the run page and the schedule form render identical fields.
+   `v` is the current value; none = use the manifest default. #}
+{% macro param_input(s, p, v=none) %}
+{% set fname = 'p::' ~ s.id ~ '::' ~ p.name %}
+{% set cur = v if v is not none else p.default %}
+{% if p.type == 'boolean' %}
+  <input type="hidden" name="{{ fname }}" value="false">
+  <input type="checkbox" name="{{ fname }}" value="true" {% if cur|string|lower == 'true' %}checked{% endif %}>
+{% elif p.type == 'enum' %}
+  <select name="{{ fname }}">
+    <option value="" {% if cur is none or cur == '' %}selected{% endif %}>— default{% if p.default is not none %}: {{ p.default }}{% endif %} —</option>
+    {% for c in p.choices %}<option value="{{ c }}" {% if cur == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+{% elif p.type in ('integer', 'float') %}
+  <input type="number" step="{{ 'any' if p.type == 'float' else '1' }}" name="{{ fname }}"
+         value="{{ cur if cur is not none else '' }}" placeholder="default">
+{% elif p.type == 'multi' %}
+  <input type="text" name="{{ fname }}"
+         value="{{ v if v is not none else (p.default | join(', ') if p.default is iterable and p.default is not string else (p.default or '')) }}"
+         placeholder="comma-separated list">
+{% else %}
+  <input type="text" name="{{ fname }}" value="{{ cur if cur is not none else '' }}">
+{% endif %}
+{% endmacro %}

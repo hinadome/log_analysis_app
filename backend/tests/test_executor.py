@@ -175,6 +175,23 @@ def test_script_environment_variables(store, executor, tmp_path):
     asyncio.run(main())
 
 
+def test_log_free_job_runs_without_input(store, executor):
+    """A script whose command has no {log} runs with no log at all: the
+    JOB_LOG_PATH / JOB_ORIGINAL_LOG variables are simply absent (an empty
+    value would read as a path), and there is no input to materialize."""
+    async def main():
+        script = make_script(
+            "envfree", "bash -c 'echo ${JOB_LOG_PATH-unset} ${JOB_ORIGINAL_LOG-unset}'")
+        job = make_job(store, script, "")
+        executor.submit(job, script)
+        await wait_for(store, job.id, ("completed",))
+        assert executor.input_path(job) is None
+        out = (store.job_dir(job.id) / "stdout.txt").read_text()
+        assert out == "unset unset\n"
+
+    asyncio.run(main())
+
+
 def test_declared_output_artifact_collected(store, executor, tmp_path):
     async def main():
         log = tmp_path / "in.log"

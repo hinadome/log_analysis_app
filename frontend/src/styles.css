@@ -603,10 +603,15 @@ pre.output.has-err { color: var(--red); }
 .schedules-panel h2 { margin: 0; font-size: 15px; }
 .schedules-panel > .small { margin: 6px 0 0; }
 .schedule-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 12px 0 4px; }
-.schedule-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+/* direct children only — ParamForm's own labels must keep their styling */
+.schedule-form > label { display: flex; flex-direction: column; gap: 4px; font-size: 12px;
   text-transform: uppercase; letter-spacing: 0.4px; color: var(--dim); }
 .schedule-form input, .schedule-form select { text-transform: none; letter-spacing: 0; }
 .schedule-form .preset-chips { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.schedule-form .schedule-what { align-self: end; }
+.schedule-form .schedule-log-warn { grid-column: 1 / -1; }
+.schedule-form .schedule-param { grid-column: 1 / -1; }
+.schedule-form .schedule-param .param-card { margin: 0; }
 .schedule-form-actions { grid-column: 1 / -1; display: flex; align-items: center;
   justify-content: flex-end; gap: 14px; }
 .preset-chips .chip { cursor: pointer; }

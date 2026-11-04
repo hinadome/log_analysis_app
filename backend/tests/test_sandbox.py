@@ -27,7 +27,7 @@ import app.routers.scripts as scripts_router
 import app.routers.jobs as jobs_router
 from app.config import SANDBOX_IMAGE
 from app.models import Job
-from conftest import SAMPLE_LOG
+from conftest import SAMPLE_LOG, make_script
 
 from test_api import submit, wait_status
 
@@ -104,6 +104,31 @@ def test_sandbox_argv_shape(sandbox):
 
     # image, then the job's own command unchanged
     assert argv[i(SANDBOX_IMAGE) + 1: i(SANDBOX_IMAGE) + 1 + len(job.command)] == job.command
+
+
+def test_sandbox_argv_log_free_job(sandbox):
+    """A log-free job: no input mount, no JOB_LOG_PATH / JOB_ORIGINAL_LOG —
+    only the script and the outputs dir are mounted."""
+    ex = jobs_router.executor
+    job = Job(id="20261030-120000-cafef00d", script_id="disk_report",
+              script_name="Disk Report", log_path="", log_name="",
+              command=["python3", "/x/disk_report.py"])
+    script = make_script("disk_report", "python3 {script}")
+    out_dir = ex._store.outputs_dir(job.id)
+
+    argv = ex._sandbox_argv(job, script, None)
+
+    envs = [argv[k + 1] for k, a in enumerate(argv) if a == "-e"]
+    assert not any(e.startswith("JOB_LOG_PATH=") for e in envs)
+    assert not any(e.startswith("JOB_ORIGINAL_LOG=") for e in envs)
+    assert f"JOB_ID={job.id}" in envs  # the rest of the contract stands
+    assert f"JOB_OUTPUT_DIR={out_dir}" in envs
+
+    mounts = [argv[k + 1] for k, a in enumerate(argv) if a == "-v"]
+    assert f"{script.script_path}:{script.script_path}:ro" in mounts
+    writable = [m for m in mounts if not m.endswith(":ro")]
+    assert writable == [f"{out_dir}:{out_dir}"]
+    assert len(mounts) == 2  # script + outputs, nothing else
 
 
 def test_sandbox_argv_mounts_original_log_once(sandbox):

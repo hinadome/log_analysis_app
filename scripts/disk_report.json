@@ -1,0 +1,8 @@
+{
+  "name": "Disk Report",
+  "description": "Host and filesystem usage snapshot — needs no input log",
+  "category": "system",
+  "command": "python3 {script}",
+  "timeout": 30,
+  "parameters": []
+}

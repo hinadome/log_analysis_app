@@ -174,14 +174,16 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
   };
 
   // The Input tab loads lazily, once per job (waiting steps have no input yet).
+  // A log-free job never had one — no fetch, its own message.
+  const noInput = job && !job.log_path && !job.input_path;
   useEffect(() => {
-    if (tab !== "input" || !job || job.status === "waiting" || inputText !== undefined) {
+    if (tab !== "input" || !job || job.status === "waiting" || noInput || inputText !== undefined) {
       return undefined;
     }
     let cancelled = false;
     api.getJobInput(id).then((t) => !cancelled && setInputText(t));
     return () => { cancelled = true; };
-  }, [tab, id, job, inputText]);
+  }, [tab, id, job, inputText, noInput]);
 
   const copyCommand = async () => {
     const text = `$ ${job.command.map(shellQuote).join(" ")}`;
@@ -201,7 +203,7 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
             <StatusBadge status={job.status} />
             <span className="job-title">{job.script_name}</span>
             {job.label && <span className="chip accent" title="Submission label">{job.label}</span>}
-            <span className="mono muted">{job.log_name}</span>
+            <span className="mono muted">{job.log_name || "— no log"}</span>
           </div>
           <div className="job-actions">
             {active && <button className="btn danger sm" onClick={cancel}>Cancel</button>}
@@ -301,7 +303,11 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
       )}
 
       {tab === "input" && (
-        job.status === "waiting" ? (
+        noInput ? (
+          <div className="card empty">
+            No input — this script's command has no {"{log}"}, so it ran without a log file.
+          </div>
+        ) : job.status === "waiting" ? (
           <div className="card empty">
             This step has not started yet — its input will be the previous step's
             output, available once that step finishes.

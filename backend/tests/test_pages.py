@@ -78,11 +78,17 @@ def test_run_page_renders_param_forms(client):
     assert "▶ Run" in body
 
 
-def test_run_page_flags_missing_log(client):
+def test_run_page_without_a_log(client):
+    """A missing selected log no longer blocks the page — log-free scripts
+    are configured without one, and the missing one is still flagged."""
     res = client.get("/run", params={"log": "ghost.log"})
     assert res.status_code == 200
     assert "no longer available" in res.text
-    assert "No logs selected" in res.text
+    # the page renders the full configuration, with a no-log hint instead
+    # of the old dead-end card
+    assert "No log selected" in res.text
+    assert "log-free" in res.text
+    assert 'name="scripts"' not in res.text  # nothing chosen yet
 
 
 def test_run_page_accepts_typed_absolute_path(client, tmp_path):
@@ -93,7 +99,7 @@ def test_run_page_accepts_typed_absolute_path(client, tmp_path):
     res = client.get("/run", params={"log": str(outside)})
     assert res.status_code == 200
     assert "no longer available" not in res.text
-    assert "No logs selected" not in res.text
+    assert "No log selected" not in res.text
     # carried through as a chip and as the form's hidden log value
     assert str(outside) in res.text
 
@@ -382,17 +388,77 @@ def test_schedules_edit_toggle_run_delete(client):
     assert client.get("/api/schedules").json()["schedules"] == []
 
 
-def test_schedules_page_requires_pipeline(client):
-    """No saved pipelines — the page says so instead of an empty select."""
+def test_schedules_page_script_mode(client):
+    """The form schedules a single script: the selects default to (none),
+    the Configure-parameters GET wizard re-renders with the fieldset, and
+    saving stores inline steps — runnable without a log."""
+    res = client.get("/schedules")
+    assert 'name="script"' in res.text
+    assert '<option value="">— none —</option>' in res.text
+    assert '<option value="">— none (log-free) —</option>' in res.text
+
+    # the wizard: pick a script, press Configure parameters (GET submit)
+    page = client.get("/schedules", params={
+        "name": "disk hourly", "cron": "0 * * * *", "script": "disk_report",
+        "log": "", "enabled": "true"})
+    assert 'value="disk hourly"' in page.text          # typed values survive
+    assert 'value="0 * * * *"' in page.text
+    assert 'value="disk_report" selected' in page.text
+    assert "No parameters." in page.text               # disk_report has none
+
+    # a parameterful script shows its fields, and its needs-log badge
+    page = client.get("/schedules", params={
+        "name": "errors", "cron": "0 8 * * *", "script": "error_counter", "log": ""})
+    assert 'name="p::error_counter::level"' in page.text
+    assert "needs log" in page.text
+
+    # save a log-free single-script schedule, then run it — log-free
+    res = client.post("/schedules/save", data={
+        "name": "disk hourly", "cron": "0 * * * *", "script": "disk_report",
+        "pipeline": "", "log": "", "label": "", "enabled": "true",
+    }, follow_redirects=False)
+    assert res.status_code == 303
+    schedules = client.get("/api/schedules").json()["schedules"]
+    assert schedules[0]["steps"] == [{"script_id": "disk_report", "params": {}}]
+    assert schedules[0]["target"] == "disk_report"
+    assert schedules[0]["log"] == ""
+
+    res = client.post("/schedules/run", data={"name": "disk hourly"}, follow_redirects=False)
+    assert res.status_code == 303
+    jobs = client.get("/api/jobs").json()["jobs"]
+    assert [j["script_id"] for j in jobs] == ["disk_report"]
+    assert jobs[0]["log_path"] == ""
+    assert jobs[0]["label"] == "disk hourly"
+
+    # ?schedule= edit prefill selects the script and shows its fieldset
+    page = client.get("/schedules", params={"schedule": "disk hourly"})
+    assert 'value="disk_report" selected' in page.text
+    assert "No parameters." in page.text
+
+
+def test_schedules_page_script_needs_log(client):
+    """A needs-log script with no log is rejected, naming the script."""
+    res = client.post("/schedules/save", data={
+        "name": "no log", "cron": "0 8 * * *", "script": "error_counter",
+        "pipeline": "", "log": "", "label": "", "enabled": "true"})
+    assert res.status_code == 422
+    assert "error_counter" in res.text
+
+
+def test_schedules_page_without_pipelines(client):
+    """No saved pipelines — the form still renders (a schedule can be a
+    single script), with empty selects and a hint."""
     page = client.get("/schedules")
-    assert "save a pipeline" in page.text
+    assert page.status_code == 200
+    assert "single script" in page.text
+    assert '<option value="">— none —</option>' in page.text
 
 
 def test_run_page_flags_missing_typed_path(client):
     res = client.get("/run", params={"log": "/no/such/file.log"})
     assert res.status_code == 200
     assert "no longer available" in res.text
-    assert "No logs selected" in res.text
+    assert "No log selected" in res.text
 
 
 # --- submission -----------------------------------------------------------
@@ -461,6 +527,38 @@ def test_submit_fanout_creates_one_job_per_log(client):
     assert page.status_code == 200
     for job_id in created:
         assert f"/jobs/{job_id}" in page.text
+
+
+def test_submit_without_a_log_runs_log_free(client):
+    """No logs checked: the run page still configures, and submitting runs
+    the log-free scripts without one — a needs-log script is named in a
+    422 instead."""
+    # the run page renders fully with no log selected
+    page = client.get("/run", params={"scripts": "disk_report"})
+    assert "No log selected" in page.text
+    assert "log-free" in page.text
+    assert "no log" in page.text                      # the runbar summary
+
+    # submit: no logs fields at all — one log-free submission
+    res = client.post("/submit", data={
+        "scripts": "disk_report", "mode": "parallel", "label": ""}, follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"].startswith("/jobs/")
+    job_id = res.headers["location"].split("/")[-1]
+    job = wait_done(client, job_id)
+    assert job["status"] == "completed"
+    assert job["log_path"] == "" and job["log_name"] == ""
+    # the input tab says so instead of pretending a file was lost
+    input_page = client.get(f"/jobs/{job_id}", params={"tab": "input"})
+    assert "No input" in input_page.text
+    assert "command has no" in input_page.text and "{log}" in input_page.text
+
+    # a needs-log script without a log is rejected with the named error
+    res = client.post("/submit", data={
+        "scripts": "error_counter", "mode": "parallel"})
+    assert res.status_code == 422
+    assert "error_counter" in res.text
+    assert "{log}" in res.text
 
 
 def test_submit_chain_runs_steps_in_sequence(client):

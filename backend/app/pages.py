@@ -521,8 +521,6 @@ async def submit(request: Request):
         + [("mode", mode)] + ([("label", label)] if label else [])
         + ([("cat", cat)] if cat else []))
 
-    if not log_names:
-        return _render_error(request, HTTPException(422, "No log selected"), back="/")
     if not script_ids:
         return _render_error(request, HTTPException(422, "No script selected"), back=run_url)
 
@@ -533,8 +531,11 @@ async def submit(request: Request):
                              back=run_url)
     try:
         created: list[Job] = []
-        # Fan-out: one submission per selected log, same scripts and params.
-        for log_name in log_names:
+        # Fan-out: one submission per selected log, same scripts and
+        # params. No log selected means a log-free run: one submission
+        # with no log at all — scripts that read {log} are rejected by
+        # create_jobs, named, with the script that needs one.
+        for log_name in log_names or [""]:
             specs = [
                 JobSpecIn(script_id=sid, params=_parse_form_params(form, by_id[sid]))
                 for sid in script_ids
@@ -548,8 +549,9 @@ async def submit(request: Request):
     if len(created) == 1:
         return RedirectResponse(f"/jobs/{created[0].id}", status_code=303)
     noun = "chain" if mode == "chain" else "jobs"
+    scope = f" on {len(log_names)} log(s)" if log_names else " without a log"
     return RedirectResponse("/jobs?" + urlencode(
-        {"msg": f"Submitted {len(created)} {noun} on {len(log_names)} log(s)"}), status_code=303)
+        {"msg": f"Submitted {len(created)} {noun}{scope}"}), status_code=303)
 
 
 @router.post("/pipelines/save")
@@ -642,22 +644,73 @@ async def delete_pipeline_page(request: Request):
 # --- schedules ------------------------------------------------------------
 
 @router.get("/schedules")
-def schedules_page(request: Request, cron: str = ""):
+def schedules_page(
+    request: Request, cron: str = "", name: str = "", pipeline: str = "",
+    script: str = "", log: str = "", label: str = "", enabled: str = "",
+):
     """The cron view: every schedule with its clock, plus the create form.
 
     ?cron= prefills the expression (the preset chips below the form);
     ?schedule=<name> loads one for editing — saving under the same name
     replaces it, a new name forks it, exactly like pipelines.
+
+    The form's "Configure parameters" button submits it to this page via
+    GET (formaction/formmethod overrides), so everything typed so far
+    rides along as query params and the page re-renders — now with the
+    chosen script's parameter fieldset. Same zero-JS trick as the run
+    page; the save POST reuses those exact fields.
     """
     if redirect := _need_login(request):
         return redirect
-    schedules = schedules_api.list_schedules()["schedules"]  # enriched: next_due, cron_desc
-    name = request.query_params.get("schedule", "")
-    edit = next((s for s in schedules if s["name"] == name), None) if name else None
+    schedules = schedules_api.list_schedules()["schedules"]  # enriched: next_due, cron_desc, target
+    edit_name = request.query_params.get("schedule", "")
+    edit = next((s for s in schedules if s["name"] == edit_name), None) if edit_name else None
+
+    # Parameter values typed in the fieldset ride as `p::<script>::<param>`
+    # query params — exactly what the form submits (booleans arrive as the
+    # hidden false + checkbox true pair; the last one wins).
+    param_values: dict[str, dict[str, str]] = {}
+    for key in request.query_params:
+        if key.startswith("p::") and key.count("::") == 2:
+            _, sid, pname = key.split("::", 2)
+            param_values.setdefault(sid, {})[pname] = request.query_params[key]
+
+    if edit:
+        # Edit prefill: a pipeline schedule selects its pipeline; an inline
+        # one selects its first script and its saved parameters.
+        form = {
+            "name": edit["name"], "cron": edit["cron"],
+            "pipeline": edit["pipeline"] or "",
+            "script": "" if edit["pipeline"] else
+                      (edit["steps"][0]["script_id"] if edit["steps"] else ""),
+            "log": edit["log"] or "", "label": edit["label"] or "",
+            "enabled": edit["enabled"],
+        }
+        sid = form["script"]
+        if sid:
+            saved = edit["steps"][0].get("params") or {}
+            param_values = {sid: {k: _stringify_param(v) for k, v in saved.items()}}
+    else:
+        # Wizard state: "" everywhere means a fresh form. `enabled` arrives
+        # as "" (fresh load), "true" or "false" (hidden+checkbox pair).
+        form = {
+            "name": name, "cron": cron, "pipeline": pipeline, "script": script,
+            "log": log, "label": label,
+            "enabled": enabled != "false",
+        }
+
+    by_id = {s.id: s for s in discover_scripts()}
+    param_script = by_id.get(form["script"]) if form["script"] else None
+    schedule_scripts = sorted(
+        (s for s in by_id.values() if not s.error),
+        key=lambda s: (s.name or s.id).lower())
     return _page(request, "schedules.html", nav="schedules",
                  schedules=schedules,
                  pipeline_names=[p.name for p in pipeline_store.list_pipelines()],
-                 logs=list_logs(), edit=edit, preset_cron=cron)
+                 logs=list_logs(), edit=edit,
+                 schedule_scripts=schedule_scripts,
+                 form=form, param_script=param_script,
+                 param_values=param_values.get(form["script"], {}) if param_script else {})
 
 
 @router.post("/schedules/save")
@@ -665,10 +718,23 @@ async def save_schedule_page(request: Request):
     if redirect := _need_login(request):
         return redirect
     form = await request.form()
+    pipeline = (form.get("pipeline") or "").strip()
+    script = (form.get("script") or "").strip()
+    # A schedule runs either a saved pipeline or one script of its own —
+    # the API XOR-checks both empty / both set, same as every client.
+    steps: list[PipelineStep] = []
+    if script:
+        by_id = {s.id: s for s in discover_scripts()}
+        if script not in by_id:
+            return _render_error(request, HTTPException(404, f"Unknown script: {script}"),
+                                  back="/schedules")
+        steps = [PipelineStep(script_id=script,
+                               params=_parse_form_params(form, by_id[script]))]
     req = ScheduleSaveRequest(
         name=(form.get("name") or "").strip(),
         cron=(form.get("cron") or "").strip(),
-        pipeline=(form.get("pipeline") or "").strip(),
+        pipeline=pipeline or None,
+        steps=steps,
         log=(form.get("log") or "").strip(),
         label=(form.get("label") or "").strip() or None,
         enabled=form.get("enabled") not in (None, "", "off", "false"),
@@ -881,7 +947,9 @@ def job_detail(request: Request, job_id: str, tab: str = "result"):
             input_missing = True
         else:
             input_text = text
-
+    # A log-free job never had an input at all — a different message than
+    # a lost one (deleted log, pruned data, waiting step).
+    input_none = not (job.input_path or job.log_path)
     files = []
     if tab == "files":
         for name in job.output_files:
@@ -894,7 +962,7 @@ def job_detail(request: Request, job_id: str, tab: str = "result"):
         active=job.status in ACTIVE,
         duration=_duration(job),
         output=output,
-        input_text=input_text, input_missing=input_missing,
+        input_text=input_text, input_missing=input_missing, input_none=input_none,
         files=files,
     )
 

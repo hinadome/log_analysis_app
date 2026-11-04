@@ -200,6 +200,72 @@ def test_atomic_validation_rejects_without_side_effects(client):
     assert client.get("/api/jobs").json()["jobs"] == []
 
 
+def test_scripts_expose_needs_log(client):
+    """needs_log is derived from the command: {log} present or not."""
+    scripts = client.get("/api/scripts").json()["scripts"]
+    by_id = {s["id"]: s for s in scripts}
+    assert by_id["error_counter"]["needs_log"] is True    # python3 {script} {log} {args}
+    assert by_id["disk_report"]["needs_log"] is False    # python3 {script}
+
+
+def test_log_free_submission(client):
+    """A script whose command has no {log} runs with no log at all."""
+    jobs = submit(client, [{"script_id": "disk_report", "params": {}}], log="")
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job["log_path"] == "" and job["log_name"] == ""
+    assert job["input_source"] is None
+
+    wait_status(client, [job["id"]], ("completed",))
+    stdout = client.get(f"/api/jobs/{job['id']}/stdout").text
+    assert '"disk_free_pct"' in stdout
+    # the Input tab has nothing to show for a run that never had an input
+    assert client.get(f"/api/jobs/{job['id']}/input").status_code == 404
+
+
+def test_no_log_rejects_scripts_that_read_log(client):
+    # parallel: any needs-log script is rejected, named, {log} spelled out
+    res = client.post("/api/jobs", json={
+        "log_path": "", "mode": "parallel", "jobs": [
+            {"script_id": "disk_report", "params": {}},
+            {"script_id": "error_counter", "params": {"level": "ALL"}}]})
+    assert res.status_code == 422
+    assert "error_counter" in res.json()["detail"]
+    assert "{log}" in res.json()["detail"]
+
+    # chain: only step 1 reads the log — a log-free first step feeding a
+    # needs-log second step is fine (the second reads the first's output)
+    jobs = submit(client, [
+        {"script_id": "disk_report", "params": {}},
+        {"script_id": "error_counter", "params": {"level": "ALL", "json": True}},
+    ], mode="chain", log="")
+    assert len(jobs) == 2
+    wait_status(client, [j["id"] for j in jobs], ("completed",))
+    step2 = client.get(f"/api/jobs/{jobs[1]['id']}").json()
+    assert step2["input_source"] in ("prev_output", "prev_stdout")
+
+    # but a needs-log step 1 without a log is still rejected
+    res = client.post("/api/jobs", json={
+        "log_path": "", "mode": "chain", "jobs": [
+            {"script_id": "error_counter", "params": {"level": "ALL"}},
+            {"script_id": "disk_report", "params": {}}]})
+    assert res.status_code == 422
+    assert "error_counter" in res.json()["detail"]
+    # nothing was created by the rejected requests
+    assert len(client.get("/api/jobs").json()["jobs"]) == 2
+
+
+def test_rerun_log_free_job(client):
+    """Rerun of a log-free job stays log-free — no log to re-resolve."""
+    jobs = submit(client, [{"script_id": "disk_report", "params": {}}], log="")
+    wait_status(client, [jobs[0]["id"]], ("completed",))
+    res = client.post(f"/api/jobs/{jobs[0]['id']}/rerun")
+    assert res.status_code == 200
+    new_job = res.json()["job"]
+    assert new_job["log_path"] == "" and new_job["log_name"] == ""
+    wait_status(client, [new_job["id"]], ("completed",))
+
+
 def test_submit_with_absolute_path_outside_logs_dir(client, tmp_path):
     """An absolute path to any existing file is a valid input: scripts run
     as this user with full filesystem access anyway, so typing a path is

@@ -177,6 +177,13 @@ Vite proxy talks HTTPS to the backend.
   no matter how many scripts read it, so a fan-out on one `.gz` costs a
   single decompression instead of one copy per job. Deleting the log (or
   the 🧹 Prune button) reclaims its copy.
+- **Log-free runs** — the input log is optional. A script whose command has
+  no `{log}` placeholder (marked *log-free* in both UIs — the shipped
+  `disk_report` system snapshot is one) runs and schedules without a
+  selected log; its process simply gets no `JOB_LOG_PATH`/`JOB_ORIGINAL_LOG`
+  and the sandbox mounts no input. A script that *does* read `{log}`
+  submitted without one is rejected with a 422 naming it — and in a chain
+  only step 1 is checked, since the rest read each other's output.
 - **Job retention** — `JOB_RETENTION_DAYS` auto-deletes old jobs at startup
   (0 = off); the Jobs panel has a manual 🧹 Prune button and shows storage use.
 - **Chain mode (pipelines)** — submit the same scripts as an ordered chain:
@@ -203,16 +210,19 @@ Vite proxy talks HTTPS to the backend.
   runbar; the python UI has a "Saved pipelines" card on the run page with
   Load and 🗑 Delete buttons, plus a 💾 button in the runbar. A loaded
   pipeline is a ready-to-run, fully configured chain.
-- **Scheduled runs (cron)** — a schedule is a saved pipeline + a log + a
-  5-field cron expression (`0 8 * * *` = daily at 08:00, server-local
-  time). An in-process ticker fires it through the normal submission
-  path, so scheduled runs are ordinary jobs (labelled with the
-  schedule's name) — history, retention and the concurrency cap apply
-  unchanged. Overlapping runs are skipped (visibly recorded, never
-  queued behind each other), and a fire missed while the server was down
-  stays missed — no catch-up, no retries, no backfill. Each schedule
-  shows next fire, last run/result, with run-now, pause/resume and
-  delete in both UIs; preset chips build common expressions.
+- **Scheduled runs (cron)** — a schedule is a saved pipeline **or a single
+  script** + a log + a 5-field cron expression (`0 8 * * *` = daily at
+  08:00, server-local time). An in-process ticker fires it through the
+  normal submission path, so scheduled runs are ordinary jobs (labelled
+  with the schedule's name) — history, retention and the concurrency cap
+  apply unchanged. A pipeline reference is resolved fresh at every fire
+  (edit the pipeline, every schedule pointing at it updates); a single
+  script is stored as the schedule's own validated steps. Overlapping runs
+  are skipped (visibly recorded, never queued behind each other), and a
+  fire missed while the server was down stays missed — no catch-up, no
+  retries, no backfill. Each schedule shows next fire, last run/result,
+  with run-now, pause/resume and delete in both UIs; preset chips build
+  common expressions.
 - **Fan-out over logs** — arm extra logs with the ＋ toggle in the log list
   and one Run submits the same scripts against each of them ("3 logs × 2
   steps = 6 jobs"), e.g. the same counter across all rotated files.
@@ -521,23 +531,30 @@ server automatically on first load.
 
 ### Schedules (cron)
 
-A schedule runs a **saved pipeline on one log at cron-defined times** —
-"run the errors pipeline on app.log every night at 08:00". Schedules are
+A schedule runs a **saved pipeline — or a single script — on a log at
+cron-defined times** ("run the errors pipeline on app.log every night at
+08:00", or "snapshot disk usage hourly with no log at all"). Schedules are
 stored in `data/schedules.json` and fired by an in-process ticker that
 wakes every 30 seconds (server-local time, minute granularity).
 
 - **Creating one** — the Schedules panel (React, below the runbar) or the
-  `/schedules` page (python UI): name, cron expression, pipeline, log and
-  an optional job label. Preset chips build common expressions
-  (`*/5 * * * *`, hourly, daily 08:00, weekdays 09:00). Saving validates
-  everything up front: the expression must parse (and match something
-  within four years — Feb 30 is rejected), the pipeline must exist and
-  still be runnable, and the log must resolve.
-- **What fires** — the pipeline's steps as a chain through the normal
-  submission path: scheduled runs are ordinary jobs carrying the
-  schedule's name (or its label), so job history, search, retention and
-  `MAX_CONCURRENT_JOBS` all apply unchanged. Failures at fire time (log
-  deleted, script removed) land in the schedule's last-result field.
+  `/schedules` page (python UI): name, cron expression, a pipeline *or* a
+  script, a log (optional — a `— none —` choice, required only when the
+  first step reads `{log}`) and an optional job label. Preset chips build
+  common expressions (`*/5 * * * *`, hourly, daily 08:00, weekdays 09:00).
+  Saving validates everything up front: the expression must parse (and
+  match something within four years — Feb 30 is rejected), the pipeline
+  or script must exist and still be runnable, and a given log must resolve.
+  The python form's "Configure parameters" button re-renders the page with
+  the chosen script's parameter fieldset (zero JS — the typed values ride
+  along as query params); React shows the parameter card inline.
+- **What fires** — the pipeline's steps (resolved fresh at fire time, so
+  editing it updates every schedule pointing at it) or the schedule's own
+  script(s), as a chain through the normal submission path: scheduled runs
+  are ordinary jobs carrying the schedule's name (or its label), so job
+  history, search, retention and `MAX_CONCURRENT_JOBS` all apply
+  unchanged. Failures at fire time (log deleted, script removed) land in
+  the schedule's last-result field.
 - **Bounds, by design** — if the previous run is still active at fire
   time, the fire is skipped and recorded (`skipped: previous run still
   active`) — never two of the same schedule at once. If the server was
@@ -557,7 +574,8 @@ Each script process receives:
 - `cwd` = the job's `outputs/` directory
 - `JOB_ID`, `JOB_LOG_PATH`, `JOB_OUTPUT_DIR`, `JOB_ORIGINAL_LOG` environment
   variables (`JOB_ORIGINAL_LOG` = the originally selected file, useful inside
-  chains)
+  chains). The two log variables are absent — not empty — on log-free runs
+  (no selected log, command without `{log}`)
 
 Two ways to produce artifacts: write to the `{output}` path, or write any
 files into `$JOB_OUTPUT_DIR` — both are exposed via
@@ -576,13 +594,13 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | PUT | `/api/scripts/{id}` | update code/manifest (extension change moves the file) |
 | DELETE | `/api/scripts/{id}` | remove script + manifest (job history is kept) |
 | GET | `/api/scripts/{id}/export` | download the script as a tar.gz backup |
-| POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs |
+| POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs. `log_path` optional — a script reading `{log}` without one is a 422 naming it (chain mode checks step 1 only) |
 | POST | `/api/jobs/prune?days=N` | delete jobs older than N days |
 | GET | `/api/pipelines` | saved pipelines (reusable chains) — shared by every browser and both UIs |
 | POST | `/api/pipelines` | save a pipeline `{name, steps: [{script_id, params}]}` (upsert by name, validated like a submission) |
 | DELETE | `/api/pipelines/{name}` | remove a saved pipeline |
 | GET | `/api/schedules` | saved schedules, each enriched with `next_due` (local time) and `cron_desc` |
-| POST | `/api/schedules` | save a schedule `{name, cron, pipeline, log, label?, enabled}` (upsert by name; cron, pipeline and log validated) |
+| POST | `/api/schedules` | save a schedule `{name, cron, pipeline \| steps, log, label?, enabled}` (upsert by name; cron, target and log validated — a first step reading `{log}` requires a log) |
 | POST | `/api/schedules/{name}/toggle` | pause/resume a schedule |
 | POST | `/api/schedules/{name}/run` | fire now — the same path the ticker uses, so overlap with a live run is skipped and recorded |
 | DELETE | `/api/schedules/{name}` | remove a schedule |

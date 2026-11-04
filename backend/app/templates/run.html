@@ -1,28 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Run · LogSmith{% endblock %}
 
-{% macro param_input(s, p, v=none) %}
-{% set fname = 'p::' ~ s.id ~ '::' ~ p.name %}
-{% set cur = v if v is not none else p.default %}
-{% if p.type == 'boolean' %}
-  <input type="hidden" name="{{ fname }}" value="false">
-  <input type="checkbox" name="{{ fname }}" value="true" {% if cur|string|lower == 'true' %}checked{% endif %}>
-{% elif p.type == 'enum' %}
-  <select name="{{ fname }}">
-    <option value="" {% if cur is none or cur == '' %}selected{% endif %}>— default{% if p.default is not none %}: {{ p.default }}{% endif %} —</option>
-    {% for c in p.choices %}<option value="{{ c }}" {% if cur == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
-  </select>
-{% elif p.type in ('integer', 'float') %}
-  <input type="number" step="{{ 'any' if p.type == 'float' else '1' }}" name="{{ fname }}"
-         value="{{ cur if cur is not none else '' }}" placeholder="default">
-{% elif p.type == 'multi' %}
-  <input type="text" name="{{ fname }}"
-         value="{{ v if v is not none else (p.default | join(', ') if p.default is iterable and p.default is not string else (p.default or '')) }}"
-         placeholder="comma-separated list">
-{% else %}
-  <input type="text" name="{{ fname }}" value="{{ cur if cur is not none else '' }}">
-{% endif %}
-{% endmacro %}
+{% from "_params.html" import param_input %}
 
 {% block content %}
 <h1>Configure run</h1>
@@ -33,15 +12,17 @@
 <div class="flash bad">{{ error_msg }}</div>
 {% endif %}
 
-{% if not selected_logs %}
-<p class="muted card">No logs selected. <a href="/">← Pick logs on the home page</a></p>
-{% else %}
-
 <div class="card">
   <h2>Logs <a class="btn ghost sm" href="/">↺ change</a></h2>
+  {% if selected_logs %}
   <div class="chips">
     {% for l in selected_logs %}<span class="chip static mono">{{ l }}</span>{% endfor %}
   </div>
+  {% else %}
+  <p class="muted">No log selected — scripts that don't read <span class="mono">{log}</span> run
+    without one (marked <span class="badge">log-free</span> below). <a href="/">← Pick logs</a>
+    to analyze input.</p>
+  {% endif %}
 </div>
 
 <form method="get" action="/run" class="card">
@@ -70,7 +51,7 @@
     {% for s in all_scripts %}
       <tr>
         <td class="cb"><input type="checkbox" name="pick" value="{{ s.id }}" {% if s.id in chosen_ids %}checked{% endif %} {% if s.error %}disabled{% endif %}></td>
-        <td><b>{{ s.name or s.id }}</b><br><span class="mono muted">{{ s.id }}</span></td>
+        <td><b>{{ s.name or s.id }}</b>{% if s.needs_log %}{% if not selected_logs %} <span class="badge" title="reads {log} — needs a selected log">needs log</span>{% endif %}{% else %} <span class="badge" title="the command has no {log} — runs without one">log-free</span>{% endif %}<br><span class="mono muted">{{ s.id }}</span></td>
         <td>{% if s.error %}<span class="err-text">broken manifest: {{ s.error }}</span>{% else %}{{ s.description or '—' }}{% endif %}</td>
         <td class="muted">{{ s.parameters | length }}</td>
       </tr>
@@ -111,11 +92,19 @@
   <p class="muted">Chain runs these steps in the order shown, each reading the
     previous step's output — reorder with the ↑ / ↓ buttons in a step's header.</p>
   {% endif %}
+  {% if not selected_logs and chosen_scripts | selectattr('needs_log') | list %}
+  <div class="flash bad">No log selected, but
+    {{ chosen_scripts | selectattr('needs_log') | map(attribute='id') | join(', ') }}
+    read{{ 's' if (chosen_scripts | selectattr('needs_log') | list) | length == 1 else '' }}
+    their input through <span class="mono">{log}</span> — pick a log on the
+    <a href="/">home page</a>, or drop {{ 'it' if (chosen_scripts | selectattr('needs_log') | list) | length == 1 else 'them' }}.</div>
+  {% endif %}
   {% for s in chosen_scripts %}
   <fieldset>
     <legend>
       {% if mode == 'chain' %}<span class="step-chip">Step {{ loop.index }}</span>{% endif %}
       {{ s.name or s.id }} <span class="mono muted">({{ s.id }})</span>
+      {% if s.needs_log and not selected_logs %}<span class="badge" title="reads {log} — this run has no log">needs log</span>{% endif %}
       {% if mode == 'chain' and step_moves[loop.index0].up %}
       <a class="btn ghost sm" href="{{ step_moves[loop.index0].up }}" title="Run this step earlier">↑</a>
       {% endif %}
@@ -147,7 +136,8 @@
   {% if cat %}<input type="hidden" name="cat" value="{{ cat }}">{% endif %}
   <div class="runbar">
     <div class="run-summary">
-      {{ chosen_scripts | length }} script(s) × {{ selected_logs | length }} log(s) —
+      {{ chosen_scripts | length }} script(s) ×
+      {% if selected_logs %}{{ selected_logs | length }} log(s){% else %}no log{% endif %} —
       {% if mode == 'chain' %}chain{% if chosen_scripts | length > 1 %}:
         {{ chosen_scripts | map(attribute='name') | join(' → ') }}{% endif %}
       {% else %}parallel{% endif %}
@@ -167,5 +157,4 @@
 <p class="muted">Check at least one script above, then “Update”.</p>
 {% endif %}
 
-{% endif %}
 {% endblock %}

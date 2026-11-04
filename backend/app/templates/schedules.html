@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Schedules · LogSmith{% endblock %}
 
+{% from "_params.html" import param_input %}
+
 {% block content %}
 <div class="page-head">
   <h1>Schedules</h1>
@@ -13,7 +15,7 @@
   <thead><tr>
     <th>Name</th>
     <th>When</th>
-    <th>Pipeline</th>
+    <th>Runs</th>
     <th>Log</th>
     <th>Next fire</th>
     <th>Last run</th>
@@ -25,8 +27,10 @@
     <td><strong>{{ s.name }}</strong>
       {% if not s.enabled %}<span class="badge">paused</span>{% endif %}</td>
     <td class="mono">{{ s.cron }}<br><span class="muted">{{ s.cron_desc }}</span></td>
-    <td>{{ s.pipeline }}</td>
-    <td class="mono">{{ s.log }}</td>
+    <td>{% if s.pipeline %}{{ s.pipeline }} <span class="muted">(pipeline)</span>
+      {% else %}<span class="mono">{{ s.target or '—' }}</span>
+        {% if s.steps | length > 1 %} <span class="muted">+{{ (s.steps | length) - 1 }} step(s)</span>{% endif %}{% endif %}</td>
+    <td class="mono">{{ s.log or '—' }}</td>
     <td class="mono muted">{{ s.next_due | dt }}</td>
     <td>
       {% if s.last_run_at %}<span class="mono muted">{{ s.last_run_at | dt }}</span><br>{% endif %}
@@ -35,7 +39,7 @@
     <td class="row-actions">
       <form method="post" action="/schedules/run" class="inline">
         <input type="hidden" name="name" value="{{ s.name }}">
-        <button class="btn sm" type="submit" title="Run this schedule's pipeline now, ignoring the clock">▶ Run now</button>
+        <button class="btn sm" type="submit" title="Run this schedule now, ignoring the clock">▶ Run now</button>
       </form>
       <form method="post" action="/schedules/toggle" class="inline">
         <input type="hidden" name="name" value="{{ s.name }}">
@@ -51,8 +55,8 @@
   </tbody>
 </table>
 {% else %}
-<p class="muted card">No schedules yet.{% if not pipeline_names %} First
-  <a href="/">save a pipeline</a> from the Run page — a schedule is a saved pipeline set to run on a log.{% endif %}</p>
+<p class="muted card">No schedules yet — set a saved pipeline, or a single script, to run on a
+  log on the clock. Log-free scripts run with no log selected.</p>
 {% endif %}
 
 <h2>{% if edit %}Edit{% else %}Create{% endif %} a schedule</h2>
@@ -60,39 +64,84 @@
 <form method="post" action="/schedules/save" class="card">
   <div class="grid2">
     <label class="field">name
-      <input type="text" name="name" maxlength="80" required value="{{ edit.name if edit else '' }}"
+      <input type="text" name="name" maxlength="80" value="{{ form.name }}"
              placeholder="nightly errors">
     </label>
     <label class="field">cron
-      <input type="text" name="cron" required value="{{ edit.cron if edit else preset_cron }}"
+      <input type="text" name="cron" value="{{ form.cron }}"
              placeholder="0 8 * * *">
       <span class="muted">minute hour day month weekday — e.g. <span class="mono">*/5 * * * *</span> every 5 min,
         <span class="mono">0 8 * * *</span> daily 08:00, <span class="mono">0 9 * * mon-fri</span> weekdays 09:00</span>
     </label>
     <label class="field">pipeline
-      <select name="pipeline" required>
+      <select name="pipeline">
+        <option value="">— none —</option>
         {% for n in pipeline_names %}
-        <option value="{{ n }}" {{ 'selected' if edit and edit.pipeline == n }}>{{ n }}</option>
+        <option value="{{ n }}" {{ 'selected' if form.pipeline == n }}>{{ n }}</option>
         {% endfor %}
       </select>
+      <span class="muted">a saved chain, resolved fresh at every fire</span>
+    </label>
+    <label class="field">script
+      <select name="script">
+        <option value="">— none —</option>
+        {% for s in schedule_scripts %}
+        <option value="{{ s.id }}" {{ 'selected' if form.script == s.id }}>{{ s.name or s.id }}{% if s.needs_log %} · needs log{% endif %}</option>
+        {% endfor %}
+      </select>
+      <span class="muted">or schedule one script on its own — pick it, then “Configure parameters”</span>
     </label>
     <label class="field">log
-      <select name="log" required>
+      <select name="log">
+        <option value="">— none (log-free) —</option>
         {% for l in logs %}
-        <option value="{{ l.name }}" {{ 'selected' if edit and edit.log == l.name }}>{{ l.name }}</option>
+        <option value="{{ l.name }}" {{ 'selected' if form.log == l.name }}>{{ l.name }}</option>
         {% endfor %}
       </select>
+      <span class="muted">required only when the first step reads <span class="mono">{log}</span></span>
     </label>
     <label class="field">label <span class="muted">(optional — job label; defaults to the name)</span>
-      <input type="text" name="label" maxlength="80" value="{{ edit.label if edit and edit.label else '' }}"
+      <input type="text" name="label" maxlength="80" value="{{ form.label }}"
              placeholder="nightly errors">
     </label>
     <label class="inline-opt">
-      <input type="checkbox" name="enabled" {{ 'checked' if not edit or edit.enabled }}>
+      <input type="hidden" name="enabled" value="false">
+      <input type="checkbox" name="enabled" value="true" {% if form.enabled %}checked{% endif %}>
       enabled
     </label>
   </div>
+
+  {% if edit and not edit.pipeline and edit.steps | length > 1 %}
+  <p class="muted">This schedule runs {{ edit.steps | length }} inline steps; the form below
+    edits the first one only — saving rewrites it as a single-step schedule.</p>
+  {% endif %}
+
+  {% if param_script %}
+  <fieldset>
+    <legend>{{ param_script.name or param_script.id }}
+      <span class="mono muted">({{ param_script.id }})</span>
+      {% if param_script.needs_log %}<span class="badge" title="reads {log} — this schedule needs a log">needs log</span>{% endif %}
+    </legend>
+    {% if param_script.description %}<p class="muted">{{ param_script.description }}</p>{% endif %}
+    {% for p in param_script.parameters %}
+    <label class="param">
+      <span class="pname">{{ p.label or p.name }}{% if p.required %} <b class="req">*</b>{% endif %}
+        <span class="muted">[{{ p.type }}]</span></span>
+      {{ param_input(param_script, p, param_values.get(p.name)) }}
+      {% if p.help %}<span class="phelp">{{ p.help }}</span>{% endif %}
+      {% if not p.required and p.default is not none and p.type != 'boolean' %}
+      <span class="phelp">default: {{ p.default | tojson }}</span>
+      {% endif %}
+    </label>
+    {% else %}
+    <p class="muted">No parameters.</p>
+    {% endfor %}
+  </fieldset>
+  {% endif %}
+
   <div class="head-actions">
+    <button class="btn" type="submit" formaction="/schedules" formmethod="get"
+            title="Re-render this form with the selected script's parameters — everything typed stays">⚙ Configure parameters →</button>
     <button class="btn primary" type="submit">💾 Save schedule</button>
     {% if edit %}<a class="btn ghost sm" href="/schedules">cancel edit</a>{% endif %}
   </div>

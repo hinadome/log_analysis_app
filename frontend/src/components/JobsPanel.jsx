@@ -67,7 +67,7 @@ export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, st
             <div className="job-row-main">
               <div className="job-row-title">{j.script_name}</div>
               <div className="job-row-sub mono">
-                {j.label ? `${j.label} · ` : ""}{j.chain_id ? `step ${j.chain_index + 1}/${j.chain_size} · ` : ""}{j.log_name}
+                {j.label ? `${j.label} · ` : ""}{j.chain_id ? `step ${j.chain_index + 1}/${j.chain_size} · ` : ""}{j.log_name || "—"}
               </div>
             </div>
             <div className="job-row-side">

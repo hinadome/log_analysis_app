@@ -3,6 +3,7 @@ import { api, UNAUTHORIZED_EVENT } from "./api.js";
 import { useHashRoute, useInterval } from "./hooks.js";
 import { fmtBytes } from "./fmt.js";
 import { migrateLegacyChains } from "./presets.js";
+import { defaultParams, serializeParams, selectionNeedsLog } from "./params.js";
 import LoginView from "./components/LoginView.jsx";
 import LogPicker from "./components/LogPicker.jsx";
 import ScriptPicker from "./components/ScriptPicker.jsx";
@@ -20,30 +21,6 @@ function parseRoute(hash) {
   const m = /^#\/job\/([0-9a-z-]+)$/i.exec(hash || "");
   if (m && JOB_ID_RE.test(m[1])) return { name: "job", id: m[1] };
   return { name: "home" };
-}
-
-function defaultParams(script) {
-  const out = {};
-  for (const spec of script.parameters) {
-    if (spec.type === "enum") out[spec.name] = spec.default || spec.choices[0] || "";
-    else if (spec.type === "multi") out[spec.name] = Array.isArray(spec.default) ? spec.default : [];
-    else if (spec.type === "boolean") out[spec.name] = !!spec.default;
-    else out[spec.name] = spec.default ?? "";
-  }
-  return out;
-}
-
-/** Convert UI string values to JSON types per the script manifest. */
-function serializeParams(script, params) {
-  const out = {};
-  for (const spec of script.parameters) {
-    const v = params[spec.name];
-    if (v === "" || v == null) continue;
-    if (spec.type === "integer" || spec.type === "float") out[spec.name] = Number(v);
-    else if (spec.type === "multi") out[spec.name] = v;
-    else out[spec.name] = v;
-  }
-  return out;
 }
 
 export default function App() {
@@ -439,34 +416,57 @@ export default function App() {
         : [...list, log]);
   };
 
+  // Whether this selection needs a log at all: in chain mode only the
+  // first step reads the log (the rest read the previous step's output);
+  // in parallel every step does. Log-free scripts run without one.
+  const logRequired = selectionNeedsLog(steps, scriptById, mode);
+
   const run = async () => {
-    if (!selectedLog || steps.length === 0) return;
+    // Without a log, one log-free submission is made (the server rejects
+    // scripts that read {log}); with one, the fan-out runs per log.
+    if (steps.length === 0 || (!selectedLog && logRequired)) return;
     setBusy(true);
     try {
       // fan-out: the same submission runs once per selected log
-      const targets = [selectedLog, ...fanout.filter((l) => l.path !== selectedLog.path)];
+      const targets = selectedLog
+        ? [selectedLog, ...fanout.filter((l) => l.path !== selectedLog.path)]
+        : [];
       const jobsSpec = steps.map((st) => ({
         script_id: st.scriptId,
         params: serializeParams(scriptById[st.scriptId], st.params),
       }));
       let queued = 0;
-      for (const target of targets) {
+      if (targets.length === 0) {
         const res = await api.createJobs({
-          log_path: target.path,
+          log_path: "",
           mode,
           label: label.trim() || undefined,
           jobs: jobsSpec,
         });
         queued += res.jobs.length;
+      } else {
+        for (const target of targets) {
+          const res = await api.createJobs({
+            log_path: target.path,
+            mode,
+            label: label.trim() || undefined,
+            jobs: jobsSpec,
+          });
+          queued += res.jobs.length;
+        }
       }
       const isChain = mode === "chain" && steps.length > 1;
       setToast({
         kind: "ok",
         text: targets.length > 1
           ? `${queued} job${queued > 1 ? "s" : ""} queued across ${targets.length} logs — watch the Jobs panel`
-          : isChain
-            ? `Chain of ${queued} steps queued — each step feeds the next`
-            : `${queued} job${queued > 1 ? "s" : ""} queued — watch the Jobs panel`,
+          : targets.length === 1
+            ? isChain
+              ? `Chain of ${queued} steps queued — each step feeds the next`
+              : `${queued} job${queued > 1 ? "s" : ""} queued — watch the Jobs panel`
+            : isChain
+              ? `Chain of ${queued} steps queued without a log`
+              : `${queued} log-free job${queued > 1 ? "s" : ""} queued — watch the Jobs panel`,
       });
       refreshJobs();
     } catch (e) {
@@ -685,13 +685,20 @@ export default function App() {
                           ? <>{fanout.length + 1} logs × {steps.length} step(s) = {(fanout.length + 1) * steps.length} job(s)</>
                           : <><span className="mono">{selectedLog.name}</span> × {steps.length} step(s)</>
                         : "Now add one or more scripts"
-                      : "Select a log file to begin"}
+                      : steps.length > 0
+                        ? logRequired
+                          ? "Select a log file — the first step reads it"
+                          : "No log — log-free run"
+                        : "Select a log file to begin"}
                   </div>
                 </div>
                 <button
                   className="btn primary lg"
-                  disabled={!selectedLog || steps.length === 0 || busy}
+                  disabled={steps.length === 0 || (!selectedLog && logRequired) || busy}
                   onClick={run}
+                  title={!selectedLog && logRequired
+                    ? "The first step reads its input from {log} — select a log"
+                    : undefined}
                 >
                   {busy ? "Starting…" : mode === "chain" ? "Run chain ▸" : "Run ▸"}
                 </button>
@@ -700,6 +707,7 @@ export default function App() {
               <SchedulesPanel
                 schedules={schedules}
                 pipelines={pipelines}
+                scripts={scripts}
                 logs={logs}
                 defaultLog={selectedLog && !selectedLog.custom ? selectedLog.name : ""}
                 onSave={saveSchedule}

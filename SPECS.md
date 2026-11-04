@@ -49,7 +49,7 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 |---|---|---|
 | `id` | string | `YYYYMMDD-HHMMSS-<8 hex>` |
 | `script_id` / `script_name` | string | manifest id / display name |
-| `log_path` / `log_name` | string | input file: resolved absolute path / base name for a file in `LOGS_DIR`, the full path for one outside it |
+| `log_path` / `log_name` | string | input file: resolved absolute path / base name for a file in `LOGS_DIR`, the full path for one outside it — both empty for a log-free run (§4) |
 | `label` | string\|null | user tag for the submission this job belongs to |
 | `params` | object | validated parameter values |
 | `command` | string[] | final argv as executed |
@@ -62,8 +62,8 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 | `chain_id` | string\|null | set for chain steps |
 | `chain_index` / `chain_size` | int | 0-based position / total steps |
 | `decompressed_path` | string\|null | cache path of the shared decompressed copy, for compressed inputs |
-| `input_source` | string\|null | `log` \| `prev_output` \| `prev_stdout` |
-| `input_path` | string\|null | the file `{log}` resolved to |
+| `input_source` | string\|null | `log` \| `prev_output` \| `prev_stdout` — null also for a log-free run |
+| `input_path` | string\|null | the file `{log}` resolved to — null when the run has no input |
 | `output_file` | string\|null | `{output}` target, when declared |
 
 `GET /api/jobs/{id}` additionally returns `stdout_tail` / `stderr_tail`
@@ -86,6 +86,16 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 - `mode` defaults to `parallel`. `jobs` must be non-empty (422 otherwise).
 - `label` is optional, trimmed to 80 characters, and stored on every job of
   the submission; it is searchable via `GET /api/jobs?q=` and shown in the UI.
+- **The log is optional**: an empty `log_path` is a log-free run. A script
+  whose command contains `{log}` then fails validation (422, naming the
+  script: *"Script 'x' reads its input through {log} — select a log, or
+  drop this script"*); in `chain` mode the check narrows to position 0,
+  because later steps read the previous step's output. A log-free job
+  carries no `JOB_LOG_PATH`/`JOB_ORIGINAL_LOG` in its environment, gets no
+  input mount in the sandbox, and `GET /api/jobs/{id}/input` is 404. A
+  script that reads `$JOB_LOG_PATH` directly (instead of the `{log}`
+  placeholder) is on its own: the variable is only set when a log was
+  selected.
 - **Validation is atomic (two-pass)**: every step's script existence, manifest
   health and parameter types are checked **before** any job is created. A
   rejected request (404 unknown script / 422 bad params) leaves zero jobs.
@@ -113,7 +123,9 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
 
 ### 4.1 Chain rules (normative)
 
-1. Step 1 reads the selected log. Step N>1 reads step N−1's output.
+1. Step 1 reads the selected log — unless the chain was submitted without
+   one (§4, log-free run), in which case step 1's command must omit `{log}`
+   too (checked at position 0 only). Step N>1 reads step N−1's output.
 2. **Input resolution** for the next step, in order: the previous step's
    declared artifact (`output_filename` / `{output}`), if it exists → else
    the single file in its `outputs/` directory (only when exactly one) →
@@ -141,7 +153,8 @@ Returned by `POST /api/jobs` (as a list), `GET /api/jobs`, `GET /api/jobs/{id}`:
    deleting steps of a finished chain removes them individually.
 9. The same script may appear multiple times in one chain.
 10. Every step's process receives `JOB_ORIGINAL_LOG` pointing at the
-    originally selected file.
+    originally selected file — absent for a log-free run (§4), like
+    `JOB_LOG_PATH`.
 
 ### 4.2 Partial re-run (continue from step N)
 
@@ -203,7 +216,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | `GET /api/jobs?status=…&q=…&limit=&offset=` | list jobs (newest first), optionally filtered by status (single value or comma-separated, e.g. `queued,waiting,running` for "active") and/or free-text `q` (matches label, script name/id, log name, job id, chain id). Paged: `limit` ≤ 5000 (default 200), `offset` ≥ 0 → `{jobs, total}` with `total` post-filter |
 | `GET /api/jobs/{id}` | job detail incl. tails and `chain_steps` (§3) |
 | `GET /api/jobs/{id}/stdout` `/stderr` | full text (`text/plain`, 20 MB cap) |
-| `GET /api/jobs/{id}/input` | the exact input this job's script received — the selected log, or for chain steps the previous step's output (compressed sources served decompressed). `text/plain`, 20 MB cap; 404 while the step is still waiting, and when the source file is gone |
+| `GET /api/jobs/{id}/input` | the exact input this job's script received — the selected log, or for chain steps the previous step's output (compressed sources served decompressed). `text/plain`, 20 MB cap; 404 while the step is still waiting, when the source file is gone, and for log-free runs (§4) |
 | `GET /api/jobs/{id}/files/{name}` | download an artifact (name must be a single path segment) |
 | `GET /api/jobs/{id}/events` | SSE: `{"type":"status", status, error, exit_code, started_at, finished_at, stdout_size, stderr_size, output_files, stderr_tail}` and `{"type":"stdout","text"}` deltas; ends with `{"type":"gone"}` if the job is deleted. Stays open while `queued`/`running`/`waiting` |
 | `POST /api/jobs/{id}/cancel` | chain job → cancels whole chain; single job → kills it. 409 if nothing active |
@@ -239,21 +252,30 @@ configured run's URL is shareable as-is. |
 
 ### Schedules
 
-A schedule is a saved pipeline (§ Pipelines) set to run on one log at
-cron-defined times. Stored on the server (`data/schedules.json`); the name
-is the identity, like pipelines. Fired by the in-process ticker.
+A schedule is a saved pipeline (§ Pipelines) — or its own script(s) — set to
+run on a log (optional when the first step is log-free, §4) at cron-defined
+times. Stored on the server (`data/schedules.json`); the name is the
+identity, like pipelines. Fired by the in-process ticker.
+
+Exactly one of `pipeline` (a saved pipeline's name, resolved fresh at every
+fire — editing the pipeline updates the schedule) or `steps` (a validated
+snapshot owned by the schedule) is set. A single scheduled script is
+`steps` of length one; both UIs create exactly that, while the API accepts
+any step list (fired as a chain, §4.1).
 
 | Method & Path | Description |
 |---|---|
-| `GET /api/schedules` | `{"schedules": [Schedule + next_due + cron_desc]}` sorted by name |
-| `POST /api/schedules` | save (upsert): `{name, cron, pipeline, log, label?, enabled}` → `{"schedule": …}`. Validation: 422 empty name / unparseable or never-matching cron, 404 unknown pipeline/log, 400 path escape — and the pipeline's steps are re-validated like a submission, so a schedule is runnable as saved |
+| `GET /api/schedules` | `{"schedules": [Schedule + next_due + cron_desc + target]}` sorted by name; `target` = the pipeline's name, or the first inline step's script_id |
+| `POST /api/schedules` | save (upsert): `{name, cron, pipeline \| steps, log?, label?, enabled}` → `{"schedule": …}`. Validation: 422 empty name / unparseable or never-matching cron / both `pipeline` and `steps` / neither / a first step that reads `{log}` with no log (naming the step); 404 unknown pipeline/script/log; 400 path escape — and pipeline or inline steps are re-validated like a submission, so a schedule is runnable as saved |
 | `POST /api/schedules/{name}/toggle` | flip `enabled`; 404 unknown |
-| `POST /api/schedules/{name}/run` | fire now (ignores the clock and `enabled`): submits the pipeline as a chain with the schedule's name — or its label — as the job label → `{result, job_ids}`, where result is `ok: N job(s) submitted` \| `skipped: previous run still active (N job(s))` \| `error: …`. Skips and errors are recorded in the schedule's bookkeeping, never raised |
+| `POST /api/schedules/{name}/run` | fire now (ignores the clock and `enabled`): submits the pipeline or the inline steps as a chain with the schedule's name — or its label — as the job label → `{result, job_ids}`, where result is `ok: N job(s) submitted` \| `skipped: previous run still active (N job(s))` \| `error: …`. Skips and errors are recorded in the schedule's bookkeeping, never raised |
 | `DELETE /api/schedules/{name}` | remove; 404 unknown |
 
-`Schedule` = `{name, cron, pipeline, log, label, enabled, created_at,
-updated_at, last_run_at, last_result, last_job_ids}` — the last three are
-the ticker's bookkeeping; the save API never writes them.
+`Schedule` = `{name, cron, pipeline, steps, log, label, enabled,
+created_at, updated_at, last_run_at, last_result, last_job_ids}` — the last
+three are the ticker's bookkeeping; the save API never writes them. `log`
+is stored as given (a `LOGS_DIR` name or an absolute path) and may be
+empty for log-free steps.
 
 Cron syntax: the standard five fields (minute hour day-of-month month
 day-of-week) with `*`, `*/n`, `a-b`, `a-b/n`, comma lists, Vixie-style
@@ -300,11 +322,11 @@ missing.
 | Path | Description |
 |---|---|
 | `GET /` | home: log list, script checkboxes, "use a file by path" box (absolute path → run configuration), upload form. Script table narrows by category via `?cat=` (chips; unknown value = everything) |
-| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…&cat=…&pipeline=…&p::…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default). Repeated `scripts=` params are the chosen steps **in chain order** (the submission preserves it). A `?log=` value that is an existing absolute file is kept even when the listing doesn't know it. The script table narrows by `?cat=` (chips rebuild the full configuration with the filter swapped; chosen steps stay chosen via hidden inputs even when filtered out of view). In chain mode the parameter fieldsets are numbered `Step N` and each legend has ↑/↓ links that swap it with a neighbor (rebuilding the query); the run summary shows the pipeline `A → B → C`. The table's checkboxes (`pick`) merge into the carried order on Update — still-checked steps keep their position, newly checked ones append, unchecked ones drop — so a reordered chain survives an Update. `p::<script_id>::<param>` **query** params carry current parameter values: they prefill the forms and ride along every rebuilt link and the Update form's hidden inputs, so a configured run never falls back to defaults by navigating — the fully-configured URL is shareable. `?pipeline=<name>` loads a saved pipeline (§5 Pipelines): its steps replace the current selection in order, chain mode is forced, and the stored parameters prefill the forms (URL `p::` values still win). The submit bar (run summary + Run button) is sticky at the viewport bottom, so long fieldset stacks keep Run one click away. A "Saved pipelines" card (when any exist) offers a zero-JS Load form plus a 🗑 Delete button (a `formmethod="post"` sibling sharing the form); in chain mode the runbar also has a 💾 Save pipeline button — a `formaction` sibling of Run posting the same form's fields to `/pipelines/save` |
-| `POST /submit` | form submission: one submission per selected log (fan-out), parallel or chain; single job → 303 to its page, else 303 to the jobs list |
+| `GET /run?log=…&logs=…&scripts=…&mode=…&label=…&cat=…&pipeline=…&p::…` | run configuration — a shareable GET; renders one parameter form per selected script (fields named `p::<script_id>::<param>`; booleans = hidden `false` + checkbox `true`; multi = comma-separated; empty = manifest default). Repeated `scripts=` params are the chosen steps **in chain order** (the submission preserves it). A `?log=` value that is an existing absolute file is kept even when the listing doesn't know it. **No log selected is a valid state**: the page renders all the same (scripts are badged `log-free` / `needs log`, the runbar summary reads `N script(s) × no log`, a flash names chosen scripts that would need a log), and submitting runs log-free (§4). The script table narrows by `?cat=` (chips rebuild the full configuration with the filter swapped; chosen steps stay chosen via hidden inputs even when filtered out of view). In chain mode the parameter fieldsets are numbered `Step N` and each legend has ↑/↓ links that swap it with a neighbor (rebuilding the query); the run summary shows the pipeline `A → B → C`. The table's checkboxes (`pick`) merge into the carried order on Update — still-checked steps keep their position, newly checked ones append, unchecked ones drop — so a reordered chain survives an Update. `p::<script_id>::<param>` **query** params carry current parameter values: they prefill the forms and ride along every rebuilt link and the Update form's hidden inputs, so a configured run never falls back to defaults by navigating — the fully-configured URL is shareable. `?pipeline=<name>` loads a saved pipeline (§5 Pipelines): its steps replace the current selection in order, chain mode is forced, and the stored parameters prefill the forms (URL `p::` values still win). The submit bar (run summary + Run button) is sticky at the viewport bottom, so long fieldset stacks keep Run one click away. A "Saved pipelines" card (when any exist) offers a zero-JS Load form plus a 🗑 Delete button (a `formmethod="post"` sibling sharing the form); in chain mode the runbar also has a 💾 Save pipeline button — a `formaction` sibling of Run posting the same form's fields to `/pipelines/save` |
+| `POST /submit` | form submission: one submission per selected log (fan-out), parallel or chain; no logs selected at all = one log-free submission (§4 validation applies). Single job → 303 to its page, else 303 to the jobs list |
 | `POST /pipelines/save` | the runbar's 💾 button (a `formaction` sibling of Run reusing `/submit`'s fields plus `pipeline_name`): saves the configured steps as a pipeline (validated like the API, §5) and 303-redirects back to the same fully-configured `/run` URL with a success flash — that URL doubles as the shareable link |
 | `POST /pipelines/delete` | the Load card's 🗑 button (same form via `formaction` + `formmethod` overrides, posting the selected `pipeline` + hidden `logs`/`cat`): deletes it and 303-redirects to `/run` with a flash; 404 unknown name |
-| `GET /schedules` | the cron view: every schedule as a table (name, cron + plain-language label, pipeline, log, next fire, last run/result) with ▶ Run now / ⏸ Pause–⏵ Resume / 🗑 Delete buttons, plus the create form (name, cron with examples, pipeline + log selects, optional label, enabled checkbox). `?cron=` prefills the expression — the preset chips are plain links; `?schedule=<name>` loads one for editing (same identity rule as pipelines: re-save replaces, new name forks) |
+| `GET /schedules` | the cron view: every schedule as a table (name, cron + plain-language label, what runs — pipeline or script(s) —, log, next fire, last run/result) with ▶ Run now / ⏸ Pause–⏵ Resume / 🗑 Delete buttons, plus the create form (name, cron with examples, pipeline select **and** script select — each `— none —` first, exactly one used —, log select with a `— none (log-free) —` option, optional label, enabled checkbox). `?cron=` prefills the expression — the preset chips are plain links; `?schedule=<name>` loads one for editing (same identity rule as pipelines: re-save replaces, new name forks; an inline schedule prefills its first script + parameters). A "Configure parameters" button submits the form to this same page via GET (`formaction`/`formmethod` overrides), so everything typed rides along as query params (`name`, `cron`, `script`, `log`, `label`, `enabled`, `p::<script_id>::<param>`) and the page re-renders with the chosen script's parameter fieldset — the same zero-JS wizard trick as `/run`'s Update |
 | `POST /schedules/save` | the create/edit form: saves (validated exactly like the API, §5 Schedules) and 303-redirects to `/schedules` with a flash |
 | `POST /schedules/toggle` | a row's ⏸/⏵ button (`name` field): flips `enabled`, 303-redirect with a flash |
 | `POST /schedules/run` | a row's ▶ Run now button: fires through the ticker's path; the redirect flash carries the result (`ok:`/`skipped:` as a message, `error:` as an error flash) |
@@ -407,13 +429,17 @@ Each script process receives:
 - `argv` rendered from the command template
 - `cwd` = the job's `outputs/` directory
 - env: `JOB_ID`, `JOB_LOG_PATH` (resolved input path), `JOB_OUTPUT_DIR`,
-  `JOB_ORIGINAL_LOG` (the originally selected file) + the server environment
+  `JOB_ORIGINAL_LOG` (the originally selected file) + the server
+  environment. The two log variables are **absent** — not empty — for a
+  log-free run (§4): a script reading `$JOB_LOG_PATH` directly is on its
+  own when no log was selected.
 
 With the default command templates (`<interpreter> {script} {log} {args}`)
 the input path is the script's **first argument** — `$1` in shell,
 `sys.argv[1]` in python, `process.argv[2]` in node, `ARGV[0]` in ruby,
 `$ARGV[0]` in perl. A command that omits `{log}` can read the same path
-from `JOB_LOG_PATH` instead.
+from `JOB_LOG_PATH` when a log is selected — or declare itself log-free
+and run without one (§4).
 
 Artifacts: write to the `{output}` path, or write any files into
 `$JOB_OUTPUT_DIR` — both are served by `GET /api/jobs/{id}/files/{name}`.

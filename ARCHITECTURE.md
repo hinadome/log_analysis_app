@@ -191,9 +191,17 @@ previous-step output identically:
 
 ```
 source = job.input_path or job.log_path
-if source is .gz/.bz2/.xz → read the shared cache copy (data/cache/decompressed/)
+if neither            → no input at all (log-free run)
+elif source is .gz/.bz2/.xz → read the shared cache copy (data/cache/decompressed/)
 else                        → use the file directly
 ```
+
+A **log-free run** (`log_path` empty, command without `{log}` — validated
+at submission) has no input file: nothing is materialized, `input_path()`
+returns `None`, the env carries no `JOB_LOG_PATH`/`JOB_ORIGINAL_LOG`, and
+the sandbox mounts nothing but the script and the outputs dir. The `/input`
+endpoint 404s and the UIs' Input tabs say so rather than pretending a file
+was lost.
 
 A compressed input is therefore **never** handed to a script raw — whether it
 is the originally selected log or step N−1's gzipped artifact. The cache
@@ -207,7 +215,8 @@ manual prune drop the ones whose source is gone or changed.
 Each script process receives `argv` from the rendered template, `cwd` = the
 job's `outputs/` directory, and env vars `JOB_ID`, `JOB_LOG_PATH` (the
 resolved, decompressed input), `JOB_OUTPUT_DIR`, and `JOB_ORIGINAL_LOG` (the
-originally selected file — chain steps can still reach it). Artifacts are
+originally selected file — chain steps can still reach it). On a log-free
+run the two log variables are absent — not empty. Artifacts are
 whatever the script writes to `{output}` or into `$JOB_OUTPUT_DIR`.
 
 With `LOGSMITH_DOCKER_SANDBOX=1` the same argv runs inside a `docker run
@@ -358,13 +367,18 @@ legacy key is removed only after every name is accounted for.
 
 ### 4.9 Scheduled runs — the cron ticker
 
-A schedule is a saved pipeline (§4.8) bound to one log and a cron
-expression, stored in `data/schedules.json`. Firing one is not a new
-execution path: the ticker builds a normal `JobCreateRequest` (mode
-`chain`, label = the schedule's name or its own label) and awaits the
-same `create_jobs` the UIs call — so labels, history, retention,
-`MAX_CONCURRENT_JOBS` and both UIs' job views all apply to scheduled
-runs unchanged.
+A schedule is a saved pipeline (§4.8) — or its own script(s), stored as
+inline `steps` — bound to a log (optional when the first step is
+log-free, §3.2) and a cron expression, stored in `data/schedules.json`.
+Firing one is not a new execution path: the ticker builds a normal
+`JobCreateRequest` (mode `chain`, label = the schedule's name or its own
+label) and awaits the same `create_jobs` the UIs call — so labels,
+history, retention, `MAX_CONCURRENT_JOBS` and both UIs' job views all
+apply to scheduled runs unchanged. A pipeline reference is resolved
+fresh at fire time (editing the pipeline updates every schedule pointing
+at it); inline steps are the schedule's own validated snapshot. Exactly
+one of the two is set (XOR-checked at save), and both UIs create the
+single-script case — `steps` of length one.
 
 **The clock.** One asyncio task (`services/scheduler.py`), started by the
 lifespan after the executor, sleeping 30s between ticks; each tick fires
@@ -634,22 +648,22 @@ every push and pull request; the repo is under git with `data/`,
 | Test module | Covers |
 |---|---|
 | `test_store.py` | persistence round-trip, newest-first listing, chain ordering, `reconcile()`, `prune()`, label persistence, delete-vs-save races |
-| `test_executor.py` | single-job lifecycle: exit codes, timeouts, cancellation, gz/bz2/xz input decompression, script env vars, artifact collection, `chain_output()` |
+| `test_executor.py` | single-job lifecycle: exit codes, timeouts, cancellation, gz/bz2/xz input decompression, script env vars, log-free runs (no env vars, no input), artifact collection, `chain_output()` |
 | `test_chains.py` | invariants 1–4 + 6 below: artifact/stdout hand-off, compressed hand-off decompression, fail→skip, no-output→fail-next, gap tolerance, advancement-error containment, cancel-flag blocking |
 | `test_chain_cancel.py` | invariant 5-adjacent cancel semantics: kill running + skip waiting, idempotent return values, skip reasons |
-| `test_api.py` | the HTTP contract end-to-end: atomic validation (invariant 3), chain flow via real scripts, labels + `?q=` search (incl. chain ids), status filtering (single + comma-separated), pagination + post-filter totals, the `/input` endpoint (log, chained, decompressed, gone-source 404), the SSE stream (live stdout + terminal status frames), full/partial rerun (invariant 7) incl. 400/409 paths, delete-live-chain (invariant 6), cancel endpoint, prune guard; parallel jobs must overlap in wall-clock while the API keeps answering mid-run (the async contract) |
+| `test_api.py` | the HTTP contract end-to-end: atomic validation (invariant 3), chain flow via real scripts, `needs_log` derivation, log-free submissions (ok, 422 named rejections, chain step-1 rule, rerun), labels + `?q=` search (incl. chain ids), status filtering (single + comma-separated), pagination + post-filter totals, the `/input` endpoint (log, chained, decompressed, gone-source 404), the SSE stream (live stdout + terminal status frames), full/partial rerun (invariant 7) incl. 400/409 paths, delete-live-chain (invariant 6), cancel endpoint, prune guard; parallel jobs must overlap in wall-clock while the API keeps answering mid-run (the async contract) |
 | `test_scripts_api.py` | script editor endpoints against a temp SCRIPTS_DIR: create→discover→run, defaults, duplicate/bad-input rejection, source roundtrip, update incl. extension change, delete + rerun-404, export (contents + restore round-trip); scripts written executable (755) so `{script}`-direct commands run, and spawn failures carry hints (EACCES/ENOEXEC/ENOENT) |
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
-| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, needs-a-pipeline hint) |
+| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false, log-free incl. the no-log run page + 422), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, script mode: wizard prefill, fieldset, save/run, needs-log rejection, no-pipelines form) |
 | `test_security.py` | the script authoring lock: API writes 403 (nothing lands on disk), reads/export/job submission unaffected, python UI editor pages bounce and hide actions, health reports the flag, editor works when unlocked |
-| `test_sandbox.py` | the Docker sandbox: the `docker run` wrapper's shape (mounts, no network, uid:gid, JOB_* env, container name, image + command order), compressed-input mounts; e2e (skipped without Docker + image): completion, artifacts owned by the host user, no network, timeout kills the container, every interpreter |
+| `test_sandbox.py` | the Docker sandbox: the `docker run` wrapper's shape (mounts, no network, uid:gid, JOB_* env, container name, image + command order), compressed-input mounts, log-free shape (no input mount, no JOB_LOG_* env); e2e (skipped without Docker + image): completion, artifacts owned by the host user, no network, timeout kills the container, every interpreter |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
 | `test_pipelines_api.py` | the saved-pipeline API: save/list/delete round-trip, upsert-by-name (created_at kept), validation (unknown script 404, bad params 422, empty name/steps), delete 404 |
 | `test_cron.py` | the cron matcher: next-fire for every construct (steps, ranges, lists, names, Vixie `a/n`, the day OR rule, Sunday 0/7, leap day), strictly-after semantics, rejection table (field count, ranges, Feb 30, zero steps), `describe()` labels |
-| `test_scheduler.py` | the ticker engine with an injected clock: fires once per matching minute, no double-fire within a minute, no catch-up for minutes lost while down, disabled never fires, overlap skip (recorded, nothing submitted), finished previous run doesn't block, missing pipeline / submission errors recorded not raised, multiple schedules in one tick |
-| `test_schedules_api.py` | the schedule API: save/list round-trip with next_due + cron_desc, upsert keeps bookkeeping, validation (cron 422 incl. never-matching, pipeline/log 404, escape 400, broken pipeline 404), toggle/delete + 404s, run-now submits a real chain labelled with the schedule's name, custom label, missing log recorded as `error:` |
+| `test_scheduler.py` | the ticker engine with an injected clock: fires once per matching minute, no double-fire within a minute, no catch-up for minutes lost while down, disabled never fires, overlap skip (recorded, nothing submitted), finished previous run doesn't block, inline steps fire as a chain (log-free), neither-pipeline-nor-steps error, missing pipeline / submission errors recorded not raised, multiple schedules in one tick |
+| `test_schedules_api.py` | the schedule API: save/list round-trip with next_due + cron_desc + target, upsert keeps bookkeeping, validation (cron 422 incl. never-matching, pipeline/log/script 404, escape 400, broken pipeline 404, pipeline XOR steps 422, log-required-iff-first-step-needs-it), inline-steps save/toggle/run-now, toggle/delete + 404s, run-now submits a real chain labelled with the schedule's name, custom label, missing log recorded as `error:` |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,
