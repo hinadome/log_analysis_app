@@ -445,6 +445,50 @@ def test_schedules_page_script_needs_log(client):
     assert "error_counter" in res.text
 
 
+def test_schedules_page_log_by_path(client, tmp_path):
+    """The log field takes a typed path too — any file on the machine,
+    overriding the select. The wizard round-trip keeps it, and edit
+    prefill routes an unlisted path back into the box."""
+    outside = tmp_path / "nightly.log"
+    outside.write_text("2026-11-03 ERROR by path\n", encoding="utf-8")
+
+    # save via the form with the by-path box — a needs-log script is
+    # satisfied by it (the box overrides the empty select)
+    res = client.post("/schedules/save", data={
+        "name": "by path", "cron": "0 8 * * *", "script": "error_counter",
+        "p::error_counter::level": "ERROR",
+        "pipeline": "", "logpath": str(outside), "log": "",
+        "label": "", "enabled": "true"}, follow_redirects=False)
+    assert res.status_code == 303
+    schedule = client.get("/api/schedules").json()["schedules"][0]
+    assert schedule["log"] == str(outside)      # stored as given
+
+    # run-now uses it — the job resolves to the same file
+    client.post("/schedules/run", data={"name": "by path"})
+    job = client.get("/api/jobs").json()["jobs"][0]
+    assert Path(job["log_path"]) == outside.resolve()
+
+    # a nonexistent path is rejected at save, like any unknown log
+    res = client.post("/schedules/save", data={
+        "name": "ghost", "cron": "0 8 * * *", "script": "error_counter",
+        "pipeline": "", "logpath": "/no/such/file.log", "log": "",
+        "enabled": "true"})
+    assert res.status_code == 404
+
+    # edit prefill: the unlisted path lands in the by-path box
+    page = client.get("/schedules", params={"schedule": "by path"})
+    assert f'value="{outside}"' in page.text
+    # ... and the select sits on none (no listed option selected)
+    select = page.text.split('name="log"')[1].split("</select>")[0]
+    assert "selected" not in select
+
+    # the wizard round-trip keeps a typed path
+    page = client.get("/schedules", params={
+        "name": "w", "cron": "0 8 * * *", "script": "error_counter",
+        "logpath": str(outside), "enabled": "true"})
+    assert f'value="{outside}"' in page.text
+
+
 def test_schedules_page_without_pipelines(client):
     """No saved pipelines — the form still renders (a schedule can be a
     single script), with empty selects and a hint."""

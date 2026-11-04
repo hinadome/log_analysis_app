@@ -710,6 +710,7 @@ export default function App() {
                 scripts={scripts}
                 logs={logs}
                 defaultLog={selectedLog && !selectedLog.custom ? selectedLog.name : ""}
+                defaultLogPath={selectedLog?.custom ? selectedLog.path : ""}
                 onSave={saveSchedule}
                 onToggle={toggleSchedule}
                 onRun={runScheduleNow}

@@ -100,6 +100,12 @@
       </select>
       <span class="muted">required only when the first step reads <span class="mono">{log}</span></span>
     </label>
+    <label class="field">or by path
+      <input type="text" name="logpath" class="mono" spellcheck="false" autocomplete="off"
+             value="{{ form.logpath }}"
+             placeholder="/var/log/system.log — any file on this machine">
+      <span class="muted">overrides the select — existence checked at save, resolved at every fire</span>
+    </label>
     <label class="field">label <span class="muted">(optional — job label; defaults to the name)</span>
       <input type="text" name="label" maxlength="80" value="{{ form.label }}"
              placeholder="nightly errors">

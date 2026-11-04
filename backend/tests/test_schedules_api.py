@@ -7,6 +7,8 @@ through the real submission path — scheduled runs are ordinary jobs.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 PIPELINE = {
     "name": "errors then count",
     "steps": [
@@ -122,6 +124,27 @@ def test_save_rejects_unknown_inline_script(client):
         "steps": [{"script_id": "gone_script", "params": {}}],
         "log": "", "label": None, "enabled": True})
     assert res.status_code == 404
+
+
+def test_save_log_by_absolute_path(client, tmp_path):
+    """The log is stored as given: an absolute path outside LOGS_DIR
+    resolves at save time and at every fire — same affordance as the
+    run page's 'use a file by path' box."""
+    outside = tmp_path / "system.log"
+    outside.write_text("2026-11-03 ERROR outside\n", encoding="utf-8")
+    _pipeline(client)
+
+    res = _save(client, log=str(outside))
+    assert res.status_code == 200
+    assert res.json()["schedule"]["log"] == str(outside)
+
+    # fires on it: the job resolves to the same file
+    out = client.post("/api/schedules/nightly errors/run").json()
+    job = client.get(f"/api/jobs/{out['job_ids'][0]}").json()
+    assert Path(job["log_path"]) == outside.resolve()
+
+    # a path that does not exist is rejected at save
+    assert _save(client, log="/no/such/file.log").status_code == 404
 
 
 def test_save_requires_log_iff_first_step_reads_log(client):

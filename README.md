@@ -546,7 +546,9 @@ wakes every 30 seconds (server-local time, minute granularity).
 - **Creating one** — the Schedules panel (React, below the runbar) or the
   `/schedules` page (python UI): name, cron expression, a pipeline *or* a
   script, a log (optional — a `— none —` choice, required only when the
-  first step reads `{log}`) and an optional job label. Preset chips build
+  first step reads `{log}`; typed as a path too — any file on the
+  machine, like the run page's box, overriding the list) and an optional
+  job label. Preset chips build
   common expressions (`*/5 * * * *`, hourly, daily 08:00, weekdays 09:00).
   Saving validates everything up front: the expression must parse (and
   match something within four years — Feb 30 is rejected), the pipeline

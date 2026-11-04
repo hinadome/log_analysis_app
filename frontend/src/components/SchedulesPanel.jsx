@@ -19,7 +19,7 @@ const PRESETS = [
  * panel like any other run.
  */
 export default function SchedulesPanel({
-  schedules, pipelines, logs, scripts, defaultLog,
+  schedules, pipelines, logs, scripts, defaultLog, defaultLogPath,
   onSave, onToggle, onRun, onDelete,
 }) {
   const [open, setOpen] = useState(false); // the create form starts folded
@@ -38,7 +38,9 @@ export default function SchedulesPanel({
       pipeline: pipelines[0]?.name || "",
       script: "",
       params: {},
-      log: defaultLog || logs[0]?.name || "",
+      // a custom-path selection prefill the by-path box instead
+      log: defaultLogPath ? "" : (defaultLog || logs[0]?.name || ""),
+      logPath: defaultLogPath || "",
       enabled: true,
     });
   };
@@ -70,7 +72,8 @@ export default function SchedulesPanel({
     if (!form.name.trim() || !form.cron.trim()) return;
     const base = {
       name: form.name.trim(), cron: form.cron.trim(), label: form.label.trim() || null,
-      log: form.log, enabled: form.enabled !== false,
+      // the by-path box overrides the select while filled
+      log: form.logPath.trim() || form.log, enabled: form.enabled !== false,
     };
     // A schedule is either a saved pipeline (resolved at every fire) or
     // its own single script with the parameters configured here.
@@ -155,10 +158,16 @@ export default function SchedulesPanel({
               <option value="">— none (log-free) —</option>
               {logs.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
             </select>
+            <input
+              type="text" className="mono" spellCheck="false" autoComplete="off"
+              placeholder="…or type a path — e.g. /var/log/system.log"
+              title="Overrides the select while filled. Absolute paths reach outside the logs directory; a relative name resolves inside it."
+              value={form.logPath}
+              onChange={(e) => set("logPath", e.target.value)} />
           </label>
-          {form.what === "script" && needsLog && !form.log && (
+          {form.what === "script" && needsLog && !form.log && !form.logPath.trim() && (
             <p className="chip warn schedule-log-warn">
-              “{formScript.name}” reads its input through {"{log}"} — pick a log for this schedule.
+              “{formScript.name}” reads its input through {"{log}"} — pick a log or type a path for this schedule.
             </p>
           )}
           <label>

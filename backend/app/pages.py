@@ -646,7 +646,8 @@ async def delete_pipeline_page(request: Request):
 @router.get("/schedules")
 def schedules_page(
     request: Request, cron: str = "", name: str = "", pipeline: str = "",
-    script: str = "", log: str = "", label: str = "", enabled: str = "",
+    script: str = "", log: str = "", logpath: str = "", label: str = "",
+    enabled: str = "",
 ):
     """The cron view: every schedule with its clock, plus the create form.
 
@@ -665,6 +666,8 @@ def schedules_page(
     schedules = schedules_api.list_schedules()["schedules"]  # enriched: next_due, cron_desc, target
     edit_name = request.query_params.get("schedule", "")
     edit = next((s for s in schedules if s["name"] == edit_name), None) if edit_name else None
+    logs_list = list_logs()
+    listed = {l.name for l in logs_list}
 
     # Parameter values typed in the fieldset ride as `p::<script>::<param>`
     # query params — exactly what the form submits (booleans arrive as the
@@ -677,13 +680,18 @@ def schedules_page(
 
     if edit:
         # Edit prefill: a pipeline schedule selects its pipeline; an inline
-        # one selects its first script and its saved parameters.
+        # one selects its first script and its saved parameters. A log the
+        # listing doesn't know (a path outside LOGS_DIR) goes back into
+        # the by-path box it was typed into.
+        saved_log = edit["log"] or ""
         form = {
             "name": edit["name"], "cron": edit["cron"],
             "pipeline": edit["pipeline"] or "",
             "script": "" if edit["pipeline"] else
                       (edit["steps"][0]["script_id"] if edit["steps"] else ""),
-            "log": edit["log"] or "", "label": edit["label"] or "",
+            "log": saved_log if saved_log in listed else "",
+            "logpath": "" if saved_log in listed else saved_log,
+            "label": edit["label"] or "",
             "enabled": edit["enabled"],
         }
         sid = form["script"]
@@ -695,7 +703,7 @@ def schedules_page(
         # as "" (fresh load), "true" or "false" (hidden+checkbox pair).
         form = {
             "name": name, "cron": cron, "pipeline": pipeline, "script": script,
-            "log": log, "label": label,
+            "log": log, "logpath": logpath, "label": label,
             "enabled": enabled != "false",
         }
 
@@ -707,7 +715,7 @@ def schedules_page(
     return _page(request, "schedules.html", nav="schedules",
                  schedules=schedules,
                  pipeline_names=[p.name for p in pipeline_store.list_pipelines()],
-                 logs=list_logs(), edit=edit,
+                 logs=logs_list, edit=edit,
                  schedule_scripts=schedule_scripts,
                  form=form, param_script=param_script,
                  param_values=param_values.get(form["script"], {}) if param_script else {})
@@ -730,12 +738,15 @@ async def save_schedule_page(request: Request):
                                   back="/schedules")
         steps = [PipelineStep(script_id=script,
                                params=_parse_form_params(form, by_id[script]))]
+    # The by-path box overrides the log select when filled — the same
+    # affordance as the home page's "use a file by path".
+    log = (form.get("logpath") or "").strip() or (form.get("log") or "").strip()
     req = ScheduleSaveRequest(
         name=(form.get("name") or "").strip(),
         cron=(form.get("cron") or "").strip(),
         pipeline=pipeline or None,
         steps=steps,
-        log=(form.get("log") or "").strip(),
+        log=log,
         label=(form.get("label") or "").strip() or None,
         enabled=form.get("enabled") not in (None, "", "off", "false"),
     )
