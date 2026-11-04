@@ -822,16 +822,21 @@ def jobs_page(
     request: Request,
     q: str = "",
     status: str = "",
+    user: str = "",
     offset: int = 0,
     sort: str = "created",
     dir: str = "desc",
 ):
     if redirect := _need_login(request):
         return redirect
+    viewer = auth.current_user(request)
+    is_admin = viewer is None or viewer.role == "admin"
 
-    # Filter exactly like the API does (label/script/log/id/chain, comma status).
+    # Filter exactly like the API does (label/script/log/id/chain, comma
+    # status; the ?user= narrowing is admin oversight).
     filtered = jobs_api.list_jobs(status=status or None, q=q or None,
-                                  limit=5000, offset=0)["jobs"]
+                                  user=user.strip() or None,
+                                  limit=5000, offset=0, request=request)["jobs"]
 
     key = _SORT_KEYS.get(sort, _SORT_KEYS["created"])
     reverse = dir != "asc"
@@ -842,7 +847,7 @@ def jobs_page(
     page = filtered[offset:offset + PAGE_SIZE]
 
     def qs(**overrides):
-        params = {"q": q, "status": status, "sort": sort, "dir": dir}
+        params = {"q": q, "status": status, "user": user, "sort": sort, "dir": dir}
         params.update(overrides)
         return "/jobs?" + urlencode({k: v for k, v in params.items() if v})
 
@@ -857,6 +862,7 @@ def jobs_page(
         jobs=page, total=total, q=q, status=status,
         offset=offset, page_size=PAGE_SIZE,
         sort=sort, dir=dir, qs=qs,
+        is_admin=is_admin, user_filter=user.strip(),
         status_filters=[
             {**f, "count": counts[f["value"]],
              "on": status == f["value"] or (not status and not f["value"])}
@@ -874,7 +880,7 @@ async def job_cancel(request: Request, job_id: str):
         return redirect
     form = await request.form()
     try:
-        await jobs_api.cancel_job(job_id)
+        await jobs_api.cancel_job(job_id, request)
     except HTTPException as exc:
         return _render_error(request, exc, back="/jobs")
     return RedirectResponse(_safe_next(form.get("back") or f"/jobs/{job_id}"), status_code=303)
@@ -886,7 +892,7 @@ async def job_delete(request: Request, job_id: str):
         return redirect
     form = await request.form()
     try:
-        await jobs_api.delete_job(job_id)
+        await jobs_api.delete_job(job_id, request)
     except HTTPException as exc:
         return _render_error(request, exc, back="/jobs")
     return RedirectResponse(_safe_next(form.get("back") or "/jobs"), status_code=303)
@@ -911,11 +917,17 @@ async def job_rerun(request: Request, job_id: str):
 async def jobs_clear_finished(request: Request):
     if redirect := _need_login(request):
         return redirect
+    viewer = auth.current_user(request)
     removed = 0
     for job in jobs_api.store.list():
-        if job.status not in ACTIVE:
-            jobs_api.store.delete(job.id)
-            removed += 1
+        if job.status in ACTIVE:
+            continue  # only finished jobs are cleared
+        if not jobs_api._may_modify(job, viewer):
+            # a regular user clears their own finished runs; the shared
+            # system history is the admin's to sweep
+            continue
+        jobs_api.store.delete(job.id)
+        removed += 1
     return RedirectResponse("/jobs?" + urlencode({"msg": f"Deleted {removed} finished job(s)"}), status_code=303)
 
 
@@ -926,7 +938,7 @@ async def jobs_prune(request: Request):
     form = await request.form()
     try:
         days = int((form.get("days") or "").strip())
-        result = jobs_api.prune_jobs(days)
+        result = jobs_api.prune_jobs(days, request)
     except (ValueError, HTTPException) as exc:
         detail = str(getattr(exc, "detail", exc))
         return RedirectResponse("/jobs?" + urlencode({"err": detail}), status_code=303)
@@ -943,7 +955,8 @@ def job_detail(request: Request, job_id: str, tab: str = "result"):
     if redirect := _need_login(request):
         return redirect
     try:
-        job = jobs_api._get_job_or_404(job_id)
+        job = jobs_api._get_visible_job_or_404(
+            job_id, auth.current_user(request))
     except HTTPException as exc:
         return _render_error(request, exc, back="/jobs")
     if tab not in ("result", "stderr", "input", "files", "details"):
@@ -998,7 +1011,7 @@ def job_result_csv(request: Request, job_id: str, sortcol: str = "", sortdir: in
     if redirect := _need_login(request):
         return redirect
     try:
-        job = jobs_api._get_job_or_404(job_id)
+        jobs_api._get_visible_job_or_404(job_id, auth.current_user(request))
     except HTTPException as exc:
         return _render_error(request, exc, back=f"/jobs/{job_id}")
     output = _output_view(jobs_api.store.read(job_id, "stdout"), "table",
@@ -1024,12 +1037,16 @@ def job_compare(request: Request, job_id: str, other: str = ""):
     if redirect := _need_login(request):
         return redirect
     try:
-        job = jobs_api._get_job_or_404(job_id)
+        job = jobs_api._get_visible_job_or_404(
+            job_id, auth.current_user(request))
     except HTTPException as exc:
         return _render_error(request, exc, back="/jobs")
 
+    # comparing is reading: only jobs this viewer may see can be the other
+    # side — someone else's private history must not leak through a diff
     candidates = [j for j in jobs_api.store.list()
-                  if j.status == "completed" and j.id != job_id]
+                  if j.status == "completed" and j.id != job_id
+                  and jobs_api._may_see(j, auth.current_user(request))]
     if not other:
         # default: latest run of the same script, else the latest other job
         sibling = next((j for j in candidates if j.script_id == job.script_id), None)

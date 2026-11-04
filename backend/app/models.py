@@ -192,6 +192,11 @@ class Job(BaseModel):
     chain_index: int = 0
     chain_size: int = 0
 
+    # Username of the account that submitted this job. None means a system
+    # job — the scheduler firing a schedule, or anything submitted before
+    # accounts existed (legacy/anonymous) — which stays visible to everyone.
+    owner: str | None = None
+
     # Cache path of the decompressed copy this job reads, for a compressed
     # input (the selected log or a previous step's compressed artifact).
     # Memoized at submit time so the spawned command, the materialized file

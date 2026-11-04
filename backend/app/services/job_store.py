@@ -51,7 +51,8 @@ class JobStore:
         return f"{stamp}-{uuid.uuid4().hex[:8]}"
 
     def create(self, *, script_id: str, script_name: str, log_path: str,
-               log_name: str, params: dict, label: str | None = None) -> Job:
+               log_name: str, params: dict, label: str | None = None,
+               owner: str | None = None) -> Job:
         job = Job(
             id=self.new_id(),
             script_id=script_id,
@@ -61,6 +62,7 @@ class JobStore:
             label=label,
             params=params,
             created_at=utcnow(),
+            owner=owner,
         )
         self.outputs_dir(job.id).mkdir(parents=True, exist_ok=True)
         self.save(job)

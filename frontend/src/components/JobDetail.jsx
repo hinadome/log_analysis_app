@@ -32,7 +32,7 @@ function shellQuote(token) {
   return /^[A-Za-z0-9_@%+=:,./-]*$/.test(token) ? token : `'${token.replace(/'/g, "'\\''")}'`;
 }
 
-export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged }) {
+export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged, me, multiUser }) {
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
   const [liveText, setLiveText] = useState("");   // stdout accumulated via SSE
@@ -50,6 +50,9 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
 
   const active = job && ACTIVE.has(job.status);
   const running = job && RUNNING.has(job.status);
+  // a regular user manages their own runs; the shared system history is the
+  // admin's. me is null for the single operator, who may do anything.
+  const mayManage = Boolean(job) && (!me || me.role === "admin" || job.owner === me.username);
 
   const load = useCallback(() => {
     api.getJob(id).then(setJob).catch((e) => setError(String(e.message || e)));
@@ -206,7 +209,9 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
             <span className="mono muted">{job.log_name || "— no log"}</span>
           </div>
           <div className="job-actions">
-            {active && <button className="btn danger sm" onClick={cancel}>Cancel</button>}
+            {/* a regular user may stop or remove their own runs; the shared
+                system history (scheduler, pre-accounts) is the admin's */}
+            {active && mayManage && <button className="btn danger sm" onClick={cancel}>Cancel</button>}
             {job.chain_id && job.chain_index > 0 && (
               <button
                 className="btn sm"
@@ -226,12 +231,20 @@ export default function JobDetail({ id, onBack, onOpenJob, onRerun, onChanged })
                 ⇄ Compare…
               </button>
             )}
-            <button className="btn ghost sm" onClick={del}>Delete</button>
+            {mayManage && <button className="btn ghost sm" onClick={del}>Delete</button>}
           </div>
         </div>
 
         <div className="meta-grid">
           <Meta label="Job ID" value={<span className="mono sm">{job.id}</span>} />
+          {multiUser && (
+            <Meta
+              label="Owner"
+              value={job.owner
+                ? (me && job.owner === me.username ? `${job.owner} (you)` : job.owner)
+                : "system"}
+            />
+          )}
           <Meta label="Created" value={fmtDate(job.created_at)} />
           <Meta label="Started" value={fmtDate(job.started_at)} />
           <Meta label="Duration" value={elapsed(job.started_at || job.created_at, job.finished_at) ?? "—"} />

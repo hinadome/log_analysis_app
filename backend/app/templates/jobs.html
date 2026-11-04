@@ -18,15 +18,21 @@
       <button class="btn ghost sm" type="submit">Clear finished</button>
     </form>
     {% endif %}
+    {% if is_admin %}
     <form method="post" action="/jobs/prune" class="inline">
       <input type="number" name="days" min="1" max="3650" placeholder="days" required class="num">
       <button class="btn ghost sm" type="submit">Prune older</button>
     </form>
+    {% endif %}
   </div>
 </div>
 
 <form method="get" action="/jobs" class="searchbar">
   <input type="text" name="q" value="{{ q }}" placeholder="Search label, script, log, id…">
+  {% if multi_user and is_admin %}
+  <input type="text" name="user" value="{{ user_filter }}" placeholder="owner — user or blank for all"
+         title="Show only one account's jobs (admins oversee everyone's; blank = all + system runs)">
+  {% endif %}
   <input type="hidden" name="status" value="{{ status }}">
   <button class="btn" type="submit">Search</button>
 </form>
@@ -44,6 +50,7 @@
     <th>{{ sortlink('script', 'Script') }}</th>
     <th>{{ sortlink('log', 'Log') }}</th>
     <th>{{ sortlink('label', 'Label') }}</th>
+    {% if multi_user and is_admin %}<th>Owner</th>{% endif %}
     <th>{{ sortlink('status', 'Status') }}</th>
     <th>Duration</th>
     <th></th>
@@ -58,29 +65,34 @@
     </td>
     <td class="mono">{{ j.log_name or '—' }}</td>
     <td>{{ j.label or '' }}</td>
+    {% if multi_user and is_admin %}
+    <td class="muted">{% if j.owner %}{{ j.owner }}{% else %}<span title="Scheduler, or submitted before accounts existed — visible to everyone">system</span>{% endif %}</td>
+    {% endif %}
     <td>
       <span class="badge st-{{ j.status }}">{{ j.status }}</span>
       {% if j.status == 'failed' and j.exit_code is not none %}<span class="muted">exit {{ j.exit_code }}</span>{% endif %}
     </td>
     <td class="muted">{{ duration(j) }}</td>
     <td class="row-actions">
-      {% if j.status in ('queued', 'waiting', 'running') %}
+      {% if j.status in ('queued', 'waiting', 'running') and (j.owner or is_admin) %}
       <form method="post" action="/jobs/{{ j.id }}/cancel" class="inline">
         <input type="hidden" name="back" value="/jobs">
         <button class="btn ghost sm" type="submit">Cancel</button>
       </form>
       {% endif %}
+      {% if j.owner or is_admin %}
       <form method="post" action="/jobs/{{ j.id }}/delete" class="inline">
         <input type="hidden" name="back" value="/jobs">
         <button class="btn danger sm" type="submit">Delete</button>
       </form>
+      {% endif %}
     </td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
 {% else %}
-<p class="muted card">No jobs{% if q or status %} match{% else %} yet — start one from the <a href="/">Run page</a>{% endif %}.</p>
+<p class="muted card">No jobs{% if q or status or user_filter %} match{% else %} yet — start one from the <a href="/">Run page</a>{% endif %}.</p>
 {% endif %}
 
 <div class="pager">

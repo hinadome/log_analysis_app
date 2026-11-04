@@ -48,6 +48,9 @@ export default function App() {
   const jobQueryRef = useRef(""); // what refreshJobs should ask the server for
   const [jobStatus, setJobStatus] = useState(""); // "" = all
   const jobStatusRef = useRef("");
+  // admins oversee everyone's runs; this narrows the list to one account
+  const [jobOwner, setJobOwner] = useState("");
+  const jobOwnerRef = useRef("");
   const view = parseRoute(useHashRoute()); // hash is the source of truth for the view
   const openJob = useCallback((id) => { window.location.hash = `#/job/${id}`; }, []);
   const goHome = useCallback(() => { window.location.hash = "#/"; }, []);
@@ -101,7 +104,8 @@ export default function App() {
   );
 
   const refreshJobs = useCallback(() => {
-    api.listJobs({ q: jobQueryRef.current, status: jobStatusRef.current, limit: jobsLimitRef.current })
+    api.listJobs({ q: jobQueryRef.current, status: jobStatusRef.current,
+                    user: jobOwnerRef.current, limit: jobsLimitRef.current })
       .then((r) => {
         setJobs(r.jobs);
         setJobsTotal(r.total);
@@ -132,6 +136,17 @@ export default function App() {
     jobStatusRef.current = jobStatus;
     refreshJobs();
   }, [jobStatus, refreshJobs]);
+
+  // the admin's owner filter, debounced like the search box
+  useEffect(() => {
+    const next = jobOwner.trim();
+    const t = setTimeout(() => {
+      if (jobOwnerRef.current === next) return;
+      jobOwnerRef.current = next;
+      refreshJobs();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [jobOwner, refreshJobs]);
 
   // ---------- authentication ----------
   const [multiUser, setMultiUser] = useState(false);
@@ -818,8 +833,11 @@ export default function App() {
               onCancel={cancelJob}
               onDelete={deleteJob}
               onClearFinished={clearFinished}
-              onPrune={pruneOld}
+              onPrune={isAdmin ? pruneOld : undefined}
               dataSize={health?.data_dir_size}
+              me={authUser}
+              ownerFilter={jobOwner}
+              onOwnerFilter={setJobOwner}
             />
           </>
         ) : view.name === "terminal" ? (
@@ -838,6 +856,8 @@ export default function App() {
             onOpenJob={openJob}
             onRerun={openJob}
             onChanged={refreshJobs}
+            me={authUser}
+            multiUser={multiUser}
           />
         )}
       </main>

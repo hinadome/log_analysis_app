@@ -8,24 +8,29 @@
   <div class="head-actions">
     <a class="btn sm" href="/jobs/{{ job.id }}/compare">⇄ Compare</a>
     {% if active %}
+    {% if job.owner or is_admin %}
     <form method="post" action="/jobs/{{ job.id }}/cancel" class="inline">
       <button class="btn ghost sm" type="submit">Cancel</button>
     </form>
+    {% endif %}
     {% else %}
     <form method="post" action="/jobs/{{ job.id }}/rerun" class="inline">
       <button class="btn sm" type="submit" title="Run this again with the same parameters">Re-run</button>
     </form>
     {% endif %}
+    {% if job.owner or is_admin %}
     <form method="post" action="/jobs/{{ job.id }}/delete" class="inline">
       <input type="hidden" name="back" value="/jobs">
       <button class="btn danger sm" type="submit">Delete</button>
     </form>
+    {% endif %}
   </div>
 </div>
 
 <div class="meta-grid mono">
   <div><span class="muted">job</span> {{ job.id }}</div>
   <div><span class="muted">log</span> {{ job.log_name or '—' }}{% if not job.log_path %} <span class="muted">(log-free run)</span>{% endif %}</div>
+  {% if multi_user %}<div><span class="muted">owner</span> {% if job.owner %}{{ job.owner }}{% if current_user and job.owner == current_user.username %} (you){% endif %}{% else %}system{% endif %}</div>{% endif %}
   {% if job.label %}<div><span class="muted">label</span> {{ job.label }}</div>{% endif %}
   <div><span class="muted">created</span> {{ job.created_at | dt }}</div>
   {% if job.started_at %}<div><span class="muted">duration</span> {{ duration }}</div>{% endif %}

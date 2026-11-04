@@ -109,6 +109,43 @@ def _get_job_or_404(job_id: str) -> Job:
     return job
 
 
+# --- ownership (multi-user mode) --------------------------------------------
+#
+# An owned job belongs to its submitter's history: visible to them and to
+# admins, a 404 to everyone else (never a confirmation that it exists).
+# Ownerless jobs are the system's shared history — the scheduler firing a
+# schedule, or anything submitted before accounts existed — readable by
+# everyone, but only an admin may stop or delete one. `user` None is the
+# trusted no-identity context (single-user operator): full rights, exactly
+# the pre-multi-user behavior.
+
+def _may_see(job: Job, user) -> bool:
+    if job.owner is None or user is None or user.role == "admin":
+        return True
+    return job.owner == user.username
+
+
+def _may_modify(job: Job, user) -> bool:
+    if job.owner is None:
+        return user is None or user.role == "admin"
+    return _may_see(job, user)
+
+
+def _get_visible_job_or_404(job_id: str, user) -> Job:
+    job = _get_job_or_404(job_id)
+    if not _may_see(job, user):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+def _get_modifiable_job_or_404(job_id: str, user) -> Job:
+    # invisible first: a 403 would confirm the job exists
+    job = _get_visible_job_or_404(job_id, user)
+    if not _may_modify(job, user):
+        raise HTTPException(status_code=403, detail="This job is not yours to manage")
+    return job
+
+
 def _job_detail(job: Job) -> dict:
     detail = {
         **job.model_dump(),
@@ -142,6 +179,7 @@ async def create_jobs(req: JobCreateRequest, request: Request = None):
     # Pass 1: validate every spec up front. A bad spec must fail the whole
     # request rather than leave half-created jobs that are never submitted.
     user = auth.current_user(request) if request is not None else None
+    owner = user.username if user else None
     scripts = script_access.visible_by_id(user)
     plan: list[tuple[ScriptInfo, dict]] = []
     for spec in req.jobs:
@@ -174,6 +212,7 @@ async def create_jobs(req: JobCreateRequest, request: Request = None):
             log_name=_display_log_name(log) if log else "",
             params=params,
             label=label,
+            owner=owner,
         ), script)
         for script, params in plan
     ]
@@ -194,10 +233,24 @@ async def create_jobs(req: JobCreateRequest, request: Request = None):
 def list_jobs(
     status: str | None = Query(None),
     q: str | None = Query(None),
+    user: str | None = Query(None, description="Narrow to one owner (admin oversight)"),
     limit: int = Query(200, ge=1, le=5000),
     offset: int = Query(0, ge=0),
+    request: Request = None,
 ):
+    """The caller's job history: their own runs plus the shared system
+    runs (scheduler, legacy). An admin sees everyone's, narrowed by
+    ?user=<name> when asked."""
+    viewer = auth.current_user(request) if request is not None else None
     jobs = store.list()
+    if viewer is None or viewer.role == "admin":
+        pass  # the trusted contexts and admins oversee everything
+    else:
+        jobs = [j for j in jobs if j.owner is None or j.owner == viewer.username]
+    if user:
+        # an admin narrowing to one account; for anyone else it can only
+        # ever match their own jobs, never someone else's
+        jobs = [j for j in jobs if j.owner == user]
     if status:
         wanted = {s.strip() for s in status.split(",") if s.strip()}
         jobs = [j for j in jobs if j.status in wanted]
@@ -213,30 +266,31 @@ def list_jobs(
 
 
 @router.get("/{job_id}")
-def get_job(job_id: str):
-    return _job_detail(_get_job_or_404(job_id))
+def get_job(job_id: str, request: Request = None):
+    return _job_detail(_get_visible_job_or_404(
+        job_id, auth.current_user(request) if request is not None else None))
 
 
 @router.get("/{job_id}/stdout", response_class=PlainTextResponse)
-def get_job_stdout(job_id: str):
-    _get_job_or_404(job_id)
+def get_job_stdout(job_id: str, request: Request = None):
+    _get_visible_job_or_404(job_id, auth.current_user(request) if request is not None else None)
     return PlainTextResponse(store.read(job_id, "stdout"), media_type="text/plain")
 
 
 @router.get("/{job_id}/stderr", response_class=PlainTextResponse)
-def get_job_stderr(job_id: str):
-    _get_job_or_404(job_id)
+def get_job_stderr(job_id: str, request: Request = None):
+    _get_visible_job_or_404(job_id, auth.current_user(request) if request is not None else None)
     return PlainTextResponse(store.read(job_id, "stderr"), media_type="text/plain")
 
 
 @router.get("/{job_id}/input", response_class=PlainTextResponse)
-def get_job_input(job_id: str):
+def get_job_input(job_id: str, request: Request = None):
     """What the script actually received: the log, or the previous chain step's output.
 
     Capped like stdout (20 MB); 404 when the source file is gone (deleted log,
     pruned job data).
     """
-    job = _get_job_or_404(job_id)
+    job = _get_visible_job_or_404(job_id, auth.current_user(request) if request is not None else None)
     if job.status == "waiting":
         # A waiting chain step has no input yet — and the shared decompressed
         # cache may already hold the *log's* copy from a sibling job, which
@@ -252,8 +306,8 @@ def get_job_input(job_id: str):
 
 
 @router.get("/{job_id}/files/{filename}")
-def get_job_file(job_id: str, filename: str):
-    _get_job_or_404(job_id)
+def get_job_file(job_id: str, filename: str, request: Request = None):
+    _get_visible_job_or_404(job_id, auth.current_user(request) if request is not None else None)
     if "/" in filename or "\\" in filename or filename in (".", ".."):
         raise HTTPException(status_code=400, detail="Invalid file name")
     path = store.outputs_dir(job_id) / filename
@@ -264,8 +318,8 @@ def get_job_file(job_id: str, filename: str):
 
 
 @router.post("/{job_id}/cancel")
-async def cancel_job(job_id: str):
-    job = _get_job_or_404(job_id)
+async def cancel_job(job_id: str, request: Request = None):
+    job = _get_modifiable_job_or_404(job_id, auth.current_user(request) if request is not None else None)
     if job.chain_id:
         ok = await executor.cancel_chain(job.chain_id)
     else:
@@ -276,8 +330,8 @@ async def cancel_job(job_id: str):
 
 
 @router.delete("/{job_id}")
-async def delete_job(job_id: str):
-    job = _get_job_or_404(job_id)
+async def delete_job(job_id: str, request: Request = None):
+    job = _get_modifiable_job_or_404(job_id, auth.current_user(request) if request is not None else None)
     if job.chain_id:
         # Deleting a step of a still-live chain cancels the whole chain:
         # later steps may be consuming (or waiting on) this step's output.
@@ -300,8 +354,10 @@ async def rerun_job(job_id: str, request: Request = None,
     after it, seeding its input with the persisted output of the preceding
     completed step — earlier steps are not executed again.
     """
-    job = _get_job_or_404(job_id)
     user = auth.current_user(request) if request is not None else None
+    # the rerun is a fresh submission by whoever asks for it
+    owner = user.username if user else None
+    job = _get_visible_job_or_404(job_id, user)
 
     if job.chain_id:
         old_steps = store.list_chain(job.chain_id)
@@ -361,6 +417,7 @@ async def rerun_job(job_id: str, request: Request = None,
                 log_name=_display_log_name(log) if log else "",
                 params=params,
                 label=job.label,
+                owner=owner,
             ), script)
             for script, params in [p for p, _s in selected]
         ]
@@ -385,14 +442,19 @@ async def rerun_job(job_id: str, request: Request = None,
         log_name=_display_log_name(log) if log else "",
         params=params,
         label=job.label,
+        owner=owner,
     )
     executor.submit(new_job, script)
     return {"job": new_job}
 
 
 @router.post("/prune")
-def prune_jobs(days: int | None = Query(None, ge=1, le=3650)):
-    """Manually delete jobs older than `days` (default: JOB_RETENTION_DAYS)."""
+def prune_jobs(days: int | None = Query(None, ge=1, le=3650), request: Request = None):
+    """Manually delete jobs older than `days` (default: JOB_RETENTION_DAYS).
+
+    Admin-only in multi-user mode: pruning sweeps everyone's history."""
+    if request is not None:
+        auth.require_admin(request)
     effective = days if days is not None else JOB_RETENTION_DAYS
     if effective <= 0:
         raise HTTPException(status_code=400, detail="Retention is disabled (JOB_RETENTION_DAYS=0); pass ?days=N")
@@ -403,9 +465,9 @@ def prune_jobs(days: int | None = Query(None, ge=1, le=3650)):
 
 
 @router.get("/{job_id}/events")
-async def job_events(job_id: str):
+async def job_events(job_id: str, request: Request = None):
     """Server-sent events stream for a job: status changes + stdout deltas."""
-    _get_job_or_404(job_id)
+    _get_visible_job_or_404(job_id, auth.current_user(request) if request is not None else None)
 
     async def generator():
         last_status = None

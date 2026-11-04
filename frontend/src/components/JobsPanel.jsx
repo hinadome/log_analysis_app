@@ -11,11 +11,17 @@ const STATUS_FILTERS = [
   { value: "cancelled,skipped", label: "Cancelled" },
 ];
 
-export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, status, onStatus, onOpen, onCancel, onDelete, onClearFinished, onPrune, dataSize }) {
+export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, status, onStatus, onOpen, onCancel, onDelete, onClearFinished, onPrune, dataSize, me, ownerFilter, onOwnerFilter }) {
   const searching = Boolean(query && query.trim());
   const shown = jobs; // filtering + paging happen server-side (?q=, ?limit=)
   const hasFinished = jobs.some((j) => !ACTIVE.has(j.status));
   const more = total > jobs.length;
+  // me is {username, role} in multi-user mode, null for the single operator —
+  // who has always had every right there is
+  const admin = me?.role === "admin" || !me;
+  // a regular user manages their own runs; the shared system history is
+  // the admin's to sweep (the server enforces this; the buttons just match)
+  const mayManage = (j) => admin || j.owner === me?.username;
   return (
     <aside className="jobs-panel">
       <div className="jobs-head">
@@ -26,9 +32,11 @@ export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, st
           {hasFinished && (
             <button className="btn ghost sm" onClick={onClearFinished}>Clear finished</button>
           )}
-          <button className="btn ghost sm" title="Delete jobs older than N days" onClick={onPrune}>
-            🧹 Prune
-          </button>
+          {onPrune && (
+            <button className="btn ghost sm" title="Delete jobs older than N days" onClick={onPrune}>
+              🧹 Prune
+            </button>
+          )}
         </div>
       </div>
       <input
@@ -38,6 +46,16 @@ export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, st
         value={query}
         onChange={(e) => onSearch(e.target.value)}
       />
+      {me?.role === "admin" && (
+        <input
+          className="search-input"
+          type="search"
+          placeholder="Owner — one account, blank for everyone"
+          title="Admin oversight: show only one account's jobs (blank = everyone's + system runs)"
+          value={ownerFilter}
+          onChange={(e) => onOwnerFilter(e.target.value)}
+        />
+      )}
       <div className="status-chips" role="group" aria-label="Filter by status">
         {STATUS_FILTERS.map((f) => (
           <button
@@ -65,7 +83,19 @@ export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, st
           >
             <StatusBadge status={j.status} />
             <div className="job-row-main">
-              <div className="job-row-title">{j.script_name}</div>
+              <div className="job-row-title">
+                {j.script_name}
+                {me?.role === "admin" && (
+                  <span
+                    className="chip"
+                    title={j.owner
+                      ? `Submitted by ${j.owner}`
+                      : "Scheduler, or submitted before accounts existed — visible to everyone"}
+                  >
+                    {j.owner || "system"}
+                  </span>
+                )}
+              </div>
               <div className="job-row-sub mono">
                 {j.label ? `${j.label} · ` : ""}{j.chain_id ? `step ${j.chain_index + 1}/${j.chain_size} · ` : ""}{j.log_name || "—"}
               </div>
@@ -78,21 +108,25 @@ export default function JobsPanel({ jobs, total, onLoadMore, query, onSearch, st
               </div>
             </div>
             {ACTIVE.has(j.status) ? (
-              <button
-                className="btn ghost sm"
-                title="Cancel"
-                onClick={(e) => { e.stopPropagation(); onCancel(j.id); }}
-              >
-                ✕
-              </button>
+              mayManage(j) && (
+                <button
+                  className="btn ghost sm"
+                  title="Cancel"
+                  onClick={(e) => { e.stopPropagation(); onCancel(j.id); }}
+                >
+                  ✕
+                </button>
+              )
             ) : (
-              <button
-                className="btn ghost sm"
-                title="Delete"
-                onClick={(e) => { e.stopPropagation(); onDelete(j.id); }}
-              >
-                🗑
-              </button>
+              mayManage(j) && (
+                <button
+                  className="btn ghost sm"
+                  title="Delete"
+                  onClick={(e) => { e.stopPropagation(); onDelete(j.id); }}
+                >
+                  🗑
+                </button>
+              )
             )}
           </div>
         ))}
