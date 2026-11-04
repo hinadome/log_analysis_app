@@ -18,12 +18,13 @@ from . import auth
 from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
                      DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING,
                      DOCKER_SANDBOX, SANDBOX_IMAGE, SCHEDULER_ENABLED,
-                     TERMINAL_ENABLED)
+                     TERMINAL_ENABLED, ADMIN_BOOTSTRAP_USER, ADMIN_BOOTSTRAP_PASSWORD)
 from .routers import jobs, logs, pipelines, schedules, scripts, terminal
 from .services import decompress_cache
 from .services.job_store import JobStore
 from .services.scheduler import scheduler
 from .services.terminal import terminal as terminal_service
+from .services.user_store import store as users_store
 
 jobs_store: JobStore = jobs.store
 
@@ -48,6 +49,16 @@ async def lifespan(app: FastAPI):
         print(f"decompressed cache: removed {cache_removed} stale file(s)")
     if not auth.auth_required():
         print("WARNING: LOGSMITH_TOKEN is not set — running without authentication.")
+    # First run with bootstrap env vars: seed the initial admin, flipping the
+    # server into multi-user mode (per-user scripts/jobs, user management).
+    if ADMIN_BOOTSTRAP_USER and ADMIN_BOOTSTRAP_PASSWORD and not users_store.has_users():
+        users_store.create(ADMIN_BOOTSTRAP_USER, ADMIN_BOOTSTRAP_PASSWORD, role="admin")
+        print(f"multi-user: bootstrapped admin '{ADMIN_BOOTSTRAP_USER}' "
+              "from LOGSMITH_ADMIN_USER/LOGSMITH_ADMIN_PASSWORD "
+              "(ignored on future starts — manage users in the admin UI)")
+    if auth.multi_user_enabled():
+        print(f"multi-user: {len(users_store.list())} account(s) — "
+              "login is username + password; scripts and jobs are per-user")
     if DOCKER_SANDBOX:
         print(f"docker sandbox: enabled (image {SANDBOX_IMAGE}, no network)")
         if which("docker") is None:
@@ -111,6 +122,7 @@ def health():
         "data_dir": str(DATA_DIR),
         "max_concurrent_jobs": MAX_CONCURRENT_JOBS,
         "auth_required": auth.auth_required(),
+        "multi_user": auth.multi_user_enabled(),
         "script_editing": ALLOW_SCRIPT_EDITING,
         "docker_sandbox": DOCKER_SANDBOX,
         "sandbox_image": SANDBOX_IMAGE if DOCKER_SANDBOX else None,

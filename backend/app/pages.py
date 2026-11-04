@@ -146,6 +146,8 @@ def _safe_next(target: str | None) -> str:
 def _page(request: Request, name: str, status_code: int = 200, **ctx):
     context = {
         "auth_required": auth.auth_required(),
+        "multi_user": auth.multi_user_enabled(),
+        "current_user": auth.current_user(request),
         "docker_sandbox": DOCKER_SANDBOX,
         "terminal_enabled": TERMINAL_ENABLED,
         "logs_dir": str(LOGS_DIR),
@@ -264,13 +266,14 @@ async def login_submit(request: Request):
     if not auth.auth_required():
         return RedirectResponse(target, status_code=303)
     try:
-        value = auth.check_password(request, form.get("password") or "")
+        value = auth.check_login(request, form.get("username") or "",
+                                 form.get("password") or "")
     except HTTPException as exc:
         return _page(request, "login.html", status_code=exc.status_code,
                      next=target, error=str(exc.detail))
     response = RedirectResponse(target, status_code=303)
     if value:
-        auth.apply_session_cookie(request, response)
+        auth.apply_session_cookie(request, response, value)
     return response
 
 

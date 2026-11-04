@@ -27,8 +27,12 @@ async function request(url, opts = {}) {
 
 export const api = {
   authStatus: () => request("/api/auth/status"),
-  login: (password) =>
-    request("/api/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
+  login: (username, password) =>
+    request("/api/auth/login", {
+      method: "POST",
+      // username empty = the legacy shared-password server (no accounts)
+      body: JSON.stringify({ username: username || "", password }),
+    }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
   health: () => request("/api/health"),
   listLogs: () => request("/api/logs"),

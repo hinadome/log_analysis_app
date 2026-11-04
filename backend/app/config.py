@@ -30,6 +30,13 @@ DEFAULT_TIMEOUT = int(os.environ.get("DEFAULT_TIMEOUT", "600"))
 # only safe while the server is bound to localhost.
 AUTH_TOKEN = os.environ.get("LOGSMITH_TOKEN", "").strip()
 
+# First-run bootstrap for multi-user mode: when data/users.json doesn't exist
+# yet and both are set, an admin account is created from them at startup
+# (LOGSMITH_ADMIN_USER + LOGSMITH_ADMIN_PASSWORD). After that, user
+# management lives in the admin UI — these variables are ignored.
+ADMIN_BOOTSTRAP_USER = os.environ.get("LOGSMITH_ADMIN_USER", "").strip()
+ADMIN_BOOTSTRAP_PASSWORD = os.environ.get("LOGSMITH_ADMIN_PASSWORD", "")
+
 # Auto-delete jobs older than this many days (0 = keep forever).
 JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))
 

@@ -7,6 +7,18 @@ from pydantic import BaseModel, Field, computed_field
 
 ParamType = Literal["string", "integer", "float", "boolean", "enum", "multi"]
 JobStatus = Literal["queued", "waiting", "running", "completed", "failed", "cancelled", "skipped"]
+UserRole = Literal["admin", "user"]
+
+
+class User(BaseModel):
+    """An account. The password never lives here — only its scrypt hash."""
+
+    id: str
+    username: str
+    password_hash: str  # "scrypt$N$r$p$salt_hex$hash_hex"
+    role: UserRole = "user"
+    created_at: str = ""
+    disabled: bool = False
 
 
 class ParamSpec(BaseModel):

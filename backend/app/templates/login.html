@@ -3,11 +3,20 @@
 {% block content %}
 <div class="login-card">
   <h1>⚒ LogSmith</h1>
+  {% if multi_user %}
+  <p class="muted">Sign in with your account.</p>
+  {% else %}
   <p class="muted">This server requires a password.</p>
+  {% endif %}
   {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
   <form method="post" action="/login">
     <input type="hidden" name="next" value="{{ next }}">
+    {% if multi_user %}
+    <input type="text" name="username" placeholder="Username" autofocus required>
+    <input type="password" name="password" placeholder="Password" required>
+    {% else %}
     <input type="password" name="password" placeholder="Password" autofocus required>
+    {% endif %}
     <button class="btn primary" type="submit">Log in</button>
   </form>
 </div>

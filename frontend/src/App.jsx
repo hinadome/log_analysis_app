@@ -111,10 +111,12 @@ export default function App() {
   }, [jobStatus, refreshJobs]);
 
   // ---------- authentication ----------
+  const [multiUser, setMultiUser] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    api.authStatus().then(({ auth_required }) => {
+    api.authStatus().then(({ auth_required, multi_user }) => {
       if (cancelled) return;
+      setMultiUser(!!multi_user);
       if (!auth_required) {
         setAuth("logged_in");
         loadAll();
@@ -535,7 +537,7 @@ export default function App() {
   // ---------- render ----------
   if (auth !== "logged_in") {
     return auth === "logged_out" ? (
-      <LoginView onSuccess={() => setAuth("logged_in")} />
+      <LoginView multiUser={multiUser} onSuccess={() => setAuth("logged_in")} />
     ) : (
       <div className="login-wrap"><div className="card login-card muted">Connecting…</div></div>
     );
