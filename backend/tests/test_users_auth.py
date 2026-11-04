@@ -17,28 +17,6 @@ from app.services.user_store import verify_password
 from test_auth import auth_on  # noqa: F401 -- fixture: token mode, rate-limit slate
 
 
-@pytest.fixture()
-def users_file(tmp_path, monkeypatch):
-    """The user-store singleton, backed by an empty per-test file."""
-    path = tmp_path / "users.json"
-    monkeypatch.setattr(user_module.store, "_path", path)
-    user_module.store._users, user_module.store._stamp = [], None
-    yield user_module.store
-
-
-@pytest.fixture()
-def sessions_file(tmp_path, monkeypatch):
-    path = tmp_path / "sessions.json"
-    monkeypatch.setattr(session_module.store, "_path", path)
-    session_module.store._sessions, session_module.store._stamp = {}, None
-    yield session_module.store
-
-
-@pytest.fixture()
-def fresh_logins(monkeypatch):
-    monkeypatch.setattr(auth_module, "_LOGIN_FAILURES", {})
-
-
 # --- the store ---------------------------------------------------------------
 
 def test_user_store_roundtrip(users_file):

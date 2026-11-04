@@ -13,6 +13,7 @@ import JobsPanel from "./components/JobsPanel.jsx";
 import SchedulesPanel from "./components/SchedulesPanel.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 import TerminalPanel from "./components/TerminalPanel.jsx";
+import UsersPanel from "./components/UsersPanel.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
 const JOB_ID_RE = /^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$/;
@@ -22,6 +23,7 @@ function parseRoute(hash) {
   const m = /^#\/job\/([0-9a-z-]+)$/i.exec(hash || "");
   if (m && JOB_ID_RE.test(m[1])) return { name: "job", id: m[1] };
   if (hash === "#/terminal") return { name: "terminal" };
+  if (hash === "#/users") return { name: "users" };
   return { name: "home" };
 }
 
@@ -112,11 +114,22 @@ export default function App() {
 
   // ---------- authentication ----------
   const [multiUser, setMultiUser] = useState(false);
+  const [authUser, setAuthUser] = useState(null); // {username, role} in multi-user mode
+  const refreshIdentity = useCallback(() => {
+    // re-probe after login or after the Users panel bootstraps the first
+    // account (the server mints that session, flipping multi-user on)
+    api.authStatus().then((s) => {
+      setMultiUser(!!s.multi_user);
+      setAuthUser(s.user || null);
+    }).catch(() => {});
+    api.health().then(setHealth).catch(() => {});
+  }, []);
   useEffect(() => {
     let cancelled = false;
-    api.authStatus().then(({ auth_required, multi_user }) => {
+    api.authStatus().then(({ auth_required, multi_user, user }) => {
       if (cancelled) return;
       setMultiUser(!!multi_user);
+      setAuthUser(user || null);
       if (!auth_required) {
         setAuth("logged_in");
         loadAll();
@@ -535,9 +548,15 @@ export default function App() {
   };
 
   // ---------- render ----------
+  // who may open #/users: an admin account, or the local operator while
+  // the server still has no accounts (that's the bootstrap path)
+  const isAdmin = authUser?.role === "admin" || (health && !health.multi_user);
   if (auth !== "logged_in") {
     return auth === "logged_out" ? (
-      <LoginView multiUser={multiUser} onSuccess={() => setAuth("logged_in")} />
+      <LoginView multiUser={multiUser} onSuccess={() => {
+        setAuth("logged_in");
+        refreshIdentity();
+      }} />
     ) : (
       <div className="login-wrap"><div className="card login-card muted">Connecting…</div></div>
     );
@@ -555,6 +574,12 @@ export default function App() {
           {health?.docker_sandbox && ` · 🐳 sandboxed`}
         </div>
         <div className="topbar-actions">
+          {isAdmin && (
+            <a className={`btn ghost sm ${view.name === "users" ? "on" : ""}`}
+               href="#/users" title="Manage user accounts">
+              👤 Users
+            </a>
+          )}
           {health?.terminal && (
             <a className={`btn ghost sm ${view.name === "terminal" ? "on" : ""}`}
                href="#/terminal" title="Interactive shell on the server (LOGSMITH_TERMINAL)">
@@ -775,6 +800,13 @@ export default function App() {
           </>
         ) : view.name === "terminal" ? (
           <TerminalPanel onBack={() => { goHome(); refreshJobs(); }} />
+        ) : view.name === "users" ? (
+          <UsersPanel
+            me={authUser}
+            multiUser={multiUser}
+            onIdentityChange={refreshIdentity}
+            onBack={goHome}
+          />
         ) : (
           <JobDetail
             id={view.id}

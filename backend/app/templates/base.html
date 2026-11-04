@@ -18,9 +18,11 @@
     <a href="/schedules" class="{{ 'on' if nav == 'schedules' }}">Schedules</a>
     <a href="/scripts" class="{{ 'on' if nav == 'scripts' }}">Scripts</a>
     {% if terminal_enabled %}<a href="/terminal" class="{{ 'on' if nav == 'terminal' }}">⌨ Terminal</a>{% endif %}
+    {% if is_admin %}<a href="/admin/users" class="{{ 'on' if nav == 'users' }}">👤 Users</a>{% endif %}
   </nav>
   {% if auth_required %}
   <form method="post" action="/logout" class="inline">
+    {% if multi_user and current_user %}<span class="muted">{{ current_user.username }}{% if current_user.role == 'admin' %} (admin){% endif %} ·</span>{% endif %}
     <button class="btn ghost sm" type="submit">Log out</button>
   </form>
   {% endif %}

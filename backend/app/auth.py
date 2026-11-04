@@ -87,10 +87,19 @@ def current_user(request: Request) -> User | None:
     return user_store.get(username) if username else None
 
 
-def require_admin(request: Request) -> User:
-    """403 unless the acting account is an admin (multi-user mode only)."""
+def require_admin(request: Request) -> User | None:
+    """403 unless the caller may use admin endpoints.
+
+    In multi-user mode that means an admin account. In single-user mode
+    (no accounts) the local operator IS the admin — returning None lets
+    them create the first account from the UI (the bootstrap case).
+    """
     user = current_user(request)
-    if user is None or user.role != "admin":
+    if user is None:
+        if not multi_user_enabled():
+            return None
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 

@@ -36,6 +36,7 @@ from .routers import logs as logs_api
 from .routers import pipelines as pipelines_api
 from .routers import schedules as schedules_api
 from .routers import scripts as scripts_api
+from .routers import users as users_api
 from .services import pipeline_store
 from .services.scanner import discover_scripts, list_logs
 from .services.terminal import terminal as terminal_service
@@ -144,10 +145,15 @@ def _safe_next(target: str | None) -> str:
 
 
 def _page(request: Request, name: str, status_code: int = 200, **ctx):
+    current = auth.current_user(request)
     context = {
         "auth_required": auth.auth_required(),
         "multi_user": auth.multi_user_enabled(),
-        "current_user": auth.current_user(request),
+        "current_user": current,
+        # admins see the Users page; in single-user mode the local operator
+        # is the admin (that's how the first account gets bootstrapped)
+        "is_admin": (current is not None and current.role == "admin")
+                   or not auth.multi_user_enabled(),
         "docker_sandbox": DOCKER_SANDBOX,
         "terminal_enabled": TERMINAL_ENABLED,
         "logs_dir": str(LOGS_DIR),
@@ -1256,6 +1262,96 @@ async def script_import(request: Request, file: UploadFile = File(...),
     ids = ", ".join(result["imported"])
     return RedirectResponse("/scripts?" + urlencode(
         {"msg": f"Imported {len(result['imported'])} script(s): {ids}"}), status_code=303)
+
+
+# --- users (admin) -----------------------------------------------------------
+
+_ADMIN_BACK = "/admin/users"
+
+
+@router.get("/admin/users")
+def users_page(request: Request):
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        users_api.require_admin(request)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/")
+    return _page(request, "users.html", nav="users", users=users_api.list_users(request)["users"])
+
+
+@router.post("/admin/users")
+def user_create(request: Request, username: str = Form(""), password: str = Form(""),
+                role: str = Form("user")):
+    if redirect := _need_login(request):
+        return redirect
+    # built up front so create_user can mint the bootstrap session onto it
+    # (creating the first account flips multi-user mode on — the operator
+    # stays signed in as the new admin instead of hitting /login)
+    response = RedirectResponse(_ADMIN_BACK + "?" + urlencode(
+        {"msg": f"Created {username.strip()} ({role})"}), status_code=303)
+    try:
+        users_api.create_user(
+            users_api.CreateBody(username=username, password=password, role=role),
+            request, response)
+    except HTTPException as exc:
+        return RedirectResponse(_ADMIN_BACK + "?" + urlencode({"err": str(exc.detail)}),
+                                status_code=303)
+    return response
+
+
+@router.post("/admin/users/{username}/password")
+def user_password(request: Request, username: str, password: str = Form("")):
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        users_api.reset_password(username, users_api.PasswordBody(password=password),
+                                 request)
+    except HTTPException as exc:
+        return RedirectResponse(_ADMIN_BACK + "?" + urlencode({"err": str(exc.detail)}),
+                                status_code=303)
+    return RedirectResponse(_ADMIN_BACK + "?" + urlencode(
+        {"msg": f"Password reset for {username} (their sessions were revoked)"}),
+        status_code=303)
+
+
+@router.post("/admin/users/{username}/disable")
+def user_disable(request: Request, username: str):
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        users_api.disable_user(username, request)
+    except HTTPException as exc:
+        return RedirectResponse(_ADMIN_BACK + "?" + urlencode({"err": str(exc.detail)}),
+                                status_code=303)
+    return RedirectResponse(_ADMIN_BACK + "?" + urlencode({"msg": f"Disabled {username}"}),
+                            status_code=303)
+
+
+@router.post("/admin/users/{username}/enable")
+def user_enable(request: Request, username: str):
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        users_api.enable_user(username, request)
+    except HTTPException as exc:
+        return RedirectResponse(_ADMIN_BACK + "?" + urlencode({"err": str(exc.detail)}),
+                                status_code=303)
+    return RedirectResponse(_ADMIN_BACK + "?" + urlencode({"msg": f"Enabled {username}"}),
+                            status_code=303)
+
+
+@router.post("/admin/users/{username}/role")
+def user_role(request: Request, username: str, role: str = Form("")):
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        users_api.change_role(username, users_api.RoleBody(role=role), request)
+    except HTTPException as exc:
+        return RedirectResponse(_ADMIN_BACK + "?" + urlencode({"err": str(exc.detail)}),
+                                status_code=303)
+    return RedirectResponse(_ADMIN_BACK + "?" + urlencode(
+        {"msg": f"{username} is now {role}"}), status_code=303)
 
 
 # --- terminal ---------------------------------------------------------------

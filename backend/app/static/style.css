@@ -74,6 +74,7 @@ h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted);
 .flash.ok { border-color: rgba(63, 185, 80, 0.4); color: var(--green); }
 .flash.bad { border-color: rgba(248, 81, 73, 0.4); color: var(--red); }
 .err-text { color: var(--red); white-space: pre-wrap; }
+.ok-text { color: var(--green); }
 
 /* ---------- buttons, forms ---------- */
 .btn {

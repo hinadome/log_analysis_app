@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Users · LogSmith{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Users</h1>
+  <span class="muted">{{ users | length }} account(s)
+    {%- if not multi_user %} — none active yet{% endif %}</span>
+</div>
+
+{% if not multi_user %}
+<p class="muted">No accounts yet: the server runs in single-user mode (one shared
+environment). Creating the first admin switches it to multi-user mode — private
+scripts, per-user job history, this page for management. You'll stay signed in as
+that admin.</p>
+{% endif %}
+
+<form method="post" action="/admin/users" class="card">
+  <h2>Create a user</h2>
+  <div class="import-row">
+    <input type="text" name="username" placeholder="username" required
+           title="Letters, digits, '-' or '_' — it becomes their private scripts directory name">
+    <input type="password" name="password" placeholder="password" required>
+    <select name="role" {% if not multi_user %}title="The first account must be an admin"{% endif %}>
+      {% if not multi_user %}
+      <option value="admin" selected>admin</option>
+      {% else %}
+      <option value="user" selected>user</option>
+      <option value="admin">admin</option>
+      {% endif %}
+    </select>
+    <button class="btn primary" type="submit">Create</button>
+  </div>
+</form>
+
+<table class="list">
+  <thead><tr><th>User</th><th>Role</th><th>Created</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for u in users %}
+  <tr>
+    <td><b>{{ u.username }}</b>{% if current_user and u.username == current_user.username %}
+        <span class="muted"> (you)</span>{% endif %}</td>
+    <td>{{ u.role }}</td>
+    <td class="muted">{{ u.created_at | dt }}</td>
+    <td>{% if u.disabled %}<span class="err-text">disabled</span>{% else %}<span class="ok-text">active</span>{% endif %}</td>    <td class="row-actions">
+      <form method="post" action="/admin/users/{{ u.username }}/password" class="inline">
+        <input type="password" name="password" placeholder="new password" required size="12">
+        <button class="btn sm" type="submit"
+                title="Set a new password and revoke their sessions">Reset pw</button>
+      </form>
+      {% if u.role == 'admin' %}
+      <form method="post" action="/admin/users/{{ u.username }}/role" class="inline">
+        <input type="hidden" name="role" value="user">
+        <button class="btn ghost sm" type="submit"
+                title="Demote to a regular user">↓ user</button>
+      </form>
+      {% else %}
+      <form method="post" action="/admin/users/{{ u.username }}/role" class="inline">
+        <input type="hidden" name="role" value="admin">
+        <button class="btn ghost sm" type="submit"
+                title="Promote to admin">↑ admin</button>
+      </form>
+      {% endif %}
+      {% if u.disabled %}
+      <form method="post" action="/admin/users/{{ u.username }}/enable" class="inline">
+        <button class="btn ghost sm" type="submit">Enable</button>
+      </form>
+      {% else %}
+      <form method="post" action="/admin/users/{{ u.username }}/disable" class="inline">
+        <button class="btn ghost sm" type="submit"
+                title="Revoke access and kill their sessions">Disable</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">No accounts.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

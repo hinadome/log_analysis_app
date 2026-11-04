@@ -19,7 +19,7 @@ from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
                      DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING,
                      DOCKER_SANDBOX, SANDBOX_IMAGE, SCHEDULER_ENABLED,
                      TERMINAL_ENABLED, ADMIN_BOOTSTRAP_USER, ADMIN_BOOTSTRAP_PASSWORD)
-from .routers import jobs, logs, pipelines, schedules, scripts, terminal
+from .routers import jobs, logs, pipelines, schedules, scripts, terminal, users
 from .services import decompress_cache
 from .services.job_store import JobStore
 from .services.scheduler import scheduler
@@ -111,6 +111,7 @@ app.include_router(jobs.router, prefix="/api")
 app.include_router(pipelines.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")
 app.include_router(terminal.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["meta"])

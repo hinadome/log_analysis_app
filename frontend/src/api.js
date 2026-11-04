@@ -34,6 +34,28 @@ export const api = {
       body: JSON.stringify({ username: username || "", password }),
     }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
+
+  // --- user management (admin only; 403 for everyone else) ---
+  listUsers: () => request("/api/users"),
+  createUser: (username, password, role) =>
+    request("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ username, password, role }),
+    }),
+  resetUserPassword: (username, password) =>
+    request(`/api/users/${username}/password`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+  disableUser: (username) =>
+    request(`/api/users/${username}/disable`, { method: "POST" }),
+  enableUser: (username) =>
+    request(`/api/users/${username}/enable`, { method: "POST" }),
+  setUserRole: (username, role) =>
+    request(`/api/users/${username}/role`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
+    }),
   health: () => request("/api/health"),
   listLogs: () => request("/api/logs"),
   listScripts: () => request("/api/scripts"),

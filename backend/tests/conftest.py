@@ -69,10 +69,34 @@ def wipe_jobs() -> None:
 
 @pytest.fixture()
 def store(tmp_path: Path):
-    """A JobStore rooted in a per-test directory."""
     from app.services.job_store import JobStore
 
     return JobStore(tmp_path)
+
+
+@pytest.fixture()
+def users_file(tmp_path, monkeypatch):
+    """The user-store singleton, backed by an empty per-test file."""
+    from app.services import user_store as user_module
+    path = tmp_path / "users.json"
+    monkeypatch.setattr(user_module.store, "_path", path)
+    user_module.store._users, user_module.store._stamp = [], None
+    yield user_module.store
+
+
+@pytest.fixture()
+def sessions_file(tmp_path, monkeypatch):
+    from app.services import session_store as session_module
+    path = tmp_path / "sessions.json"
+    monkeypatch.setattr(session_module.store, "_path", path)
+    session_module.store._sessions, session_module.store._stamp = {}, None
+    yield session_module.store
+
+
+@pytest.fixture()
+def fresh_logins(monkeypatch):
+    import app.auth as auth_module
+    monkeypatch.setattr(auth_module, "_LOGIN_FAILURES", {})
 
 
 @pytest.fixture()
