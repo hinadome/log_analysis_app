@@ -201,7 +201,7 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 
 | Method & Path | Description |
 |---|---|
-| `GET /api/scripts` | `{"scripts": [ScriptInfo]}` — id, name, description, category, command, timeout, parameters, script_path, style, output_filename, error |
+| `GET /api/scripts` | `{"scripts": [ScriptInfo]}` — id, name, description, category, command, needs_log (derived: `{log}` in the command), timeout, parameters, script_path, style, output_filename, error |
 | `GET /api/scripts/{id}` | code + manifest for the editor (flat style only) → `{id, extension, code, manifest}`; 404 unknown, 400 directory-style |
 | `POST /api/scripts` | create a flat-style script. Body: `{id, extension, code, manifest}` (`manifest` per §6). Errors: 409 id exists / 422 bad id (`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`), empty code, bad timeout (1–86400), or invalid manifest/parameters / 403 when editing is locked (§8.1) |
 | `PUT /api/scripts/{id}` | update code and/or manifest; a changed `extension` moves the code file. 404 unknown, 400 directory-style, 422 body/path id mismatch, 403 when editing is locked |
@@ -352,7 +352,9 @@ Scripts are discovered in two shapes:
    `entry`, or the first non-hidden file that is not the manifest).
 
 Without a manifest, `.py/.sh/.bash/.zsh/.js/.rb/.pl` files get a default
-command `<interpreter> {script} {log} {args}`; other files are ignored. A
+command `<interpreter> {script} {log} {args}` — which includes `{log}`, so
+a bare file is never log-free (dropping the placeholder requires a
+manifest `command`); other files are ignored. A
 broken manifest surfaces the script with an `error` field instead of hiding
 it (and submitting it is rejected with 422 — but it can be fixed in the UI
 editor, which rewrites a clean manifest on save).
@@ -401,7 +403,7 @@ simply have no chip. An empty value is never written to the manifest.
 | Placeholder | Expands to |
 |---|---|
 | `{script}` | absolute path of the script |
-| `{log}` | absolute path of the input — the selected log, or in a chain the previous step's output. Always a **plain, uncompressed** file: `.gz`/`.bz2`/`.xz` sources are transparently decompressed first (one shared cache copy per source, §4) |
+| `{log}` | absolute path of the input — the selected log, or in a chain the previous step's output. Always a **plain, uncompressed** file: `.gz`/`.bz2`/`.xz` sources are transparently decompressed first (one shared cache copy per source, §4). **Optional**: a command without it makes the script log-free (`needs_log: false`) — it runs with or without a selected log, while a command with it requires one (§4) |
 | `{output}` | `<job>/outputs/<output_filename>` — set when the command contains it |
 | `{args}` | rendered CLI flags from validated parameters |
 

@@ -425,6 +425,9 @@ Step by step:
    …), and `JOB_LOG_PATH` carries it even for commands that omit `{log}`
    — see "Reading the input in your script" below. In a chain, the same
    slots carry the previous step's output instead of the selected log.
+   A command without `{log}` at all is a *log-free* script: it runs with
+   no selected log, and its process gets no `JOB_LOG_PATH`
+   ([SCRIPTS.md](SCRIPTS.md)).
 
 The rendered command is stored on the job, so you can always verify what
 actually ran: both UIs show it in the job's details view ("Executed
@@ -443,7 +446,7 @@ node, ruby and perl — is in [SCRIPTS.md](SCRIPTS.md).
 | Placeholder | Expands to |
 |---|---|
 | `{script}` | absolute path of the script |
-| `{log}` | absolute path of the selected log — in chain mode, the **previous step's output** for steps 2+ |
+| `{log}` | absolute path of the selected log — in chain mode, the **previous step's output** for steps 2+. Optional: a command without it makes the script **log-free** (runs with no log selected — see [SCRIPTS.md](SCRIPTS.md)) |
 | `{output}` | `<job>/outputs/<output_filename>` — file artifacts |
 | `{args}` | rendered CLI flags from validated parameters |
 
@@ -469,7 +472,10 @@ args = p.parse_args()              # or simply: sys.argv[1]
 `$ARGV[0]`. Every job also exports `JOB_LOG_PATH` (the same input path),
 `JOB_ORIGINAL_LOG` (the log as selected in the UI), `JOB_OUTPUT_DIR` and
 `JOB_ID` — so a script whose command omits `{log}` can still read
-`os.environ["JOB_LOG_PATH"]`. Scripts that simply read their input
+`os.environ["JOB_LOG_PATH"]`, as long as a log was selected. Run without
+one — a log-free script, or any submission with an empty `log_path` —
+and the two log variables are absent, not empty. Scripts that simply
+read their input
 argument work unchanged in chains, where step 2+ receives the previous
 step's output as `{log}`. Compressed logs (.gz/.bz2/.xz) are decompressed
 by the server first — `{log}` is always plain text.

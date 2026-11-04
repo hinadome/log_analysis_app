@@ -54,8 +54,9 @@ backend/app/
 │                      the React SPA from frontend/dist or the python
 │                      pages router, per LOGSMITH_UI
 ├── config.py          All settings, read from environment variables once
-├── models.py          Pydantic models: ParamSpec, ScriptManifest, ScriptInfo,
-│                      LogFile, JobSpecIn, JobCreateRequest, Job (incl. chain
+├── models.py          Pydantic models: ParamSpec, ScriptManifest, ScriptInfo
+│                      (incl. the derived needs_log computed field), LogFile,
+│                      JobSpecIn, JobCreateRequest, Job (incl. chain
 │                      fields), JobStatus literal, PipelineStep/Pipeline,
 │                      Schedule/ScheduleSaveRequest
 ├── auth.py            Shared-password auth: HttpOnly cookie session +
@@ -85,7 +86,9 @@ backend/app/
 │                      delete
 └── services/
     ├── scanner.py     Discovers logs (recursive, newest first) and scripts
-    │                  (flat + directory styles, default commands)
+    │                  (flat + directory styles, default commands — which
+    │                  include {log}, so a script is log-free only through
+    │                  its manifest command)
     ├── job_store.py   Filesystem persistence; parse cache keyed by
     │                  (mtime, size); list_chain; reconcile; prune
     ├── pipeline_store.py  pipelines.json persistence: atomic rewrite,

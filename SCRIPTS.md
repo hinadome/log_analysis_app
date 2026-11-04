@@ -22,6 +22,8 @@ table at the end maps each to what it demonstrates.
 
 2. In the manifest, say how to run it and which flags exist:
    `"command": "<interpreter> {script} {log} {args}"` plus `parameters`.
+   (`{log}` is optional — a command without it is a **log-free** script,
+   runnable with no selected log. [Below.](#log-free-scripts-no-input))
 
 3. In the code, read the input as the **first argument** and the parameters
    as flags after it.
@@ -40,7 +42,7 @@ Identical rules for every language:
 
 | What your script gets | Value |
 |---|---|
-| Input path | first argument after the script — also `JOB_LOG_PATH` in the environment. Usually a file from `logs/`, but the user may submit any absolute path, so it can be a file elsewhere on the machine. Always the **plain, uncompressed** file: `.gz`/`.bz2`/`.xz` inputs are decompressed first (a previous chain step's compressed output included), so scripts never handle compression |
+| Input path | first argument after the script — also `JOB_LOG_PATH` in the environment. Usually a file from `logs/`, but the user may submit any absolute path, so it can be a file elsewhere on the machine. Always the **plain, uncompressed** file: `.gz`/`.bz2`/`.xz` inputs are decompressed first (a previous chain step's compressed output included), so scripts never handle compression. Absent entirely for log-free scripts (below) |
 | Parameters | CLI flags spelled exactly as the manifest's `flag` fields |
 | Booleans | the bare flag when true, **absent** when false (never `--flag false`) |
 | Integers | always rendered, even when `0` |
@@ -360,6 +362,64 @@ interpreter that exists (`#!/usr/bin/env python3`, not `#!/usr/bin/python`
 on a python3-only host) — otherwise the job fails at submission with the
 shebang quoted in the error.
 
+## Log-free scripts (no input)
+
+Analysis scripts read a log; generator scripts don't need one — a snapshot
+of the host, a report built from an API, anything that produces rather
+than analyzes input. The switch is the command template: **a command
+without the `{log}` placeholder makes the script log-free.** That's the
+whole mechanism — LogSmith derives `needs_log` from the command, the UIs
+badge the script *log-free*, and it can be run and scheduled with no log
+selected at all.
+
+```jsonc
+// scripts/disk_report.json — the shipped sample
+{
+  "name": "Disk Report",
+  "description": "Host and filesystem usage snapshot — needs no input log",
+  "category": "system",
+  "command": "python3 {script}",        // ← no {log}
+  "timeout": 30,
+  "parameters": []
+}
+```
+
+The code is ordinary — it just never touches an input:
+
+```python
+#!/usr/bin/env python3
+import json, shutil
+usage = shutil.disk_usage(".")
+print(json.dumps({"disk_free_pct": round(100 * usage.free / usage.total, 1)}))
+```
+
+Parameters, `{output}` artifacts, `$JOB_OUTPUT_DIR`, chains and the
+exit-code rules all work exactly as for any other script.
+
+Three things to keep in mind:
+
+- **A bare code file is never log-free.** Without a manifest, the default
+  command is `<interpreter> {script} {log} {args}` — it includes `{log}`.
+  Dropping the placeholder requires the manifest's `command` (or the UI
+  editor's command field — same thing).
+- **Reading `$JOB_LOG_PATH` in code does not count.** `needs_log` looks
+  at the template only. A script that reads the env var directly instead
+  of taking the `{log}` argument is on its own: on a log-free run the
+  variable is absent (not empty), and such a script will not be blocked
+  from running without a log either. Use the placeholder, or make the
+  script genuinely input-free.
+- **A log-free job has no input, anywhere.** No `JOB_LOG_PATH` /
+  `JOB_ORIGINAL_LOG` in the environment, no input mount in the Docker
+  sandbox, the Input tab reads "No input", and
+  `GET /api/jobs/{id}/input` is 404.
+
+Running one: pick the script with nothing checked on the logs step — the
+run button is not blocked, and the UIs mark which scripts would need a
+log. Scheduling one: the schedule form's log select offers a
+**— none (log-free) —** option. In chains only step 1 is checked for
+`{log}` — a log-free first step feeding a `{log}` step 2 is fine, since
+step 2 reads step 1's output.
+
 ## Artifacts, two ways
 
 1. **Write to the current directory** — all samples above do this: cwd is
@@ -454,7 +514,7 @@ decompression.
 ### What each step sees
 
 - **argv / `$1` / `JOB_LOG_PATH`**: the previous step's output (the
-  selected log for step 1)
+  selected log for step 1 — nothing at all when the chain runs log-free)
 - **`JOB_ORIGINAL_LOG`**: the log the submission started from — every
   step can still see where the data came from
 - **`JOB_OUTPUT_DIR` / cwd**: its own `outputs/` directory, as usual
@@ -512,6 +572,7 @@ Steps execute in array order.
 | `status_breakdown.pl` | Perl option parsing, aggregation into hashes |
 | `top_ips.py` | JSON array-of-objects output — renders as a sortable table + CSV in the UI |
 | `access_report.py` | the `{output}` placeholder — a Markdown report written to the artifact path |
+| `disk_report.py` | log-free authoring — a command without `{log}`, runnable and schedulable with no selected log |
 | `slow_scan.py` | long-running job with progress lines (live tail), an artifact, an intentional-fail parameter |
 
 Drop any of them on a log from the Run page, or open them in the editor
