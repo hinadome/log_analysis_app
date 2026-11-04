@@ -262,3 +262,17 @@ pre.term-out {
   overflow: auto; max-height: 65vh; white-space: pre-wrap; word-break: break-word;
   margin: 0;
 }
+
+/* ---------- interactive terminal ---------- */
+.terminal-card { display: flex; flex-direction: column; gap: 12px; }
+.terminal-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.terminal-head h2 { margin: 0; font-size: 16px; flex: 1; }
+.term-mount {
+  background: #0c0d10;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  height: min(62vh, 640px);
+  overflow: hidden;
+}
+.term-mount noscript p { padding: 4px 2px; }

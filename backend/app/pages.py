@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
@@ -1231,6 +1231,30 @@ def script_delete(request: Request, script_id: str):
 
 
 # --- terminal ---------------------------------------------------------------
+
+VENDOR_DIR = Path(__file__).parent / "vendor"
+
+# The python UI's interactive shell rides on vendored xterm.js builds (see
+# backend/app/vendor/README.md) — served only while the terminal is on so
+# the flag-off contract ("nothing terminal answers") covers the assets too.
+_TERMINAL_ASSETS = {
+    "xterm.js": "text/javascript",
+    "addon-fit.js": "text/javascript",
+    "terminal.js": "text/javascript",
+    "xterm.css": "text/css",
+}
+
+
+@router.get("/terminal/assets/{name}")
+def terminal_asset(name: str):
+    if not TERMINAL_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+    media_type = _TERMINAL_ASSETS.get(name)
+    path = VENDOR_DIR / name if media_type else None
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(path, media_type=media_type)
+
 
 @router.get("/terminal")
 def terminal_page(request: Request):

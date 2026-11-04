@@ -206,7 +206,8 @@ headers, but the session cookie needs none.
 | `DELETE /api/terminal/sessions/{id}` | end the session: SIGTERM to its whole process group, master closed (SIGHUP), SIGKILL after 2 s grace; 404 unknown id |
 
 Sessions are cleaned up three ways: the browser tab closing (the React tab
-kills on unmount), explicit DELETE, or the idle reaper — `LOGSMITH_TERMINAL_IDLE_TIMEOUT`
+kills on unmount; the python UI's client DELETEs on page unload), explicit
+DELETE, or the idle reaper — `LOGSMITH_TERMINAL_IDLE_TIMEOUT`
 seconds (default 1800) with no input and no output. Nothing is written to
 disk. `GET /api/health` reports the feature as `"terminal": bool`.
 
@@ -352,7 +353,7 @@ missing.
 | `POST /schedules/toggle` | a row's ⏸/⏵ button (`name` field): flips `enabled`, 303-redirect with a flash |
 | `POST /schedules/run` | a row's ▶ Run now button: fires through the ticker's path; the redirect flash carries the result (`ok:`/`skipped:` as a message, `error:` as an error flash) |
 | `POST /schedules/delete` | a row's 🗑 button (`name` field): deletes and 303-redirects with a flash |
-| `GET /terminal` | **flag-gated** (`LOGSMITH_TERMINAL`, else 404 and no nav link): the zero-JS command box — a `command` textarea, run via the terminal service directly (no HTTP), output + exit badge rendered in a `<pre>`, blank input caught with a flash. The nav link and the page note that interactive shells (a real pty) live in the React UI's Terminal tab; this page is one command at a time, 30 s timeout, output capped, nothing stored |
+| `GET /terminal` | **flag-gated** (`LOGSMITH_TERMINAL`, else 404 and no nav link): an interactive shell **plus** a zero-JS command box — progressive enhancement, one page. The page ships an xterm.js mount (`#term-mount`, a status badge, a hidden "New session" restart button) and keeps the command box (`#term-fallback`: a `command` textarea, run via the terminal service directly — no HTTP — output + exit badge rendered in a `<pre>`, blank input caught with a flash; one command at a time, 30 s timeout, output capped, nothing stored). With JavaScript the shell mounts over the same pty protocol as the React tab and the box is hidden; without it the box is the page. If the shell cannot start (flag flipped, session cap reached), the client says why in the mount and re-reveals the box. Assets: `GET /terminal/assets/{name}` serves an allowlist of four files — vendored `xterm.js` + `addon-fit.js` + `xterm.css` (byte-identical to the React build's, `backend/app/vendor/`) and LogSmith's own `terminal.js` client — 404 for anything else, and 404 for all four while the flag is off |
 | `POST /terminal` | the form target of the same page (same gating): runs `command`, re-renders with the result and the command kept in the textarea |
 | `GET /jobs?q=&status=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |

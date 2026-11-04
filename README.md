@@ -151,8 +151,11 @@ Vite proxy talks HTTPS to the backend.
 - **Remote terminal** — `LOGSMITH_TERMINAL=1` adds a Terminal tab: a real
   interactive shell on the server in the browser (xterm.js over SSE + POST,
   no WebSocket, no extra dependency). Off by default — a shell is the whole
-  machine. The python UI gets a zero-JS command box on `/terminal` instead.
-  Off also means *hidden*: every terminal endpoint answers 404.
+  machine. Both UIs have it: React's Terminal tab, and the python UI's
+  `/terminal` page, where the same shell is progressive enhancement — with
+  JavaScript it mounts (xterm.js vendored into the repo, no Node needed),
+  without it the page's command box stands in. Off also means *hidden*:
+  every terminal endpoint answers 404.
 - **File artifacts** — anything a script writes to its `outputs/` directory is
   viewable/downloadable in the browser; Markdown files render nicely.
 - **Authentication** — `LOGSMITH_TOKEN` requires a password for the UI
@@ -657,7 +660,7 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `LOGSMITH_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
 | `LOGSMITH_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable, they just never fire on their own |
-| `LOGSMITH_TERMINAL` | `0` | `1` enables the Terminal tab: an interactive shell on the server in the browser (React) and a one-shot command box (`/terminal`, python UI). Also off whenever `LOGSMITH_ALLOW_SCRIPT_EDITING=0` |
+| `LOGSMITH_TERMINAL` | `0` | `1` enables the interactive shell on the server in the browser: React's Terminal tab, and the python UI's `/terminal` page (same shell as progressive enhancement — its no-JS command box stays as the fallback). Also off whenever `LOGSMITH_ALLOW_SCRIPT_EDITING=0` |
 | `LOGSMITH_TERMINAL_MAX_SESSIONS` | `4` | concurrent shell sessions (429 when full; strays are reaped by the idle timeout) |
 | `LOGSMITH_TERMINAL_IDLE_TIMEOUT` | `1800` | seconds without input or output before a session is killed (0 disables the reaper) |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |

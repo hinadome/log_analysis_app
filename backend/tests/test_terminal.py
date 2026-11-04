@@ -218,3 +218,36 @@ def test_terminal_page_runs_commands(client, terminal_on):
     # blank submissions are caught, not run
     res = client.post("/terminal", data={"command": "   "})
     assert "Type a command first" in res.text
+
+
+def test_terminal_page_has_interactive_shell(client, terminal_on):
+    """The python UI's terminal is progressive enhancement: the page ships
+    an xterm mount (interactive shell) AND keeps the no-JS command box."""
+    page = client.get("/terminal").text
+    assert 'id="term-mount"' in page
+    assert 'id="term-status"' in page
+    assert 'id="term-restart"' in page
+    assert 'id="term-fallback"' in page  # the command box stays as fallback
+    assert 'name="command"' in page
+    for asset in ("xterm.js", "addon-fit.js", "terminal.js", "xterm.css"):
+        assert f"/terminal/assets/{asset}" in page
+
+    # the vendored assets actually serve, as javascript/css
+    for asset in ("xterm.js", "addon-fit.js", "terminal.js"):
+        res = client.get(f"/terminal/assets/{asset}")
+        assert res.status_code == 200
+        assert res.headers["content-type"].startswith("text/javascript")
+        assert len(res.content) > 1000
+    res = client.get("/terminal/assets/xterm.css")
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/css")
+
+    # only the vendored set serves — nothing else, no traversal
+    assert client.get("/terminal/assets/nope.js").status_code == 404
+    assert client.get("/terminal/assets/..%2fconfig.py").status_code == 404
+
+
+def test_terminal_assets_hidden_when_off(client):
+    """Flag off = nothing terminal-related answers, assets included."""
+    for asset in ("xterm.js", "addon-fit.js", "terminal.js", "xterm.css"):
+        assert client.get(f"/terminal/assets/{asset}").status_code == 404
