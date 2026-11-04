@@ -4,6 +4,8 @@
 {% block content %}
 <div class="page-head">
   <h1>Scripts</h1>
+  <a class="btn ghost sm" href="/api/scripts/export"
+     title="Every script in one tar.gz — flat scripts as code + manifest pairs, directory-style scripts under their names. Import takes it back.">⬇ Export all</a>
   {% if allow_editing %}
   <a class="btn primary sm" href="/scripts/new">＋ New script</a>
   {% else %}

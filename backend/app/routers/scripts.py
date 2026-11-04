@@ -75,6 +75,57 @@ def get_scripts():
     return {"scripts": discover_scripts()}
 
 
+# Declared BEFORE the /{script_id} routes: a fixed path must win over the
+# parameter, or "export" would be read as a script id.
+@router.get("/export")
+def export_all_scripts():
+    """Every script in one tar.gz — the full backup / server-to-server move.
+
+    Flat scripts land as top-level code + sidecar pairs; directory-style
+    scripts keep their directory name (the single-script export flattens
+    it away — a whole-library archive cannot, or scripts would collide).
+    Import takes the result back whole: mixed flat pairs and manifest-
+    bearing subdirectories are exactly what it understands.
+    """
+    scripts = discover_scripts()
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for script in scripts:
+            code_path = Path(script.script_path)
+            if script.style == "flat":
+                tar.add(code_path, arcname=code_path.name)
+                sidecar = code_path.with_suffix(".json")
+                if sidecar.is_file():
+                    tar.add(sidecar, arcname=sidecar.name)
+            else:
+                script_dir = code_path.parent
+                for member in sorted(script_dir.rglob("*")):
+                    if member.is_file():
+                        tar.add(member, arcname=str(member.relative_to(script_dir.parent)))
+        now = datetime.now(timezone.utc)
+        readme = (
+            f"LogSmith script library export — {len(scripts)} script(s)\n"
+            f"Exported {now.isoformat()} from {SCRIPTS_DIR}\n\n"
+            "Restore: use Import in either UI (or POST to /api/scripts/import)\n"
+            "with this file. Flat scripts (code + sidecar pairs) come back as\n"
+            "themselves; each subdirectory with a manifest.json is a\n"
+            "directory-style script and keeps its name. Scripts whose ids\n"
+            "already exist on the target are an error unless replace is chosen.\n"
+        ).encode("utf-8")
+        info = tarfile.TarInfo("RESTORE.txt")
+        info.size = len(readme)
+        info.mtime = int(now.timestamp())
+        tar.addfile(info, io.BytesIO(readme))
+
+    stamp = now.strftime("%Y%m%d")
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/gzip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="logsmith-scripts-{stamp}.tar.gz"'},
+    )
+
+
 def _find(script_id: str):
     for script in discover_scripts():
         if script.id == script_id:
@@ -96,12 +147,28 @@ def _get_flat_or_404(script_id: str):
     return script
 
 
+# ids that would be shadowed by a fixed route on this router: the library
+# download lives at GET /scripts/export (declared before the /{script_id}
+# routes), so a script named "export" could never be fetched by the editor.
+_RESERVED_IDS = ("export",)
+
+
+def _reject_reserved(script_id: str) -> None:
+    if script_id in _RESERVED_IDS:
+        raise HTTPException(
+            422,
+            detail=f"Script id '{script_id}' is reserved — GET /api/scripts/{script_id} "
+                   "is the whole-library download, so a script with that id could never be fetched",
+        )
+
+
 def _validate(req: ScriptUpsertRequest) -> dict:
     """Shared checks for create/update; returns the manifest dict to persist."""
     if not _SAFE_ID.match(req.id):
         raise HTTPException(status_code=422, detail=(
             "Script id must start with a letter/digit and contain only "
             "letters, digits, '-' or '_' (max 64 chars)"))
+    _reject_reserved(req.id)
     if not req.code.strip():
         raise HTTPException(status_code=422, detail="Script code is empty")
     if not (1 <= req.manifest.timeout <= 86400):
@@ -321,21 +388,14 @@ def _extract_to_staging(data: bytes) -> Path:
     return staging
 
 
-def _flat_scripts_in(staging: Path) -> list[tuple[str, Path, Path]]:
-    """(id, code path, sidecar path) for every flat script at the top level.
+def _flat_scripts_in(entries: list[Path]) -> list[tuple[str, Path, Path]]:
+    """(id, code path, sidecar path) for every flat script among top-level
+    files.
 
     Mirrors the scanner's discovery rules: a code file is a script when it
     has a same-stem .json sidecar or a known interpreter extension; every
     sidecar must find its code file, and every stem must be a safe id.
     """
-    entries = sorted(staging.iterdir())
-    for entry in entries:
-        if entry.is_dir():
-            raise HTTPException(
-                422,
-                detail="Directories inside the archive need a top-level manifest.json "
-                       "(directory-style script) — flat scripts are code + sidecar pairs",
-            )
     code_files = [e for e in entries if e.suffix.lower() != ".json"]
     sidecars = {e.stem: e for e in entries if e.suffix.lower() == ".json"}
 
@@ -363,6 +423,7 @@ def _flat_scripts_in(staging: Path) -> list[tuple[str, Path, Path]]:
     for stem, _, _ in scripts:
         if not _SAFE_ID.match(stem):
             raise HTTPException(422, detail=f"Script id '{stem}' is not importable — ids start with a letter/digit and use letters, digits, '-' or '_' (rename the files, or use ?name=)")
+        _reject_reserved(stem)
     return scripts
 
 
@@ -386,10 +447,11 @@ async def import_scripts(file: UploadFile = File(...), name: str = "",
 
     A top-level manifest.json makes it one directory-style script (id from
     ?name= or the file name — the export flattens the original directory
-    name away); otherwise the top level must be flat scripts (code +
-    sidecar pairs, several allowed). Existing ids are a 409 unless
-    ?overwrite=1 replaces them first. All-or-nothing: nothing is written
-    until everything validates.
+    name away); otherwise the top level is a mix of flat scripts (code +
+    sidecar pairs, several allowed) and subdirectories that each carry
+    their own manifest.json — the export-all shape, taken back whole.
+    Existing ids are a 409 unless ?overwrite=1 replaces them first.
+    All-or-nothing: nothing is written until everything validates.
     """
     _require_editing_enabled()
 
@@ -406,6 +468,8 @@ async def import_scripts(file: UploadFile = File(...), name: str = "",
         # classify + plan
         written: list[Path] = []
         if (staging / "manifest.json").is_file():
+            # the per-script export shape: everything belongs to one
+            # directory-style script, named by ?name= or the file name
             try:
                 json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
@@ -413,11 +477,38 @@ async def import_scripts(file: UploadFile = File(...), name: str = "",
             script_id = (name or "").strip() or _strip_archive_suffix(file.filename or "")
             if not _SAFE_ID.match(script_id):
                 raise HTTPException(422, detail="A directory-style import needs a valid id — pass ?name=<id> (letters, digits, '-', '_')")
+            _reject_reserved(script_id)
             plan = [("directory", script_id, staging)]
         else:
-            plan = [("flat", stem, code) for stem, code, _ in _flat_scripts_in(staging)]
+            # the export-all shape: flat pairs at the top level, plus a
+            # subdirectory per directory-style script (each carrying its
+            # own manifest.json, so its name travels with it)
+            plan = []
+            flat_entries = []
+            for entry in sorted(staging.iterdir()):
+                if not entry.is_dir():
+                    flat_entries.append(entry)
+                    continue
+                if not (entry / "manifest.json").is_file():
+                    raise HTTPException(422, detail=f"Directory '{entry.name}' has no manifest.json — only directories that are scripts themselves belong in a pack")
+                try:
+                    json.loads((entry / "manifest.json").read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise HTTPException(422, detail=f"Manifest in '{entry.name}' is not valid JSON: {exc}")
+                if not _SAFE_ID.match(entry.name):
+                    raise HTTPException(422, detail=f"Directory '{entry.name}' is not a valid script id (letters, digits, '-', '_')")
+                _reject_reserved(entry.name)
+                plan.append(("directory", entry.name, entry))
+            plan.extend(("flat", stem, code) for stem, code, _ in _flat_scripts_in(flat_entries))
         if not plan:
             raise HTTPException(422, detail="No scripts found in the archive — expected a tar.gz from Export (code + sidecar pairs, or a directory-style script with manifest.json)")
+
+        # two scripts claiming one id inside a single archive (a flat stem
+        # colliding with a directory name) — refuse rather than half-apply
+        claimed = [sid for _, sid, _ in plan]
+        if len(set(claimed)) != len(claimed):
+            dupes = sorted({sid for sid in claimed if claimed.count(sid) > 1})
+            raise HTTPException(422, detail=f"The archive contains more than one script named: {', '.join(dupes)}")
 
         existing = {s.id: s for s in discover_scripts()}
         conflicts = [sid for kind, sid, _ in plan if sid in existing]

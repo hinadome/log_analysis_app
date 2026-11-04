@@ -378,6 +378,138 @@ def test_import_refuses_undiscovered_directory(client, scripts_dir):
     assert list(stray.iterdir()) == [stray / "notes.txt"]
 
 
+# --- export all (the library backup) -----------------------------------------
+
+def test_export_all_contents(client, scripts_dir):
+    """Flat scripts as top-level pairs, directory scripts under their names
+    (NOT flattened — a library archive would collide), plus the README."""
+    client.post("/api/scripts", json=_body())  # flat: shout.sh + shout.json
+    (scripts_dir / "bundle").mkdir()
+    (scripts_dir / "bundle" / "manifest.json").write_text(
+        json.dumps({"name": "Bundle", "command": "python3 {script} {log} {args}"}), encoding="utf-8")
+    (scripts_dir / "bundle" / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (scripts_dir / "bundle" / "data").mkdir()
+    (scripts_dir / "bundle" / "data" / "t.csv").write_text("a\n", encoding="utf-8")
+
+    res = client.get("/api/scripts/export")
+    assert res.status_code == 200, res.text
+    assert res.headers["content-type"] == "application/gzip"
+    assert res.headers["content-disposition"].startswith('attachment; filename="logsmith-scripts-')
+    with tarfile.open(fileobj=io.BytesIO(res.content)) as tar:
+        names = set(tar.getnames())
+        assert {"shout.sh", "shout.json",
+                "bundle/manifest.json", "bundle/main.py", "bundle/data/t.csv",
+                "RESTORE.txt"} == names
+        readme = tar.extractfile("RESTORE.txt").read().decode()
+        assert "2 script(s)" in readme
+        assert "Import" in readme
+
+
+def test_export_all_round_trip(client, scripts_dir):
+    """The library backup restores: export all, wipe, import one archive,
+    everything is back — names, styles, params, and it runs."""
+    client.post("/api/scripts", json=_body())  # flat shout
+    (scripts_dir / "bundle").mkdir()
+    (scripts_dir / "bundle" / "manifest.json").write_text(
+        json.dumps({"name": "Bundle", "command": "python3 {script} {log} {args}"}), encoding="utf-8")
+    (scripts_dir / "bundle" / "main.py").write_text(
+        "import sys\nprint(open(sys.argv[1]).read(), end='')\n", encoding="utf-8")
+    before = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+
+    archive = client.get("/api/scripts/export").content
+
+    import shutil
+    for entry in scripts_dir.iterdir():
+        shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
+    assert client.get("/api/scripts").json()["scripts"] == []
+
+    res = _post_import(client, archive, filename="logsmith-scripts.tar.gz")
+    assert res.status_code == 200, res.text
+    assert sorted(res.json()["imported"]) == ["bundle", "shout"]
+
+    after = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+    assert set(after) == set(before)
+    assert after["shout"]["parameters"] == before["shout"]["parameters"]
+    assert after["shout"]["style"] == "flat"
+    assert after["bundle"]["style"] == "directory"
+    assert after["bundle"]["name"] == "Bundle"
+
+    # one of each style actually runs after the round trip
+    jobs = submit(client, [{"script_id": "shout", "params": {}}])
+    wait_status(client, [jobs[0]["id"]], ("completed",))
+    assert client.get(f"/api/jobs/{jobs[0]['id']}/stdout").text == EXPECTED_UPPER
+
+
+def test_export_all_with_no_scripts(client, scripts_dir):
+    """A backup of nothing is still a valid archive (the README only)."""
+    res = client.get("/api/scripts/export")
+    assert res.status_code == 200
+    with tarfile.open(fileobj=io.BytesIO(res.content)) as tar:
+        assert tar.getnames() == ["RESTORE.txt"]
+
+
+def test_export_all_route_wins_over_script_id(client, scripts_dir):
+    """GET /api/scripts/export is the library download — the fixed path
+    beats the /{script_id} parameter, so the id itself is reserved: creating
+    a script named 'export' (or importing one) is a 422, not a script whose
+    source can never be fetched."""
+    res = client.get("/api/scripts/export")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/gzip"
+
+    res = client.post("/api/scripts", json=_body(script_id="export"))
+    assert res.status_code == 422
+    assert "reserved" in res.json()["detail"]
+
+    # import paths refuse it too — flat pack and directory-style alike
+    assert _post_import(client, _pack({
+        "export.sh": "echo hi\n",
+        "export.json": json.dumps({"name": "Export"}),
+    })).status_code == 422
+    assert _post_import(client, _pack({
+        "manifest.json": json.dumps({"name": "Export"}),
+        "main.sh": "echo hi\n",
+    }), name="export").status_code == 422
+    assert _post_import(client, _pack({
+        "export/manifest.json": json.dumps({"name": "Export"}),
+        "export/main.sh": "echo hi\n",
+    })).status_code == 422
+    assert list(scripts_dir.iterdir()) == []
+
+
+def test_import_pack_with_directory_scripts(client, scripts_dir):
+    """The export-all shape: flat pairs and manifest-bearing subdirectories
+    in one archive — all land; a subdirectory without a manifest is an
+    error; a flat stem colliding with a directory name is an error."""
+    pack = _pack({
+        "hello.sh": "echo hi\n",
+        "hello.json": json.dumps({"name": "Hello"}),
+        "bundler/manifest.json": json.dumps({"name": "The Bundler"}),
+        "bundler/main.sh": "echo bundled\n",
+        "bundler/data/x.csv": "1\n",
+    })
+    res = _post_import(client, pack)
+    assert res.status_code == 200, res.text
+    assert sorted(res.json()["imported"]) == ["bundler", "hello"]
+    assert (scripts_dir / "bundler" / "data" / "x.csv").read_text() == "1\n"
+
+    scripts = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+    assert scripts["hello"]["style"] == "flat"
+    assert scripts["bundler"]["style"] == "directory"
+    assert (scripts_dir / "bundler" / "main.sh").stat().st_mode & 0o111
+
+    # a directory without a manifest is not a script — refused
+    assert _post_import(client, _pack({
+        "ok.sh": "echo ok\n", "justdata/thing.txt": "x",
+    })).status_code == 422
+
+    # two scripts claiming one id inside a single archive
+    assert _post_import(client, _pack({
+        "clash.sh": "echo a\n",
+        "clash/manifest.json": json.dumps({"name": "Clash"}),
+    })).status_code == 422
+
+
 def test_import_rejects_bad_archives(client, scripts_dir):
     # not a tar.gz at all
     assert _post_import(client, b"just some bytes").status_code == 422

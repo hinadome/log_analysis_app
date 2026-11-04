@@ -29,24 +29,31 @@ export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEd
             : `${scripts.length} available · click to add`
           : "No scripts found in scripts/"}
         action={
-          canEditScripts ? (
-            <>
-              <button className="btn ghost sm" onClick={pickImport}
-                      title="Import script(s) from a .tar.gz — the Export format, or a pack of flat scripts">
-                ⬆ Import
-              </button>
-              <input ref={fileInput} type="file" accept=".gz,.tgz" hidden
-                     onChange={onImportPicked} />
-              <button className="btn ghost sm" onClick={onNewScript}
-                      title="Create a new script in the browser editor">
-                ＋ New script
-              </button>
-            </>
-          ) : (
-            <span className="muted sm" title="Script authoring is disabled on this server">
-              🔒 editing disabled
-            </span>
-          )
+          <>
+            <a className="btn ghost sm" href="/api/scripts/export" download
+               title="Every script in one tar.gz — flat scripts as code + manifest pairs, directory-style scripts under their names. Import takes it back.">
+              ⬇ Export all
+            </a>
+            {canEditScripts && (
+              <>
+                <button className="btn ghost sm" onClick={pickImport}
+                        title="Import script(s) from a .tar.gz — the Export format, or a pack of scripts">
+                  ⬆ Import
+                </button>
+                <input ref={fileInput} type="file" accept=".gz,.tgz" hidden
+                       onChange={onImportPicked} />
+                <button className="btn ghost sm" onClick={onNewScript}
+                        title="Create a new script in the browser editor">
+                  ＋ New script
+                </button>
+              </>
+            )}
+            {!canEditScripts && (
+              <span className="muted sm" title="Script authoring is disabled on this server">
+                🔒 editing disabled
+              </span>
+            )}
+          </>
         }
       />
       {categories.length > 0 && (
