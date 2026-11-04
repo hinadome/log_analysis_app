@@ -25,7 +25,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from . import auth
-from .config import LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB, ALLOW_SCRIPT_EDITING, DOCKER_SANDBOX
+from .config import (LOG_PREVIEW_LINES, MAX_LOG_UPLOAD_MB, ALLOW_SCRIPT_EDITING,
+                     DOCKER_SANDBOX, TERMINAL_ENABLED, LOGS_DIR)
 from .models import (
     Job, JobCreateRequest, JobSpecIn, PipelineSaveRequest, PipelineStep,
     ScheduleSaveRequest, ScriptManifest, ScriptUpsertRequest,
@@ -37,6 +38,7 @@ from .routers import schedules as schedules_api
 from .routers import scripts as scripts_api
 from .services import pipeline_store
 from .services.scanner import discover_scripts, list_logs
+from .services.terminal import terminal as terminal_service
 
 router = APIRouter(include_in_schema=False)
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -145,6 +147,8 @@ def _page(request: Request, name: str, status_code: int = 200, **ctx):
     context = {
         "auth_required": auth.auth_required(),
         "docker_sandbox": DOCKER_SANDBOX,
+        "terminal_enabled": TERMINAL_ENABLED,
+        "logs_dir": str(LOGS_DIR),
         "msg": request.query_params.get("msg", ""),
         "err": request.query_params.get("err", ""),
     }
@@ -1224,6 +1228,39 @@ def script_delete(request: Request, script_id: str):
     except HTTPException as exc:
         return _render_error(request, exc, back="/scripts")
     return RedirectResponse("/scripts?" + urlencode({"msg": f"Deleted {script_id}"}), status_code=303)
+
+
+# --- terminal ---------------------------------------------------------------
+
+@router.get("/terminal")
+def terminal_page(request: Request):
+    """The command box (zero JS): one command, its output, a back button.
+
+    The interactive shell lives in the React tab — a pty cannot be driven
+    from plain HTML forms. While LOGSMITH_TERMINAL is off this is a 404,
+    matching what the API does.
+    """
+    if redirect := _need_login(request):
+        return redirect
+    if not TERMINAL_ENABLED:
+        raise HTTPException(status_code=404, detail="Terminal is disabled")
+    return _page(request, "terminal.html", nav="terminal")
+
+
+@router.post("/terminal")
+async def terminal_run(request: Request):
+    if redirect := _need_login(request):
+        return redirect
+    if not TERMINAL_ENABLED:
+        raise HTTPException(status_code=404, detail="Terminal is disabled")
+    form = await request.form()
+    command = (form.get("command") or "").strip()
+    if not command:
+        return _page(request, "terminal.html", nav="terminal",
+                     command="", err="Type a command first.")
+    result = await terminal_service.run_command(command, timeout=30.0)
+    return _page(request, "terminal.html", nav="terminal",
+                 command=command, result=result)
 
 
 # --- catch-all: a real 404 page -------------------------------------------

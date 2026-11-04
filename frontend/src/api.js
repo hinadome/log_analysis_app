@@ -80,6 +80,20 @@ export const api = {
     request(`/api/schedules/${encodeURIComponent(name)}/toggle`, { method: "POST" }),
   runSchedule: (name) =>
     request(`/api/schedules/${encodeURIComponent(name)}/run`, { method: "POST" }),
+  terminalCreate: () => request("/api/terminal/sessions", { method: "POST" }),
+  terminalInput: (id, data) =>
+    // keystrokes ride as the raw body — the server writes them to the pty
+    // verbatim, so a JSON wrapper would only need un-wrapping
+    request(`/api/terminal/sessions/${id}/input`, {
+      method: "POST", body: data, headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    }),
+  terminalResize: (id, cols, rows) =>
+    request(`/api/terminal/sessions/${id}/size`, {
+      method: "POST", body: JSON.stringify({ cols, rows }),
+    }),
+  terminalKill: (id) =>
+    request(`/api/terminal/sessions/${id}`, { method: "DELETE" }),
+  terminalOutputUrl: (id) => `/api/terminal/sessions/${id}/output`,
   jobFileUrl: (id, name) => `/api/jobs/${id}/files/${encodeURIComponent(name)}`,
   jobEventsUrl: (id) => `/api/jobs/${id}/events`,
 };

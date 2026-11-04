@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Terminal · LogSmith{% endblock %}
+{% block content %}
+<h1>⌨ Terminal</h1>
+<p class="muted">Runs commands on the server, in <span class="mono">{{ logs_dir }}</span> — as the
+  LogSmith process user. Interactive shells (a real pty) live in the React UI
+  (<span class="mono">./run.sh --ui react</span>, Terminal tab); this page is the zero-JS
+  command box: one command, its combined output. Enabled by
+  <span class="mono">LOGSMITH_TERMINAL=1</span> (in the environment or the repo's <span class="mono">.env</span>).</p>
+
+<form method="post" action="/terminal" class="card">
+  <h2>Run a command</h2>
+  <label class="field">command
+    <textarea name="command" rows="3" class="mono" spellcheck="false"
+              placeholder="e.g. tail -n 50 {{ logs_dir }}/app.log — or anything the server user can run">{{ command or '' }}</textarea>
+  </label>
+  <button class="btn" type="submit">Run →</button>
+  <span class="muted">30s timeout · output capped · nothing is stored</span>
+</form>
+
+{% if result %}
+<section class="card">
+  <h2>
+    Output
+    {% if result.error %}
+      <span class="badge bad">error</span>
+    {% elif result.exit_code is not none %}
+      <span class="badge {{ 'ok' if result.exit_code == 0 else 'bad' }}">exit {{ result.exit_code }}</span>
+    {% endif %}
+  </h2>
+  {% if result.error %}<p class="chip warn">{{ result.error }}</p>{% endif %}
+  {% if result.output %}
+    <pre class="term-out">{{ result.output }}</pre>
+  {% elif not result.error %}
+    <p class="muted">(no output)</p>
+  {% endif %}
+</section>
+{% elif err %}
+<p class="flash bad">{{ err }}</p>
+{% endif %}
+{% endblock %}

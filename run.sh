@@ -46,6 +46,23 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# --- .env: LOGSMITH_* lines only ------------------------------------------
+# The repo's .env is shared with other tooling, so only variables named
+# LOGSMITH_* are honored — anything else in the file stays untouched.
+# A variable already in the environment wins over the file (CLI flags
+# still win over both).
+if [ -f .env ]; then
+  while IFS= read -r envline || [ -n "$envline" ]; do
+    case "$envline" in
+      LOGSMITH_*\=*) ;;
+      *) continue ;;
+    esac
+    envline="${envline#export }"
+    envname="${envline%%=*}"
+    [ -n "${!envname:-}" ] || export "$envline"
+  done < .env
+fi
+
 RUN_DIR=.run
 BACKEND_PID="$RUN_DIR/backend.pid"
 FRONTEND_PID="$RUN_DIR/frontend.pid"
@@ -179,6 +196,26 @@ ensure_sandbox() {
 sandbox_report() {
   [ "$SANDBOX_ENABLED" = "1" ] || return 0
   echo "Sandbox  ●  docker ($SANDBOX_IMAGE — no network, ${LOGSMITH_SANDBOX_MEMORY:-512m} RAM per job)"
+}
+
+# LOGSMITH_TERMINAL=1 turns the browser into a shell on the server. It is
+# also forced off by LOGSMITH_ALLOW_SCRIPT_EDITING=0 (the lockdown that
+# means "run the vetted scripts only" — a shell beats the script editor).
+truthy() { case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+             1|true|yes|on) return 0 ;; *) return 1 ;; esac; }
+
+terminal_report() {
+  local locked=0
+  truthy "${LOGSMITH_ALLOW_SCRIPT_EDITING:-1}" || locked=1
+  if truthy "${LOGSMITH_TERMINAL:-0}"; then
+    if [ "$locked" = "1" ]; then
+      echo "Terminal ✗  requested (LOGSMITH_TERMINAL=1) but locked off by LOGSMITH_ALLOW_SCRIPT_EDITING=0"
+    else
+      echo "Terminal ●  enabled (LOGSMITH_TERMINAL) — shells run as the server user"
+    fi
+  else
+    echo "Terminal ○  off (LOGSMITH_TERMINAL=1 in .env or the environment enables it)"
+  fi
 }
 
 # The TLS cert only covers localhost; other devices will see a browser warning.
@@ -433,6 +470,7 @@ cmd_start() { # args may contain --dev and --ui python|react
   fi
   auth_report
   sandbox_report
+  terminal_report
   local ip
   ip=$(lan_ip)
   if [ -n "$ip" ] && [ "$HOST" != "localhost" ] && [ "$HOST" != "127.0.0.1" ]; then
@@ -572,6 +610,7 @@ case "${1:-}" in
     fi
     auth_report
     sandbox_report
+    terminal_report
     # shellcheck disable=SC2086
     exec .venv/bin/uvicorn --app-dir backend app.main:app --host "$HOST" --port "$BACKEND_PORT" $(ssl_flags) ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
     ;;

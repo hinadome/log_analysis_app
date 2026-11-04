@@ -50,9 +50,9 @@ semaphore; the UI is a static React bundle served by the same process.
 backend/app/
 ├── main.py            App assembly: auth middleware, routers, lifespan
 │                      (reconcile → prune → scheduler start; scheduler +
-│                      executor shutdown on stop), and the frontend mount:
-│                      the React SPA from frontend/dist or the python
-│                      pages router, per LOGSMITH_UI
+│                      executor + terminal shutdown on stop), and the
+│                      frontend mount: the React SPA from frontend/dist
+│                      or the python pages router, per LOGSMITH_UI
 ├── config.py          All settings, read from environment variables once
 ├── models.py          Pydantic models: ParamSpec, ScriptManifest, ScriptInfo
 │                      (incl. the derived needs_log computed field), LogFile,
@@ -84,6 +84,10 @@ backend/app/
 │                      upsert-by-name (cron + pipeline + log validated) /
 │                      toggle / run-now (shares the ticker's fire path) /
 │                      delete
+│   └── terminal.py    Remote terminal endpoints (every one flag-gated
+│                      to 404 while LOGSMITH_TERMINAL is off): create/
+│                      kill pty sessions, SSE output stream, raw-body
+│                      input, pty resize
 └── services/
     ├── scanner.py     Discovers logs (recursive, newest first) and scripts
     │                  (flat + directory styles, default commands — which
@@ -106,6 +110,12 @@ backend/app/
     └── scheduler.py   The ticker: one asyncio task, wakes every 30s,
                        fires due schedules through the normal submission
                        path; injectable clock for tests
+    └── terminal.py    The remote terminal (LOGSMITH_TERMINAL): a pty
+                       session registry — pty.fork() of $SHELL, reader
+                       callback → bounded drop-oldest queue → SSE frames
+                       (base64 JSON, like the job events stream), blocking-
+                       safe input writes, idle reaper, whole-process-group
+                       kill, and the python UI's one-shot run_command
 
 backend/tests/         pytest suite: conftest isolates LOGS_DIR/DATA_DIR to
                        temp dirs before any app import; see §11
@@ -493,9 +503,16 @@ route that would otherwise swallow the page routes.
 Single-page React app; state lives in `App.jsx`:
 
 - **Routing**: the URL hash is the source of truth — `#/` is home,
-  `#/job/<id>` the job view (`useHashRoute` + `parseRoute` validating the job
-  id shape). Refresh, browser back/forward and shareable job links all work
-  without server-side routing.
+  `#/job/<id>` the job view, `#/terminal` the terminal tab (`useHashRoute` +
+  `parseRoute` validating the job id shape). Refresh, browser back/forward
+  and shareable job links all work without server-side routing.
+- **TerminalPanel** (rendered only while `health.terminal` is on — the
+  topbar link appears and disappears with it): one xterm.js instance per
+  mount, `POST /api/terminal/sessions` to create, an EventSource on the
+  output stream (base64 JSON frames; the exit frame closes it), keystrokes
+  POSTed verbatim from `term.onData`, a debounced resize → `POST …/size`,
+  and `DELETE` on unmount so closing the tab ends the shell. A "Start a new
+  session" button restarts the whole cycle after an exit.
 - **Selection model**: steps are an ordered array of `{key, scriptId,
   params}` — the same script may appear multiple times. In chain mode the
   order is the pipeline order (↑/↓ buttons); in parallel mode it is
@@ -591,6 +608,17 @@ deep-linkable URL. Design points:
   losing anything else — every write endpoint (API and both UIs) answers
   403, reads/export/job submission keep working, and `/api/health` reports
   `script_editing: false` so the UIs hide their editor entry points.
+- **Remote terminal** (`LOGSMITH_TERMINAL`, default off): an interactive
+  shell is strictly more powerful than script authoring, so it is opt-in
+  *and* subordinate to the lock — `TERMINAL_ENABLED` is the conjunction of
+  the flag and `ALLOW_SCRIPT_EDITING`. While off, every endpoint 404s and
+  both UIs hide it, so the feature does not exist to an attacker probing
+  URLs. There is no sandbox path: the terminal is the trust boundary taken
+  knowingly. Sessions are bounded (`LOGSMITH_TERMINAL_MAX_SESSIONS`), die
+  with their tab, and are reaped after `LOGSMITH_TERMINAL_IDLE_TIMEOUT`
+  without I/O; nothing a shell prints is persisted to disk. The transport
+  is SSE + POST over the same auth middleware — a WebSocket would have
+  bypassed it (the HTTP middleware does not intercept WS handshakes).
 - **Docker sandbox** (`LOGSMITH_DOCKER_SANDBOX=1`): execution isolation
   for the run side of the trust boundary. The executor wraps the same argv
   in `docker run --rm --network none` with a memory cap, a pids limit, the
@@ -667,6 +695,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_cron.py` | the cron matcher: next-fire for every construct (steps, ranges, lists, names, Vixie `a/n`, the day OR rule, Sunday 0/7, leap day), strictly-after semantics, rejection table (field count, ranges, Feb 30, zero steps), `describe()` labels |
 | `test_scheduler.py` | the ticker engine with an injected clock: fires once per matching minute, no double-fire within a minute, no catch-up for minutes lost while down, disabled never fires, overlap skip (recorded, nothing submitted), finished previous run doesn't block, inline steps fire as a chain (log-free), neither-pipeline-nor-steps error, missing pipeline / submission errors recorded not raised, multiple schedules in one tick |
 | `test_schedules_api.py` | the schedule API: save/list round-trip with next_due + cron_desc + target, upsert keeps bookkeeping, validation (cron 422 incl. never-matching, pipeline/log/script 404, escape 400, broken pipeline 404, pipeline XOR steps 422, log-required-iff-first-step-needs-it), inline-steps save/toggle/run-now, toggle/delete + 404s, run-now submits a real chain labelled with the schedule's name, custom label, missing log recorded as `error:` |
+| `test_terminal.py` | the remote terminal: flag off = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`LOGSMITH_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), and the python UI page (nav link, run, blank-input flash) |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,

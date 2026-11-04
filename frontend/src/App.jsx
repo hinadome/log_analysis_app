@@ -12,6 +12,7 @@ import ParamForm from "./components/ParamForm.jsx";
 import JobsPanel from "./components/JobsPanel.jsx";
 import SchedulesPanel from "./components/SchedulesPanel.jsx";
 import JobDetail from "./components/JobDetail.jsx";
+import TerminalPanel from "./components/TerminalPanel.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
 const JOB_ID_RE = /^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$/;
@@ -20,6 +21,7 @@ const JOB_ID_RE = /^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$/;
 function parseRoute(hash) {
   const m = /^#\/job\/([0-9a-z-]+)$/i.exec(hash || "");
   if (m && JOB_ID_RE.test(m[1])) return { name: "job", id: m[1] };
+  if (hash === "#/terminal") return { name: "terminal" };
   return { name: "home" };
 }
 
@@ -523,6 +525,12 @@ export default function App() {
           {health?.docker_sandbox && ` · 🐳 sandboxed`}
         </div>
         <div className="topbar-actions">
+          {health?.terminal && (
+            <a className={`btn ghost sm ${view.name === "terminal" ? "on" : ""}`}
+               href="#/terminal" title="Interactive shell on the server (LOGSMITH_TERMINAL)">
+              ⌨ Terminal
+            </a>
+          )}
           {notifPerm === "default" && (
             <button className="btn ghost sm" title="Enable job-finished notifications"
                     onClick={askNotifPermission}>
@@ -734,6 +742,8 @@ export default function App() {
               dataSize={health?.data_dir_size}
             />
           </>
+        ) : view.name === "terminal" ? (
+          <TerminalPanel />
         ) : (
           <JobDetail
             id={view.id}

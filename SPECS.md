@@ -189,6 +189,27 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 | `POST /api/auth/login` | `{"password": "…"}` → sets HttpOnly cookie; 401 on wrong password; **rate-limited: 5 failed attempts per client IP per 60 s → 429** with `Retry-After` (a successful login clears the counter); no-op success when auth disabled |
 | `POST /api/auth/logout` | clears the session cookie |
 
+### Terminal (flag-gated: `LOGSMITH_TERMINAL`)
+
+Every endpoint below answers **404 while the flag is off** (also off whenever
+`LOGSMITH_ALLOW_SCRIPT_EDITING=0` — a shell beats the script editor). The
+transport is SSE + POST (no WebSocket): it adds no dependency and rides the
+same HTTP auth middleware as the rest of the API — EventSource cannot send
+headers, but the session cookie needs none.
+
+| Method & Path | Description |
+|---|---|
+| `POST /api/terminal/sessions` | fork a pty running `$SHELL` (fallback `/bin/bash`, then `/bin/sh`) in the repo root with `TERM=xterm-256color` → `{"id", "shell"}`. **429** when `LOGSMITH_TERMINAL_MAX_SESSIONS` (default 4) are live |
+| `GET /api/terminal/sessions/{id}/output` | SSE stream: `data: {"type": "output", "data": "<base64 pty bytes>"}` frames, then one `data: {"type": "exit", "code": N}` (N is the shell's exit code, or null for a killed session) and the stream closes. A dropped connection does **not** end the session — output waits in a bounded queue (newest 256 chunks; older output is dropped), so a reconnecting stream resumes with whatever it holds. A finished session answers with just the exit frame |
+| `POST /api/terminal/sessions/{id}/input` | **raw body = keystrokes**, written to the pty verbatim (413 over 256 KiB; 410 once the shell has exited; 504 if the shell stops reading) |
+| `POST /api/terminal/sessions/{id}/size` | `{"cols": 2..500, "rows": 2..300}` → `TIOCSWINSZ` + `SIGWINCH` (422 out of range) |
+| `DELETE /api/terminal/sessions/{id}` | end the session: SIGTERM to its whole process group, master closed (SIGHUP), SIGKILL after 2 s grace; 404 unknown id |
+
+Sessions are cleaned up three ways: the browser tab closing (the React tab
+kills on unmount), explicit DELETE, or the idle reaper — `LOGSMITH_TERMINAL_IDLE_TIMEOUT`
+seconds (default 1800) with no input and no output. Nothing is written to
+disk. `GET /api/health` reports the feature as `"terminal": bool`.
+
 ### Logs
 
 | Method & Path | Description |
@@ -331,6 +352,8 @@ missing.
 | `POST /schedules/toggle` | a row's ⏸/⏵ button (`name` field): flips `enabled`, 303-redirect with a flash |
 | `POST /schedules/run` | a row's ▶ Run now button: fires through the ticker's path; the redirect flash carries the result (`ok:`/`skipped:` as a message, `error:` as an error flash) |
 | `POST /schedules/delete` | a row's 🗑 button (`name` field): deletes and 303-redirects with a flash |
+| `GET /terminal` | **flag-gated** (`LOGSMITH_TERMINAL`, else 404 and no nav link): the zero-JS command box — a `command` textarea, run via the terminal service directly (no HTTP), output + exit badge rendered in a `<pre>`, blank input caught with a flash. The nav link and the page note that interactive shells (a real pty) live in the React UI's Terminal tab; this page is one command at a time, 30 s timeout, output capped, nothing stored |
+| `POST /terminal` | the form target of the same page (same gating): runs `command`, re-renders with the result and the command kept in the textarea |
 | `GET /jobs?q=&status=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |
 | `GET /jobs/{id}/result.csv?sortcol=&sortdir=` | the table view as CSV (`output.csv`), sorted as shown; 422 when the output is not a JSON table |

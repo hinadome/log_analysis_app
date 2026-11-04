@@ -62,6 +62,24 @@ UI = os.environ.get("LOGSMITH_UI", "react").strip().lower()
 SCHEDULER_ENABLED = os.environ.get(
     "LOGSMITH_SCHEDULER", "1").strip().lower() not in ("0", "false", "no", "off")
 
+# Remote terminal: an interactive shell on the server, in the browser
+# (React's Terminal tab; a command box on the python UI's /terminal page).
+# OFF by default — a shell is arbitrary code as the server user, strictly
+# more powerful than script editing, so it also stays off whenever
+# LOGSMITH_ALLOW_SCRIPT_EDITING=0 (the "run the vetted scripts only"
+# lockdown). While off, every terminal endpoint answers 404 and both UIs
+# hide the feature.
+TERMINAL_ENABLED = (
+    os.environ.get("LOGSMITH_TERMINAL", "0").strip().lower() in ("1", "true", "yes", "on")
+    and ALLOW_SCRIPT_EDITING
+)
+# Concurrent shell sessions (each holds a pty; strays are reaped by the
+# idle timeout below).
+TERMINAL_MAX_SESSIONS = int(os.environ.get("LOGSMITH_TERMINAL_MAX_SESSIONS", "4"))
+# A session with no input/output for this many seconds is killed (a dead
+# browser leaves one behind; 0 disables the reaper).
+TERMINAL_IDLE_TIMEOUT = int(os.environ.get("LOGSMITH_TERMINAL_IDLE_TIMEOUT", "1800"))
+
 # Upper bound for a single log file uploaded through the browser (MiB).
 MAX_LOG_UPLOAD_MB = int(os.environ.get("MAX_LOG_UPLOAD_MB", "512"))
 

@@ -148,6 +148,11 @@ Vite proxy talks HTTPS to the backend.
 - **Live streaming** — the job detail page uses server-sent events
   (`GET /api/jobs/{id}/events`) for zero-latency stdout while a script runs,
   with automatic fallback to polling.
+- **Remote terminal** — `LOGSMITH_TERMINAL=1` adds a Terminal tab: a real
+  interactive shell on the server in the browser (xterm.js over SSE + POST,
+  no WebSocket, no extra dependency). Off by default — a shell is the whole
+  machine. The python UI gets a zero-JS command box on `/terminal` instead.
+  Off also means *hidden*: every terminal endpoint answers 404.
 - **File artifacts** — anything a script writes to its `outputs/` directory is
   viewable/downloadable in the browser; Markdown files render nicely.
 - **Authentication** — `LOGSMITH_TOKEN` requires a password for the UI
@@ -614,6 +619,11 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | DELETE | `/api/schedules/{name}` | remove a schedule |
 | GET | `/api/auth/status` | whether a password is required |
 | POST | `/api/auth/login` `/logout` | password → session cookie (login is rate-limited: 5 failures/min per client) |
+| POST | `/api/terminal/sessions` | (flag-gated: 404 while `LOGSMITH_TERMINAL` is off) start a shell session → `{id, shell}` (429 at `LOGSMITH_TERMINAL_MAX_SESSIONS`) |
+| GET | `/api/terminal/sessions/{id}/output` | SSE stream of the session's output — `{"type":"output","data":<base64>}` frames, then one `{"type":"exit","code":N}` |
+| POST | `/api/terminal/sessions/{id}/input` | raw body = keystrokes, written to the pty verbatim |
+| POST | `/api/terminal/sessions/{id}/size` | `{cols, rows}` → pty resize + SIGWINCH |
+| DELETE | `/api/terminal/sessions/{id}` | end the session (its whole process group) |
 | GET | `/api/jobs` | list jobs (optional `?status=`, `?q=` free-text search over label/script/log/ids, `?limit=&offset=` paging; returns `total`) |
 | GET | `/api/jobs/{id}` | detail incl. stdout/stderr tails |
 | GET | `/api/jobs/{id}/events` | SSE stream (status + stdout deltas) |
@@ -647,10 +657,18 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 | `LOGSMITH_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
 | `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
 | `LOGSMITH_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable, they just never fire on their own |
+| `LOGSMITH_TERMINAL` | `0` | `1` enables the Terminal tab: an interactive shell on the server in the browser (React) and a one-shot command box (`/terminal`, python UI). Also off whenever `LOGSMITH_ALLOW_SCRIPT_EDITING=0` |
+| `LOGSMITH_TERMINAL_MAX_SESSIONS` | `4` | concurrent shell sessions (429 when full; strays are reaped by the idle timeout) |
+| `LOGSMITH_TERMINAL_IDLE_TIMEOUT` | `1800` | seconds without input or output before a session is killed (0 disables the reaper) |
 | `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |
 | `JOB_RETENTION_DAYS` | `0` | auto-delete jobs older than N days at startup (0 = keep forever) |
 
 Example: `LOGSMITH_TOKEN=s3cret JOB_RETENTION_DAYS=14 ./run.sh`
+
+`LOGSMITH_*` variables may also live in the repo's `.env` — run.sh reads only
+the lines it recognizes (`LOGSMITH_…=…`; anything else in the file, other
+tools' keys included, stays untouched) and the real environment wins over the
+file. Example `.env` line: `LOGSMITH_TERMINAL=1`.
 
 ## Tests
 
@@ -690,6 +708,12 @@ Mitigations built in:
 - Bind address configurable via `LOGSMITH_HOST` (default `0.0.0.0` — all
   interfaces; the start script warns loudly when exposed with no token);
   HTTPS with a local certificate
+- **The terminal is opt-in** (`LOGSMITH_TERMINAL`, default off = hidden:
+  404s, no nav links). It is a shell as the server user — anyone with the
+  password can run anything, which is why it also refuses to turn on while
+  `LOGSMITH_ALLOW_SCRIPT_EDITING=0` is set. Sessions die with their browser
+  tab, on explicit close, or after `LOGSMITH_TERMINAL_IDLE_TIMEOUT` (30 min
+  default) with no input and no output.
 - Markdown artifacts are sanitized with DOMPurify before rendering
 
 Still do not expose it directly to the internet — put it behind a VPN or a

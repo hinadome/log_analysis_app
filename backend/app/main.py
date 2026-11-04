@@ -17,11 +17,13 @@ from fastapi.staticfiles import StaticFiles
 from . import auth
 from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
                      DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING,
-                     DOCKER_SANDBOX, SANDBOX_IMAGE, SCHEDULER_ENABLED)
-from .routers import jobs, logs, pipelines, schedules, scripts
+                     DOCKER_SANDBOX, SANDBOX_IMAGE, SCHEDULER_ENABLED,
+                     TERMINAL_ENABLED)
+from .routers import jobs, logs, pipelines, schedules, scripts, terminal
 from .services import decompress_cache
 from .services.job_store import JobStore
 from .services.scheduler import scheduler
+from .services.terminal import terminal as terminal_service
 
 jobs_store: JobStore = jobs.store
 
@@ -57,9 +59,13 @@ async def lifespan(app: FastAPI):
         scheduler.start()
         print(f"scheduler: enabled (checking schedules every "
               f"{scheduler.interval:.0f}s, local time)")
+    if TERMINAL_ENABLED:
+        print("terminal: enabled (LOGSMITH_TERMINAL) — shells run as the "
+              "server user")
     yield
     await scheduler.shutdown()
     await jobs.executor.shutdown()
+    await terminal_service.shutdown()
 
 
 app = FastAPI(title="LogSmith", description="Server-side log analysis workbench",
@@ -93,6 +99,7 @@ app.include_router(scripts.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(pipelines.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")
+app.include_router(terminal.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["meta"])
@@ -109,6 +116,7 @@ def health():
         "sandbox_image": SANDBOX_IMAGE if DOCKER_SANDBOX else None,
         "job_retention_days": JOB_RETENTION_DAYS,
         "scheduler": SCHEDULER_ENABLED,
+        "terminal": TERMINAL_ENABLED,
         "data_dir_size": _dir_size(DATA_DIR),
     }
 
