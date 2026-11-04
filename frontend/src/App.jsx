@@ -516,9 +516,9 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
+        <a className="brand" href="#/" title="Back to the workbench">
           <span className="brand-mark">▤</span> LogSmith
-        </div>
+        </a>
         <div className="muted topbar-sub">
           server-side log analysis workbench
           {health && ` · ${health.max_concurrent_jobs} parallel jobs`}
@@ -743,7 +743,7 @@ export default function App() {
             />
           </>
         ) : view.name === "terminal" ? (
-          <TerminalPanel />
+          <TerminalPanel onBack={() => { goHome(); refreshJobs(); }} />
         ) : (
           <JobDetail
             id={view.id}

@@ -43,6 +43,8 @@ body {
 }
 .brand { font-weight: 700; font-size: 17px; letter-spacing: 0.2px; }
 .brand-mark { color: var(--accent); }
+a.brand { color: var(--text); text-decoration: none; }
+a.brand:hover { color: var(--accent); }
 .topbar-sub { font-size: 12px; }
 
 .layout {

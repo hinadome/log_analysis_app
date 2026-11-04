@@ -13,7 +13,7 @@ import { api } from "../api.js";
  * kills the session. The whole tab only renders while health.terminal
  * says LOGSMITH_TERMINAL is on.
  */
-export default function TerminalPanel() {
+export default function TerminalPanel({ onBack }) {
   const holder = useRef(null);
   const [resetKey, setResetKey] = useState(0);
   const [status, setStatus] = useState("connecting"); // connecting | live | ended | error
@@ -110,6 +110,12 @@ export default function TerminalPanel() {
   return (
     <section className="card terminal-panel">
       <div className="terminal-head">
+        {onBack && (
+          <button className="btn ghost sm" onClick={onBack}
+                  title="Back to the workbench — this shell session ends">
+            ← Back
+          </button>
+        )}
         <h2>
           ⌨ Terminal <span className="muted">— a shell on the server, as the server user</span>
         </h2>
