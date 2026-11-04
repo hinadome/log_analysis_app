@@ -276,9 +276,10 @@ Vite proxy talks HTTPS to the backend.
   and a JSON parameter editor. Writes ordinary flat-style files into
   `scripts/`, so hand-added scripts and UI-created ones are interchangeable.
   One-click **backup** (tar.gz download) and code copy make deletes
-  non-scary. The bundled samples cover every editor language — Python, Bash
-  (`.sh`/`.bash`/`.zsh`), Node, Ruby and Perl — and double as reference
-  templates.
+  non-scary, and **Import** brings a backup back — or moves scripts between
+  servers (a pack of flat scripts in one archive works too). The bundled
+  samples cover every editor language — Python, Bash (`.sh`/`.bash`/`.zsh`),
+  Node, Ruby and Perl — and double as reference templates.
 - **Test-run from the editor** — ▶ Run… saves the script (even unsaved
   edits), runs it with its default parameters on a log you pick, and jumps
   straight to the live result.
@@ -610,6 +611,7 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | PUT | `/api/scripts/{id}` | update code/manifest (extension change moves the file) |
 | DELETE | `/api/scripts/{id}` | remove script + manifest (job history is kept) |
 | GET | `/api/scripts/{id}/export` | download the script as a tar.gz backup |
+| POST | `/api/scripts/import` | multipart tar.gz — the export format back (or a pack of flat scripts). `?name=` ids a directory-style archive (else the file name), `?overwrite=1` replaces existing ids. All-or-nothing: 422 bad archive, 409 existing ids, 403 when editing is locked |
 | POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs. `log_path` optional — a script reading `{log}` without one is a 422 naming it (chain mode checks step 1 only) |
 | POST | `/api/jobs/prune?days=N` | delete jobs older than N days |
 | GET | `/api/pipelines` | saved pipelines (reusable chains) — shared by every browser and both UIs |

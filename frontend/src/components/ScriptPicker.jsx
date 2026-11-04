@@ -1,13 +1,22 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { cx } from "../fmt.js";
 import { StepHead } from "./ui.jsx";
 
-export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEditScript, canEditScripts = true }) {
+export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEditScript,
+                                       onImport, canEditScripts = true }) {
   const [cat, setCat] = useState("");
+  const fileInput = useRef(null);
   const categories = useMemo(
     () => [...new Set(scripts.map((s) => s.category).filter(Boolean))].sort(),
     [scripts]);
   const shown = cat ? scripts.filter((s) => s.category === cat) : scripts;
+
+  const pickImport = () => fileInput.current?.click();
+  const onImportPicked = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let picking the same file again re-fire change
+    if (file) await onImport(file);
+  };
 
   return (
     <section className="card step">
@@ -21,10 +30,18 @@ export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEd
           : "No scripts found in scripts/"}
         action={
           canEditScripts ? (
-            <button className="btn ghost sm" onClick={onNewScript}
-                    title="Create a new script in the browser editor">
-              ＋ New script
-            </button>
+            <>
+              <button className="btn ghost sm" onClick={pickImport}
+                      title="Import script(s) from a .tar.gz — the Export format, or a pack of flat scripts">
+                ⬆ Import
+              </button>
+              <input ref={fileInput} type="file" accept=".gz,.tgz" hidden
+                     onChange={onImportPicked} />
+              <button className="btn ghost sm" onClick={onNewScript}
+                      title="Create a new script in the browser editor">
+                ＋ New script
+              </button>
+            </>
           ) : (
             <span className="muted sm" title="Script authoring is disabled on this server">
               🔒 editing disabled

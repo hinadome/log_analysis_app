@@ -11,6 +11,23 @@
   {% endif %}
 </div>
 
+{% if allow_editing %}
+<form method="post" action="/scripts/import" enctype="multipart/form-data" class="card import-card">
+  <h2>Import</h2>
+  <div class="import-row">
+    <input type="file" name="file" accept=".gz,.tgz" required>
+    <input type="text" name="name" placeholder="id — for directory-style archives"
+           title="Directory-style exports don't carry their id (the export flattens
+the directory name away): name the script here. Ignored for flat scripts.">
+    <label class="inline-opt" title="Replace scripts whose id already exists here">
+      <input type="checkbox" name="overwrite" value="1"> replace existing
+    </label>
+    <button class="btn" type="submit">Import →</button>
+  </div>
+  <span class="muted">A .tar.gz from Export (either UI) — one script or a pack of flat ones. All-or-nothing: an id that already exists is an error unless “replace” is checked.</span>
+</form>
+{% endif %}
+
 <table class="list">
   <thead><tr><th>Script</th><th>Description</th><th>Params</th><th>Style</th><th></th></tr></thead>
   <tbody>

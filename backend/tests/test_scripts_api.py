@@ -226,6 +226,235 @@ def test_export_restores_to_a_working_script(client, scripts_dir):
         monkey.undo()
 
 
+# --- import (the export's counterpart) ---------------------------------------
+
+def _pack(files: dict, *, mode=0o644) -> bytes:
+    """A hand-built tar.gz from {name: bytes-or-str} — import tests' archives."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, content in files.items():
+            if isinstance(content, str):
+                content = content.encode("utf-8")
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            info.mode = mode
+            tar.addfile(info, io.BytesIO(content))
+    return buf.getvalue()
+
+
+def _post_import(client, archive: bytes, filename="import.tar.gz", **params):
+    return client.post("/api/scripts/import",
+                       files={"file": (filename, archive, "application/gzip")},
+                       params=params)
+
+
+def test_import_roundtrip_flat(client, scripts_dir):
+    """export → delete → import: the script is back, byte for byte, and runs."""
+    client.post("/api/scripts", json=_body())
+    archive = client.get("/api/scripts/shout/export").content
+    client.delete("/api/scripts/shout")
+    assert all(s["id"] != "shout" for s in client.get("/api/scripts").json()["scripts"])
+
+    res = _post_import(client, archive, filename="shout.tar.gz")
+    assert res.status_code == 200, res.text
+    assert res.json()["imported"] == ["shout"]
+
+    scripts = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+    assert scripts["shout"]["name"] == "Shout"
+    assert scripts["shout"]["parameters"][0]["name"] == "opt"
+    assert (scripts_dir / "shout.sh").read_text() == 'tr a-z A-Z < "$1"'
+    assert json.loads((scripts_dir / "shout.json").read_text())["command"] == "bash {script} {log} {args}"
+    assert (scripts_dir / "shout.sh").stat().st_mode & 0o111, "imported code is executable"
+
+    # and it actually runs: submit a job against it
+    jobs = submit(client, [{"script_id": "shout", "params": {}}])
+    wait_status(client, [jobs[0]["id"]], ("completed",))
+    assert client.get(f"/api/jobs/{jobs[0]['id']}/stdout").text == EXPECTED_UPPER
+
+
+def test_import_roundtrip_directory(client, scripts_dir):
+    (scripts_dir / "bundle").mkdir()
+    (scripts_dir / "bundle" / "manifest.json").write_text(
+        json.dumps({"name": "Bundle", "command": "python3 {script} {log} {args}"}), encoding="utf-8")
+    (scripts_dir / "bundle" / "main.py").write_text(
+        "import sys\nprint(open(sys.argv[1]).read(), end='')\n", encoding="utf-8")
+    (scripts_dir / "bundle" / "data").mkdir()
+    (scripts_dir / "bundle" / "data" / "table.csv").write_text("a,b\n", encoding="utf-8")
+    archive = client.get("/api/scripts/bundle/export").content
+    assert any(s["id"] == "bundle" for s in client.get("/api/scripts").json()["scripts"])
+
+    import shutil
+    shutil.rmtree(scripts_dir / "bundle")
+    assert not any(s["id"] == "bundle" for s in client.get("/api/scripts").json()["scripts"])
+
+    # the id comes from the file name — the export flattens the directory away
+    res = _post_import(client, archive, filename="bundle.tar.gz")
+    assert res.status_code == 200, res.text
+    assert res.json()["imported"] == ["bundle"]
+
+    scripts = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+    assert scripts["bundle"]["style"] == "directory"
+    assert scripts["bundle"]["name"] == "Bundle"
+    assert (scripts_dir / "bundle" / "main.py").is_file()
+    assert (scripts_dir / "bundle" / "data" / "table.csv").read_text() == "a,b\n"
+    assert (scripts_dir / "bundle" / "main.py").stat().st_mode & 0o111
+
+    # an explicit ?name= wins over the file name
+    other = _post_import(client, archive, filename="whatever.tar.gz", name="bundle2")
+    assert other.status_code == 200
+    assert other.json()["imported"] == ["bundle2"]
+    assert (scripts_dir / "bundle2" / "main.py").is_file()
+
+
+def test_import_flat_pack(client, scripts_dir):
+    """Several flat scripts in one archive — all land, all are discovered."""
+    pack = _pack({
+        "foo.py": "print('foo')\n",
+        "foo.json": json.dumps({"name": "Foo", "command": "python3 {script} {log} {args}"}),
+        "bar.sh": "echo bar\n",  # bare: known extension, no sidecar needed
+    })
+    res = _post_import(client, pack)
+    assert res.status_code == 200, res.text
+    assert sorted(res.json()["imported"]) == ["bar", "foo"]
+
+    scripts = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+    assert scripts["foo"]["name"] == "Foo"
+    assert scripts["bar"]["command"].startswith("bash ")
+
+
+def test_import_conflict_409_then_overwrite(client, scripts_dir):
+    client.post("/api/scripts", json=_body())
+    replacement = _pack({
+        "shout.sh": "echo replaced\n",
+        "shout.json": json.dumps({"name": "Shout v2", "command": "bash {script} {log} {args}"}),
+    })
+
+    # same id, no overwrite: refused, original untouched
+    res = _post_import(client, replacement)
+    assert res.status_code == 409
+    assert "shout" in res.json()["detail"]
+    assert (scripts_dir / "shout.sh").read_text() == 'tr a-z A-Z < "$1"'
+
+    res = _post_import(client, replacement, overwrite="1")
+    assert res.status_code == 200, res.text
+    scripts = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+    assert scripts["shout"]["name"] == "Shout v2"
+    assert (scripts_dir / "shout.sh").read_text() == "echo replaced\n"
+
+
+def test_import_overwrite_replaces_across_styles(client, scripts_dir):
+    """A directory-style import can replace a flat script of the same id
+    (and vice versa) — the old files don't linger."""
+    client.post("/api/scripts", json=_body())  # flat shout
+    res = _post_import(client, _pack({
+        "manifest.json": json.dumps({"name": "Now a dir", "command": "bash {script} {log} {args}"}),
+        "shout.sh": "echo dir\n",
+    }), name="shout", overwrite="1")
+    assert res.status_code == 200, res.text
+
+    scripts = {s["id"]: s for s in client.get("/api/scripts").json()["scripts"]}
+    assert scripts["shout"]["style"] == "directory"
+    assert (scripts_dir / "shout" / "shout.sh").is_file()
+    assert not (scripts_dir / "shout.sh").exists(), "the old flat files must be gone"
+
+
+def test_import_refuses_undiscovered_directory(client, scripts_dir):
+    """A leftover directory that the scanner doesn't know owns its name:
+    the import refuses instead of burying itself inside it."""
+    stray = scripts_dir / "stray"
+    stray.mkdir()
+    (stray / "notes.txt").write_text("not a script\n", encoding="utf-8")
+    # no manifest.json -> not discovered
+    assert all(s["id"] != "stray" for s in client.get("/api/scripts").json()["scripts"])
+
+    res = _post_import(client, _pack({
+        "manifest.json": json.dumps({"name": "Stray"}),
+        "main.sh": "echo x\n",
+    }), name="stray")
+    assert res.status_code == 409
+    assert "by hand" in res.json()["detail"]
+    # the stray content is untouched, nothing nested inside it
+    assert (stray / "notes.txt").read_text() == "not a script\n"
+    assert list(stray.iterdir()) == [stray / "notes.txt"]
+
+
+def test_import_rejects_bad_archives(client, scripts_dir):
+    # not a tar.gz at all
+    assert _post_import(client, b"just some bytes").status_code == 422
+    # empty upload
+    assert _post_import(client, b"").status_code == 422
+    # only the export's README — nothing importable
+    assert _post_import(client, _pack({"RESTORE.txt": b"note"})).status_code == 422
+
+    # path traversal: refused, nothing written
+    res = _post_import(client, _pack({"../evil.sh": "echo pwned\n"}))
+    assert res.status_code == 422
+    assert not (scripts_dir.parent / "evil.sh").exists()
+    res = _post_import(client, _pack({"/abs/evil.sh": "echo pwned\n"}))
+    assert res.status_code == 422
+
+    # a symlink member is not a regular file — refused
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        link = tarfile.TarInfo("evil")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/etc/passwd"
+        tar.addfile(link)
+    assert _post_import(client, buf.getvalue()).status_code == 422
+
+    # unknown extension without a sidecar would be invisible to the scanner
+    assert _post_import(client, _pack({"data.dat": "x"})).status_code == 422
+    # a sidecar whose code file is missing
+    assert _post_import(client, _pack({"lonely.json": "{}"})).status_code == 422
+    # not a safe id
+    assert _post_import(client, _pack({"my script.sh": "echo hi\n"})).status_code == 422
+    # directories need a top-level manifest.json to be directory-style
+    assert _post_import(client, _pack({"sub/thing.py": "print(1)\n"})).status_code == 422
+    # a directory-style import with no derivable id
+    res = _post_import(client, _pack({
+        "manifest.json": json.dumps({"name": "X"}),
+        "x.sh": "echo x\n",
+    }), filename="weird name.tar.gz")
+    assert res.status_code == 422
+
+    # nothing above wrote anything
+    assert list(scripts_dir.iterdir()) == []
+
+
+def test_import_locked_when_editing_disabled(client, scripts_dir, monkeypatch):
+    monkeypatch.setattr(scripts_router, "ALLOW_SCRIPT_EDITING", False)
+    res = _post_import(client, _pack({"ok.sh": "echo ok\n"}))
+    assert res.status_code == 403
+    assert list(scripts_dir.iterdir()) == []
+
+
+def test_import_page_form(client, scripts_dir):
+    """The python UI's Import form rides the same endpoint, in-process."""
+    archive = _pack({
+        "form.sh": "echo from-form\n",
+        "form.json": json.dumps({"name": "From Form", "command": "bash {script} {log} {args}"}),
+    })
+    res = client.post("/scripts/import",
+                      files={"file": ("form.tar.gz", archive, "application/gzip")},
+                      data={"name": "", "overwrite": ""}, follow_redirects=False)
+    assert res.status_code == 303
+    from urllib.parse import unquote_plus
+    assert unquote_plus(res.headers["location"]) == "/scripts?msg=Imported 1 script(s): form"
+    assert any(s["id"] == "form" for s in client.get("/api/scripts").json()["scripts"])
+
+    # the form's error path is a flash, not a stack trace
+    res = client.post("/scripts/import",
+                      files={"file": ("form.tar.gz", archive, "application/gzip")},
+                      data={"name": "", "overwrite": ""}, follow_redirects=False)
+    assert res.status_code == 303
+    assert "err=" in res.headers["location"]
+    # and the replace checkbox maps to overwrite
+    res = client.post("/scripts/import",
+                      files={"file": ("form.tar.gz", archive, "application/gzip")},
+                      data={"name": "", "overwrite": "1"}, follow_redirects=False)
+    assert "msg=" in res.headers["location"]
+
+
 # --- executable scripts + actionable spawn errors -----------------------------
 #
 # A manifest command may run the script file directly ("{script} {log}" with

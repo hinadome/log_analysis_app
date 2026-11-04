@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -1228,6 +1228,31 @@ def script_delete(request: Request, script_id: str):
     except HTTPException as exc:
         return _render_error(request, exc, back="/scripts")
     return RedirectResponse("/scripts?" + urlencode({"msg": f"Deleted {script_id}"}), status_code=303)
+
+
+@router.post("/scripts/import")
+async def script_import(request: Request, file: UploadFile = File(...),
+                        name: str = Form(""), overwrite: str = Form("")):
+    """The Import form on /scripts: one tar.gz, applied in-process.
+
+    Same contract as the API (all-or-nothing, 409 on existing ids unless
+    the replace box is checked); the flash carries the result either way.
+    """
+    if redirect := _need_login(request):
+        return redirect
+    if not ALLOW_SCRIPT_EDITING:
+        return _render_error(request, _editing_disabled(), back="/scripts")
+    try:
+        result = await scripts_api.import_scripts(
+            file=file, name=(name or "").strip(),
+            overwrite=overwrite in ("1", "true", "on", "yes"),
+        )
+    except HTTPException as exc:
+        return RedirectResponse("/scripts?" + urlencode({"err": str(exc.detail)}),
+                                status_code=303)
+    ids = ", ".join(result["imported"])
+    return RedirectResponse("/scripts?" + urlencode(
+        {"msg": f"Imported {len(result['imported'])} script(s): {ids}"}), status_code=303)
 
 
 # --- terminal ---------------------------------------------------------------

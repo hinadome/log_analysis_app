@@ -229,6 +229,7 @@ disk. `GET /api/health` reports the feature as `"terminal": bool`.
 | `PUT /api/scripts/{id}` | update code and/or manifest; a changed `extension` moves the code file. 404 unknown, 400 directory-style, 422 body/path id mismatch, 403 when editing is locked |
 | `DELETE /api/scripts/{id}` | removes the code file and its sidecar. Job history is kept (stdout/artifacts are per-job); jobs of a deleted script can no longer be re-run (404). 403 when editing is locked |
 | `GET /api/scripts/{id}/export` | tar.gz download: code + sidecar manifest (flat) or the full directory (directory-style), plus a `RESTORE.txt` explaining where to unpack |
+| `POST /api/scripts/import` | multipart `file` = tar.gz — the export format, or a pack of flat scripts (code + sidecar pairs, several allowed). A top-level `manifest.json` makes it one directory-style script: the whole tree lands in `scripts/?name=/` (the id from `?name=`, else the upload's file name — the export flattens the original directory name away). `?overwrite=1` replaces existing ids first (flat or directory, across styles). Extraction is strict: regular files only (no links/devices), relative paths, no duplicates; 50 MiB archive / 100 MiB unpacked / 2000 members caps. All-or-nothing — 422 not-a-tar/bad-paths/orphan-manifest/invisible-file/bad-id/empty, 409 existing ids (without overwrite), 403 when editing is locked. → `{imported: [ids], scripts: [ScriptInfo]}` |
 
 ### Jobs
 
@@ -361,7 +362,7 @@ missing.
 | `GET /jobs/{id}/compare[?other=]` | unified line diff of two completed jobs' stdout (difflib, 2000 lines/side); defaults to the latest run of the same script |
 | `POST /jobs/{id}/cancel` `/delete` `/rerun[?from_step]`, `POST /jobs/clear-finished`, `POST /jobs/prune` | form-backed actions; each redirects back (303) |
 | `GET /logs/preview?path=&lines=&tail=1` | head/tail log preview page |
-| `GET /scripts`, `/scripts/new`, `/scripts/{id}/edit` | script list and editor |
+| `GET /scripts`, `/scripts/new`, `/scripts/{id}/edit` | script list and editor. The list page also carries the Import card (when editing is on): a multipart form — file picker (`accept=".gz,.tgz"`), an optional `name` text input (ids a directory-style archive), a "replace existing" checkbox (`overwrite`) — posting to `/scripts/import` and 303-redirecting back with a flash (success names the imported ids; errors arrive as `err=` flashes). Zero JS, same contract as the API |
 | `POST /scripts/save`, `/scripts/test-run` (log chosen in the form; runs with manifest defaults), `/scripts/{id}/delete` | editor actions; an id different from the edited one saves as a new script |
 | `GET /login` `POST /login` `POST /logout` | HTML form login against the same rate-limited password check; logout clears the cookie |
 | `GET /static/*` | the UI stylesheet (mounted before the pages router) |

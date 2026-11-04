@@ -411,6 +411,34 @@ export default function App() {
     openJob(jobId);
   };
 
+  // Import a tar.gz (the export format, or a pack of flat scripts). An id
+  // that already exists is a 409 — offer to replace, then retry once.
+  const importScriptFile = async (file) => {
+    const run = (overwrite) => api.importScripts(file, { overwrite });
+    let result;
+    try {
+      result = await run(false);
+    } catch (e) {
+      if (String(e.message).startsWith("409") &&
+          window.confirm(`${e.message}\n\nReplace the existing script(s)?`)) {
+        try {
+          result = await run(true);
+        } catch (e2) {
+          showError(e2);
+          return;
+        }
+      } else {
+        showError(e);
+        return;
+      }
+    }
+    loadAll();
+    setToast({
+      kind: "ok",
+      text: `Imported ${result.imported.length} script(s): ${result.imported.join(", ")}`,
+    });
+  };
+
   const toggleFanout = (log) => {
     setFanout((list) =>
       list.some((l) => l.path === log.path)
@@ -564,6 +592,7 @@ export default function App() {
                 onNewScript={() => setScriptEditor("new")}
                 onEditScript={(s) => setScriptEditor(s.id)}
                 canEditScripts={health?.script_editing !== false}
+                onImport={importScriptFile}
               />
               {(steps.length > 0 || mode === "chain") && (
                 <section className="card step">

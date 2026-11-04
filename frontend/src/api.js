@@ -39,6 +39,17 @@ export const api = {
   updateScript: (id, body) =>
     request(`/api/scripts/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteScript: (id) => request(`/api/scripts/${id}`, { method: "DELETE" }),
+  importScripts: (file, { name, overwrite } = {}) => {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    const qs = new URLSearchParams(
+      Object.entries({ name, overwrite: overwrite ? 1 : undefined })
+        .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    ).toString();
+    return request(`/api/scripts/import${qs ? `?${qs}` : ""}`, {
+      method: "POST", body, headers: {},
+    });
+  },
   previewLog: (path, lines = 200, tail = false) =>
     request(`/api/logs/preview?path=${encodeURIComponent(path)}&lines=${lines}${tail ? "&tail=1" : ""}`),
   uploadLog: (file) => {
