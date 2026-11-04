@@ -228,10 +228,12 @@ def test_export_restores_to_a_working_script(client, scripts_dir):
 
 # --- import (the export's counterpart) ---------------------------------------
 
-def _pack(files: dict, *, mode=0o644) -> bytes:
-    """A hand-built tar.gz from {name: bytes-or-str} — import tests' archives."""
+def _pack(files: dict, *, mode=0o644, gz: bool = True) -> bytes:
+    """A hand-built tar.gz from {name: bytes-or-str} — import tests' archives.
+    gz=False builds a plain .tar (what Safari's "open safe files" leaves
+    behind after downloading an export)."""
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+    with tarfile.open(fileobj=buf, mode="w:gz" if gz else "w:") as tar:
         for name, content in files.items():
             if isinstance(content, str):
                 content = content.encode("utf-8")
@@ -475,6 +477,31 @@ def test_export_all_route_wins_over_script_id(client, scripts_dir):
         "export/main.sh": "echo hi\n",
     })).status_code == 422
     assert list(scripts_dir.iterdir()) == []
+
+
+def test_import_plain_tar_after_safari_decoded_it(client, scripts_dir):
+    """Safari's "open safe files" gunzips a .tar.gz download into a plain
+    .tar — the export-all archive must still import (both UIs' pickers
+    accept .tar, and the backend reads any compression)."""
+    import gzip
+
+    client.post("/api/scripts", json=_body())  # flat shout
+    archive = client.get("/api/scripts/export").content
+    client.delete("/api/scripts/shout")  # restore-elsewhere is the point
+
+    res = _post_import(client, gzip.decompress(archive),
+                       filename="logsmith-scripts-20261104.tar")
+    assert res.status_code == 200, res.text
+    assert res.json()["imported"] == ["shout"]
+    assert (scripts_dir / "shout.sh").read_text() == 'tr a-z A-Z < "$1"'
+
+    # a hand-built plain tar (the single-script / pack shapes) works too
+    res = _post_import(client, _pack({
+        "plain.sh": "echo plain\n",
+        "plain.json": json.dumps({"name": "Plain", "command": "bash {script} {log} {args}"}),
+    }, gz=False), filename="plain.tar")
+    assert res.status_code == 200, res.text
+    assert res.json()["imported"] == ["plain"]
 
 
 def test_import_pack_with_directory_scripts(client, scripts_dir):

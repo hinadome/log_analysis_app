@@ -37,10 +37,10 @@ export default function ScriptPicker({ scripts, counts, onAdd, onNewScript, onEd
             {canEditScripts && (
               <>
                 <button className="btn ghost sm" onClick={pickImport}
-                        title="Import script(s) from a .tar.gz — the Export format, or a pack of scripts">
+                        title="Import script(s) from a .tar.gz — the Export format, or a pack of scripts (a plain .tar works too: Safari's 'open safe files' gunzips downloads)">
                   ⬆ Import
                 </button>
-                <input ref={fileInput} type="file" accept=".gz,.tgz" hidden
+                <input ref={fileInput} type="file" accept=".gz,.tgz,.tar" hidden
                        onChange={onImportPicked} />
                 <button className="btn ghost sm" onClick={onNewScript}
                         title="Create a new script in the browser editor">

@@ -614,7 +614,7 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | DELETE | `/api/scripts/{id}` | remove script + manifest (job history is kept) |
 | GET | `/api/scripts/{id}/export` | download the script as a tar.gz backup |
 | GET | `/api/scripts/export` | **every** script as one dated tar.gz — flat scripts as top-level pairs, directory-style scripts under their names. The id `export` is reserved (the fixed route beats `/api/scripts/{id}`, so its source could never be fetched) |
-| POST | `/api/scripts/import` | multipart tar.gz — any export back: one script, a pack of flat scripts, or a whole-library archive (flat pairs + manifest-bearing subdirectories). `?name=` ids a directory-style archive (else the file name), `?overwrite=1` replaces existing ids. All-or-nothing: 422 bad archive, 409 existing ids, 403 when editing is locked |
+| POST | `/api/scripts/import` | multipart tar.gz — any export back: one script, a pack of flat scripts, or a whole-library archive (flat pairs + manifest-bearing subdirectories). `?name=` ids a directory-style archive (else the file name), `?overwrite=1` replaces existing ids. All-or-nothing: 422 bad archive, 409 existing ids, 403 when editing is locked. A plain `.tar` works too (Safari's "open safe files" gunzips downloads) |
 | POST | `/api/jobs` | `{log_path, mode: parallel\|chain, label?, jobs: [{script_id, params}]}` → N jobs. `log_path` optional — a script reading `{log}` without one is a 422 naming it (chain mode checks step 1 only) |
 | POST | `/api/jobs/prune?days=N` | delete jobs older than N days |
 | GET | `/api/pipelines` | saved pipelines (reusable chains) — shared by every browser and both UIs |

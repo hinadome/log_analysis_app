@@ -77,9 +77,11 @@ backend/app/
 │   │                  can never escape SCRIPTS_DIR); GET …/export (tar.gz
 │   │                  backup; GET /export = the whole library, declared
 │   │                  before the /{script_id} routes so the fixed path
-│   │                  wins); POST /import — any export back, staged and
-│   │                  strictly validated (regular files, relative paths,
-│   │                  size/member caps) before anything is written
+│   │                  wins); POST /import — any export back (any
+│   │                  compression — Safari gunzips downloads to .tar),
+│   │                  staged and strictly validated (regular files,
+│   │                  relative paths, size/member caps) before anything
+│   │                  is written
 │   └── jobs.py        Job lifecycle endpoints; two-pass validation for
 │                      create/rerun; chain-aware cancel/delete/rerun;
 │                      ?q=/?status= filters + limit/offset paging
@@ -697,7 +699,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_chains.py` | invariants 1–4 + 6 below: artifact/stdout hand-off, compressed hand-off decompression, fail→skip, no-output→fail-next, gap tolerance, advancement-error containment, cancel-flag blocking |
 | `test_chain_cancel.py` | invariant 5-adjacent cancel semantics: kill running + skip waiting, idempotent return values, skip reasons |
 | `test_api.py` | the HTTP contract end-to-end: atomic validation (invariant 3), chain flow via real scripts, `needs_log` derivation, log-free submissions (ok, 422 named rejections, chain step-1 rule, rerun), labels + `?q=` search (incl. chain ids), status filtering (single + comma-separated), pagination + post-filter totals, the `/input` endpoint (log, chained, decompressed, gone-source 404), the SSE stream (live stdout + terminal status frames), full/partial rerun (invariant 7) incl. 400/409 paths, delete-live-chain (invariant 6), cancel endpoint, prune guard; parallel jobs must overlap in wall-clock while the API keeps answering mid-run (the async contract) |
-| `test_scripts_api.py` | script editor endpoints against a temp SCRIPTS_DIR: create→discover→run, defaults, duplicate/bad-input rejection, source roundtrip, update incl. extension change, delete + rerun-404, export (contents + restore round-trip); export-all (mixed-library contents, the wipe-and-restore round-trip incl. styles and run-after, the empty library, the route beating `/export`-as-an-id); import (flat + directory round-trips incl. the run-after-import, packs with directory scripts — manifest-bearing subdirectories, manifest-less ones and in-archive id collisions refused — 409/overwrite incl. across styles, the rejection matrix — bad archives, traversal, symlinks, orphans, invisible files, bad ids, caps — the editing lock, and the python UI form flow); scripts written executable (755) so `{script}`-direct commands run, and spawn failures carry hints (EACCES/ENOEXEC/ENOENT) |
+| `test_scripts_api.py` | script editor endpoints against a temp SCRIPTS_DIR: create→discover→run, defaults, duplicate/bad-input rejection, source roundtrip, update incl. extension change, delete + rerun-404, export (contents + restore round-trip); export-all (mixed-library contents, the wipe-and-restore round-trip incl. styles and run-after, the empty library, the route beating `/export`-as-an-id); import (flat + directory round-trips incl. the run-after-import, packs with directory scripts — manifest-bearing subdirectories, manifest-less ones and in-archive id collisions refused — 409/overwrite incl. across styles, the plain-tar import (Safari's "open safe files" gunzips a download), the rejection matrix — bad archives, traversal, symlinks, orphans, invisible files, bad ids, caps — the editing lock, and the python UI form flow); scripts written executable (755) so `{script}`-direct commands run, and spawn failures carry hints (EACCES/ENOEXEC/ENOENT) |
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |

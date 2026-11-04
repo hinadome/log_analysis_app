@@ -346,12 +346,14 @@ def _extract_to_staging(data: bytes) -> Path:
 
     Only regular files are ever extracted (the `data` filter blocks links,
     devices and escapes as a second line of defense); RESTORE.txt — the
-    export's note to a human — never lands anywhere.
+    export's note to a human — never lands anywhere. "r:*" takes any
+    compression — Safari's "open safe files" gunzips a .tar.gz download
+    into a plain .tar, and a hand-decompressed file should import too.
     """
     try:
-        tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:gz")
+        tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
     except tarfile.TarError:
-        raise HTTPException(422, detail="Not a gzip tar archive — expected a .tar.gz from Export (or a pack of flat scripts)")
+        raise HTTPException(422, detail="Not a tar archive — expected a .tar.gz from Export (a plain .tar works too, and a pack of scripts)")
     staging = Path(tempfile.mkdtemp(prefix="logsmith-import-"))
     try:
         with tar:
