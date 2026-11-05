@@ -69,6 +69,51 @@ Three things to keep in mind:
   argv tokens: a value like `foo; rm -rf /` is just a string to grep for,
   and you never need extra quoting to survive interpolation.
 
+## Parameters, field by field
+
+The manifest's `parameters` array is the contract between the workbench
+and your code: the server type-checks submitted values against it and
+renders them into `{args}` as CLI flags, and the UI builds the parameter
+form from it. One parameter object, every field:
+
+| Field | What it is |
+|---|---|
+| `name` | the key in the API/UI `params` object — `{"level": "WARN"}` in a submission, a pipeline step, a schedule. Never appears on the command line |
+| `flag` | the CLI contract — the literal string your script parses (`--level`). The only field the code ever sees |
+| `label` | optional friendlier label for the form field (defaults to the name) |
+| `type` | one of six — decides validation and how the value renders (next table) |
+| `required` | missing or empty at submission → 422 naming the script |
+| `default` | used when the parameter is omitted; prefills the form |
+| `choices` | `enum` only — the allowed values; the form becomes a dropdown, anything else is a 422 |
+| `help` | the form field's hint text |
+
+How each `type` renders into `{args}` — what your script actually sees:
+
+| `type` | On the command line | Notes |
+|---|---|---|
+| `string` | `--flag value` | any text, one argv token however weird |
+| `integer` | `--flag 42` | type-checked; `0` still renders |
+| `float` | `--flag 1.5` | type-checked |
+| `boolean` | `--flag` alone — or nothing | never `--flag true`; the script tests presence |
+| `enum` | `--flag value` | value guaranteed to be one of `choices` |
+| `multi` | `--flag a --flag b --flag c` | repeated per value; a lone string counts as one |
+
+The **skip rule**: a value that is `null`, `false`, `""` or `[]` produces
+no flag at all — a boolean left off or an empty string is simply absent
+from argv, so a script's "not given" branch is "the flag never appeared".
+
+Validation happens before the job exists — a bad submission is a 422
+naming the script and the parameter, never a half-created job: unknown
+parameter name, missing `required`, wrong type, `enum` outside
+`choices`. And because commands run without a shell, values are literal
+argv tokens: `foo; rm -rf /` is just a string to grep for.
+
+The parsing side is per language — argparse in the python section
+below, the `while`/`case` loop in the bash section (`grep_search.sh` is
+the shipped reference for flags in shell) — and the
+[README](README.md#how-command-parameters-and-code-fit-together) walks
+one submission end to end, manifest to argv.
+
 ## Python
 
 The manifest (`scripts/level_report.json`) — full reference version:
