@@ -669,6 +669,59 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 Interactive docs: https://localhost:8000/docs · full request/response shapes:
 [SPECS.md](SPECS.md#5-api-reference)
 
+## Command-line client
+
+[`cli/logsmith.py`](cli/logsmith.py) is a single-file client with no
+dependencies beyond python3's standard library, mirroring the whole API:
+browse logs, run scripts with live output, manage scripts, pipelines,
+schedules, the job history and — for admins — user accounts.
+
+```bash
+./cli/logsmith.py login                      # once per server
+./cli/logsmith.py logs list
+./cli/logsmith.py run grep_search:pattern=ERROR --log app.log
+./cli/logsmith.py jobs list
+```
+
+**Authentication.** `login` prompts for username + password (multi-user
+servers) or just the password (a single-password `LOGSMITH_TOKEN` server)
+and stores a session in `~/.logsmith.json`; later commands send it as a
+cookie. A server without authentication needs nothing. The legacy shared
+password can also be used directly: `--token` (or `$LOGSMITH_TOKEN`)
+sends it as a Bearer header. The server URL resolves from `--url` >
+`$LOGSMITH_URL` > the config file > `http://127.0.0.1:8000`;
+`$LOGSMITH_CONFIG` relocates the config file itself.
+
+**Steps.** Wherever a command takes a STEP, write
+`script_id:param=value,...` — values parse as JSON when valid
+(`context=2` → integer, `ignore_case=true` → boolean,
+`hosts=["a","b"]` → list) and stay raw strings otherwise. Quote a value
+containing a comma (`pattern="x,y"`); repeating a parameter collects a
+list (the `multi` type): `grep_search:pattern=a,pattern=b`.
+
+**Following runs.** `run` (also `pipelines run` and `jobs rerun`) polls
+the jobs and streams stdout as it grows — one job bare (pipe-friendly),
+several jobs with a `[script name]` prefix per line. `--no-wait` submits
+and prints the job ids instead. A failed job's stderr tail goes to
+stderr. Exit codes: `0` every job completed, `1` a job failed or was
+cancelled, `2` anything else (bad usage, HTTP failure, not logged in —
+the message then says to run `logsmith login`).
+
+| Command | Purpose |
+|---|---|
+| `status` · `login` · `logout` | who you are on which server; save / drop a session |
+| `logs list` · `preview` · `upload` | browse (`--tail`, `--lines`) and add log files |
+| `scripts list` · `show` · `create` · `update` · `delete` | the editor surface: `create` takes `--file` plus `--manifest` (a minimal one is inferred from the extension when omitted), `update` keeps the current manifest unless one is given, `show` prints the code |
+| `scripts share` · `unshare` · `export` · `import` | publish to the shared library; move scripts between servers as tar.gz (`import --overwrite` replaces) |
+| `run STEP…` | submit and stream — `--log`, `--mode chain`, `--label`, `--no-wait` |
+| `jobs list` · `show` · `output` · `files` · `get` · `cancel` · `delete` · `rerun` · `prune` | the job history: search (`--q`, `--status`, `--user`), stdout/stderr/input text, artifacts, re-runs (`rerun --from-step N` continues a chain from a persisted step output) |
+| `pipelines list` · `save` · `delete` · `run` | reusable chains — `save` validates like a submission |
+| `schedules list` · `save` · `toggle` · `run` · `delete` | cron-scheduled runs: `--cron`, `--pipeline NAME` or repeatable `--script STEP`, `--log` |
+| `users list` · `create` · `password` · `role` · `disable` · `enable` | admin account management — `users create` also bootstraps multi-user mode and adopts the new admin's session |
+
+Every command accepts `--url`, `--token` and `--json` (raw API payloads)
+after the subcommand.
+
 ## Configuration (environment variables)
 
 | Variable | Default | Meaning |
@@ -726,7 +779,9 @@ save/load flow), authentication incl. rate limiting and session expiry,
 user accounts and admin management (both auth modes, per-user script
 spaces with sharing, per-user job histories), the
 python UI's page flow (login, submission, fan-out, chains, compare,
-editor, the output table + CSV), plus the frontend's diff/table logic. See
+editor, the output table + CSV), the command-line client (its full command
+surface, exercised against a live in-process server), plus the frontend's
+diff/table logic. See
 [ARCHITECTURE.md §11](ARCHITECTURE.md#11-testing) for the invariant → test
 mapping. CI installs the pinned `backend/requirements.lock`, runs both
 suites and the frontend build on every push (`.github/workflows/tests.yml`).

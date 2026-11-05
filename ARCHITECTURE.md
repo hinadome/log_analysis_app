@@ -214,6 +214,17 @@ repo root
 │                      default token generation
 ├── Dockerfile         Ships the whole app as one container (optional)
 ├── sandbox.Dockerfile Interpreter image for LOGSMITH_DOCKER_SANDBOX=1 runs
+├── cli/logsmith.py   The command-line client: a single-file, stdlib-only
+│                      (argparse + urllib) mirror of the API — logs,
+│                      scripts (editor, share, export/import), jobs,
+│                      pipelines, schedules, users; `login` stores a
+│                      session in ~/.logsmith.json (Bearer via --token /
+│                      $LOGSMITH_TOKEN for the legacy shared password);
+│                      step specs `script_id:param=value,...` with
+│                      JSON-typed values; run / pipelines run / jobs
+│                      rerun poll the jobs and stream stdout deltas
+│                      (exit 0 all completed, 1 a job failed, 2 anything
+│                      else)
 └── tools/
     ├── generate_cert.sh         Local TLS certificate for run.sh
     ├── generate_sample_logs.py  Sample data for a fresh checkout
@@ -804,7 +815,9 @@ runs actual `grep`/`python3` subprocesses, so it exercises the real execution
 path. Executor-level tests fabricate `ScriptInfo` objects and patch the
 executor's script lookup so advancement can be driven deterministically;
 API tests drive one `TestClient` (full lifespan: reconcile → start → prune)
-per test. CI (`.github/workflows/tests.yml`) installs the pinned
+per test; the CLI tests call `logsmith.main(argv)` in-process against a
+real uvicorn server on a free port (one per module, a background thread),
+sharing the same isolated stores. CI (`.github/workflows/tests.yml`) installs the pinned
 `requirements.lock`, runs the suite, builds the frontend and runs vitest on
 every push and pull request; the repo is under git with `data/`,
 `certs/`, `.env` and build outputs gitignored.
@@ -833,6 +846,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_users_admin.py` | the admin surface: 403 for non-admins, create/reset/role/disable/enable incl. last-admin protection, the bootstrap (single-user operator creates the first admin and stays signed in), the python UI Users page |
 | `test_scripts_ownership.py` | script ownership (invariant 8/9): locational attribution by the scanner, visibility (another's private = 404 everywhere incl. runs and pipeline references), private-landing creates, globally-unique ids (409s that don't say whose), edit/delete rights, share/unshare flows and edges (incl. directory scripts, the single-user 403), import destination/overwrite rights, export-all visibility, rerun-after-unshare, the python UI page |
 | `test_jobs_ownership.py` | job ownership: owner tagging on submit, the 404 wall (incl. cancel/delete — visibility before rights), system jobs readable by all but admin-managed, list scoping + `?user=` narrowing, rerun belongs to the rerunner, prune/clear-finished rights, the python UI pages |
+| `test_cli.py` | the command-line client (`cli/logsmith.py`) against a real uvicorn server (free port, background thread, the suite's isolated stores): every command surface — status/login/logout with the session kept in `$LOGSMITH_CONFIG`, logs list/preview/upload, scripts list/show/create/update/delete plus the export/import round-trip, run (streamed stdout, chain step prefixes, failed-job exit code 1, `--no-wait`), jobs show/output/files/get/cancel/delete, `rerun --from-step` (seeded by the persisted step output), prune, pipelines save/run/delete, schedules save/toggle/run/delete + client-side validation, and the whole multi-user lifecycle through the CLI (bootstrap adopts the minted session, another user's private script invisible + unrunnable, share publishes it, the anonymous 401 with the login hint, disabling kills the live session) — on a per-test copy of `scripts/` (the live server is pointed at the copy) so the repo's own scripts are never touched |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,
