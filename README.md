@@ -711,7 +711,7 @@ the message then says to run `logsmith login`).
 |---|---|
 | `status` · `login` · `logout` | who you are on which server; save / drop a session |
 | `logs list` · `preview` · `upload` | browse (`--tail`, `--lines`) and add log files |
-| `scripts list` · `show` · `create` · `update` · `delete` | the editor surface: `create` takes `--file` plus `--manifest` (a minimal one is inferred from the extension when omitted), `update` keeps the current manifest unless one is given, `show` prints the code |
+| `scripts list` · `show` · `create` · `update` · `delete` | the editor surface: `create` takes `--file` plus `--manifest` (a minimal one is inferred from the extension when omitted), `update` keeps the current manifest unless one is given, `show` prints the code; `--command TEMPLATE` replaces the command field and `--log-free` is its "no target file" case — `{log}` is stripped from the command so the script runs with nothing selected |
 | `scripts share` · `unshare` · `export` · `import` | publish to the shared library; move scripts between servers as tar.gz (`import --overwrite` replaces) |
 | `run STEP…` | submit and stream — `--log`, `--mode chain`, `--label`, `--no-wait` |
 | `jobs list` · `show` · `output` · `files` · `get` · `cancel` · `delete` · `rerun` · `prune` | the job history: search (`--q`, `--status`, `--user`), stdout/stderr/input text, artifacts, re-runs (`rerun --from-step N` continues a chain from a persisted step output) |

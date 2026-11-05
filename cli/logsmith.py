@@ -552,13 +552,18 @@ def cmd_scripts_show(args) -> int:
     return 0
 
 
-def _default_manifest(script_id: str, extension: str) -> dict:
+def _extension_command(extension: str) -> str:
+    """The default command template for an extension (mirrors the scanner)."""
     interpreter = {".py": "python3", ".sh": "bash", ".bash": "bash",
-                   ".zsh": "zsh", ".js": "node", ".rb": "ruby",
-                   ".pl": "perl"}.get(f".{extension}", "")
-    command = (f"{interpreter} {{script}} {{log}} {{args}}" if interpreter
-               else "{script} {log} {args}")
-    return {"name": script_id, "command": command, "parameters": []}
+                    ".zsh": "zsh", ".js": "node", ".rb": "ruby",
+                    ".pl": "perl"}.get(f".{extension}", "")
+    return (f"{interpreter} {{script}} {{log}} {{args}}" if interpreter
+            else "{script} {log} {args}")
+
+
+def _default_manifest(script_id: str, extension: str) -> dict:
+    return {"name": script_id, "command": _extension_command(extension),
+            "parameters": []}
 
 
 def _load_manifest(path: str | None, script_id: str, extension: str) -> dict:
@@ -573,6 +578,28 @@ def _load_manifest(path: str | None, script_id: str, extension: str) -> dict:
     return manifest
 
 
+def _apply_command_options(args, manifest: dict, extension: str) -> dict:
+    """--command overrides the template; --log-free strips {log} from it.
+
+    Together they cover the editor's command field, including its "no
+    target file" case: a command without {log} makes the script log-free,
+    runnable with no log selected.
+    """
+    command = (getattr(args, "command_template", None) or "").strip()
+    if command:
+        manifest["command"] = command
+    if getattr(args, "log_free", False):
+        base = (manifest.get("command") or "").strip() \
+            or _extension_command(extension)
+        tokens = []
+        for token in base.split():
+            token = token.replace("{log}", "")
+            if token and not token.endswith("="):   # {log} glued to a flag?
+                tokens.append(token)                # the flag went with it
+        manifest["command"] = " ".join(tokens) or "{script} {args}"
+    return manifest
+
+
 def _read_code(path: str) -> str:
     try:
         return Path(path).read_text(encoding="utf-8")
@@ -583,9 +610,12 @@ def _read_code(path: str) -> str:
 def cmd_scripts_create(args) -> int:
     client, _ = make_client(args)
     extension = args.ext or Path(args.file).suffix.lstrip(".") or "py"
+    manifest = _apply_command_options(
+        args, _load_manifest(args.manifest, args.script_id, extension),
+        extension)
     payload = {"id": args.script_id, "extension": extension,
                "code": _read_code(args.file),
-               "manifest": _load_manifest(args.manifest, args.script_id, extension)}
+               "manifest": manifest}
     body = client.send_json("POST", "/api/scripts", payload) or {}
     if args.json:
         print_json(body)
@@ -606,6 +636,7 @@ def cmd_scripts_update(args) -> int:
         manifest = current.get("manifest")
         if manifest is None:
             manifest = _load_manifest(None, args.script_id, extension)
+    manifest = _apply_command_options(args, manifest, extension)
     payload = {"id": args.script_id, "extension": extension,
                "code": _read_code(args.file), "manifest": manifest}
     body = client.send_json("PUT", f"/api/scripts/{args.script_id}", payload) or {}
@@ -1113,6 +1144,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--file", required=True, help="the code file")
     p.add_argument("--manifest", help="manifest JSON (default: a minimal "
                                       "one inferred from the extension)")
+    p.add_argument("--command", dest="command_template",
+                   help="command template, like the editor's field — e.g. "
+                        "'python3 {script} {log} {args}' (default: the "
+                        "extension's default)")
+    p.add_argument("--log-free", action="store_true",
+                   help="no target file: strip {log} from the command — "
+                        "the script runs with no log selected")
     p.add_argument("--ext", choices=["py", "sh", "bash", "zsh", "js", "rb", "pl"],
                    help="code extension (default: the --file suffix, or py)")
     p = sub(g, "update", "update a script's code and/or manifest",
@@ -1121,6 +1159,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--file", required=True, help="the new code file")
     p.add_argument("--manifest", help="manifest JSON (default: keep the "
                                       "current one)")
+    p.add_argument("--command", dest="command_template",
+                   help="command template — replaces the current one")
+    p.add_argument("--log-free", action="store_true",
+                   help="no target file: strip {log} from the command — "
+                        "the script runs with no log selected")
     p.add_argument("--ext", choices=["py", "sh", "bash", "zsh", "js", "rb", "pl"],
                    help="code extension (default: the script's current one)")
     p = sub(g, "delete", "delete a script", cmd_scripts_delete)

@@ -367,6 +367,67 @@ def test_scripts_create_update_delete(cli, capsys, tmp_path):
     assert "Unknown script" in capsys.readouterr().err
 
 
+def _script_entry(cli, capsys, script_id) -> dict:
+    cli("scripts", "list", "--json")
+    return next(s for s in json.loads(capsys.readouterr().out)
+                if s["id"] == script_id)
+
+
+def test_scripts_create_log_free_runs_without_log(cli, capsys, tmp_path):
+    """--log-free is the editor's "no target file" case: the command loses
+    {log} and the script runs with nothing selected."""
+    code = tmp_path / "freestanding.py"
+    code.write_text("print('no file needed')\n")
+    assert cli("scripts", "create", "freestanding", "--file", str(code),
+               "--log-free") == 0
+    assert "created freestanding" in capsys.readouterr().out
+
+    assert _script_entry(cli, capsys, "freestanding")["needs_log"] is False
+    assert cli("run", "freestanding", "--interval", "0.05") == 0
+    assert "no file needed" in capsys.readouterr().out
+
+
+def test_scripts_create_default_reads_log(cli, capsys, tmp_path):
+    """Without --log-free the synthesized manifest keeps {log}: running
+    with no log selected is a 422 naming the script."""
+    code = tmp_path / "reader.py"
+    code.write_text("import sys\nprint('read', sys.argv[1])\n")
+    assert cli("scripts", "create", "reader", "--file", str(code)) == 0
+    capsys.readouterr()
+
+    assert _script_entry(cli, capsys, "reader")["needs_log"] is True
+    assert cli("run", "reader") == 2
+    err = capsys.readouterr().err
+    assert "select a log" in err and "reader" in err
+
+    assert cli("run", "reader", "--log", "app.log", "--interval", "0.05") == 0
+    out = capsys.readouterr().out
+    assert out.startswith("read ") and out.rstrip().endswith("app.log")
+
+
+def test_scripts_update_flips_log_free_both_ways(cli, capsys, tmp_path):
+    code = tmp_path / "flip.py"
+    code.write_text("print('flip')\n")
+    assert cli("scripts", "create", "flip", "--file", str(code)) == 0
+    capsys.readouterr()
+
+    # reader → log-free
+    assert cli("scripts", "update", "flip", "--file", str(code),
+               "--log-free") == 0
+    capsys.readouterr()
+    assert _script_entry(cli, capsys, "flip")["needs_log"] is False
+    assert cli("run", "flip", "--interval", "0.05") == 0
+    assert "flip" in capsys.readouterr().out
+
+    # log-free → reader again, via an explicit command template
+    assert cli("scripts", "update", "flip", "--file", str(code),
+               "--command", "python3 {script} {log} {args}") == 0
+    capsys.readouterr()
+    assert _script_entry(cli, capsys, "flip")["needs_log"] is True
+    assert cli("run", "flip") == 2
+    assert "select a log" in capsys.readouterr().err
+
+
 def test_scripts_export_import_roundtrip(cli, capsys, tmp_path):
     code = tmp_path / "tool.py"
     code.write_text("print('the tool ran')\n")
