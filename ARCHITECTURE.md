@@ -173,6 +173,8 @@ frontend/src/
 ├── api.js             Fetch wrapper; emits a global event on 401
 ├── presets.js         Per-script parameter presets (localStorage) + the
 │                      one-time migration of legacy saved chains → server
+├── command.js         Target-file choice as command edits: {log} kept,
+│                      stripped (with a glued flag) or re-inserted
 ├── hooks.js           useInterval
 ├── fmt.js             Byte formatting
 └── components/
@@ -186,9 +188,11 @@ frontend/src/
     │                      editor, ⬆ Import (tar.gz upload; a 409 offers
     │                      to replace); 🔒 private badges and ⇪/⇩
     │                      share/unshare where the role allows
-    ├── ScriptEditor.jsx   Browser editor: code, manifest fields, JSON
-    │                      parameters — writes flat-style files via the API;
-    │                      copy-code + tar.gz backup buttons
+    ├── ScriptEditor.jsx   Browser editor: code, manifest fields (the
+    │                      target-file choice under the command template
+    │                      strips/re-adds {log} — command.js), JSON
+    │                      parameters — writes flat-style files via the
+    │                      API; copy-code + tar.gz backup buttons
     ├── ParamForm.jsx       Per-step parameter card, ↑/↓ ordering, presets
     ├── JobsPanel.jsx       Job list: badges, server-side search (debounced
     │                      in App), Load-more paging, chain "step 2/3"
@@ -636,7 +640,8 @@ Single-page React app; state lives in `App.jsx`:
   LCS line diff of two completed jobs' stdout).
 - **ScriptEditor** creates/edits/deletes scripts, duplicates them into new
   ids, and can test-run: ▶ Run… saves silently and submits the script with
-  its manifest defaults on a chosen log, then navigates to the job.
+  its manifest defaults on a chosen log — or with nothing selected, for a
+  script whose target file is none — then navigates to the job.
 - **LogPicker** includes a drag-and-drop upload zone (multiple files,
   streamed to `POST /api/logs/upload`) and Head/Tail preview toggles.
 - **Presets** (`presets.js`) store named parameter sets per script in
@@ -650,6 +655,13 @@ Server-rendered Jinja2 templates (`app/pages.py`, `app/templates/`,
 `app/static/style.css`) — no Node, no build step, every view a plain
 deep-linkable URL. Design points:
 
+- **The script editor's target-file choice is server-side**: the radio
+  pair (`script_form.html`) posts with the form; `_apply_target_choice`
+  strips `{log}` (none) or keeps/re-inserts it (selected log) before the
+  manifest is built. A tiny inline `<script>` keeps the radios in sync
+  with the command field — enhancement only, the server is authoritative
+  and no-JS posts work. The editors' test-run accepts an empty log for
+  a log-free script.
 - **Direct calls, not HTTP round-trips**: handlers call the API routers'
   functions (`jobs_api.create_jobs`, `logs_api.upload_log`, …) directly.
   Same validation, same behavior, one auth story — but an `HTTPException`
@@ -833,7 +845,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
-| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false, log-free incl. the no-log run page + 422), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, script mode: wizard prefill, fieldset, save/run, needs-log rejection, no-pipelines form) |
+| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false, log-free incl. the no-log run page + 422), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values, the target-file radios render + save: none strips `{log}` both ways, blank command + none → stripped default, no-target posts keep the command verbatim, test-run with no log — log-free runs, needs-log 422), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, script mode: wizard prefill, fieldset, save/run, needs-log rejection, no-pipelines form) |
 | `test_security.py` | the script authoring lock: API writes 403 (nothing lands on disk), reads/export/job submission unaffected, python UI editor pages bounce and hide actions, health reports the flag, editor works when unlocked |
 | `test_sandbox.py` | the Docker sandbox: the `docker run` wrapper's shape (mounts, no network, uid:gid, JOB_* env, container name, image + command order), compressed-input mounts, log-free shape (no input mount, no JOB_LOG_* env); e2e (skipped without Docker + image): completion, artifacts owned by the host user, no network, timeout kills the container, every interpreter |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
@@ -846,7 +858,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_users_admin.py` | the admin surface: 403 for non-admins, create/reset/role/disable/enable incl. last-admin protection, the bootstrap (single-user operator creates the first admin and stays signed in), the python UI Users page |
 | `test_scripts_ownership.py` | script ownership (invariant 8/9): locational attribution by the scanner, visibility (another's private = 404 everywhere incl. runs and pipeline references), private-landing creates, globally-unique ids (409s that don't say whose), edit/delete rights, share/unshare flows and edges (incl. directory scripts, the single-user 403), import destination/overwrite rights, export-all visibility, rerun-after-unshare, the python UI page |
 | `test_jobs_ownership.py` | job ownership: owner tagging on submit, the 404 wall (incl. cancel/delete — visibility before rights), system jobs readable by all but admin-managed, list scoping + `?user=` narrowing, rerun belongs to the rerunner, prune/clear-finished rights, the python UI pages |
-| `test_cli.py` | the command-line client (`cli/logsmith.py`) against a real uvicorn server (free port, background thread, the suite's isolated stores): every command surface — status/login/logout with the session kept in `$LOGSMITH_CONFIG`, logs list/preview/upload, scripts list/show/create/update/delete plus the export/import round-trip, run (streamed stdout, chain step prefixes, failed-job exit code 1, `--no-wait`), jobs show/output/files/get/cancel/delete, `rerun --from-step` (seeded by the persisted step output), prune, pipelines save/run/delete, schedules save/toggle/run/delete + client-side validation, and the whole multi-user lifecycle through the CLI (bootstrap adopts the minted session, another user's private script invisible + unrunnable, share publishes it, the anonymous 401 with the login hint, disabling kills the live session) — on a per-test copy of `scripts/` (the live server is pointed at the copy) so the repo's own scripts are never touched |
+| `test_cli.py` | the command-line client (`cli/logsmith.py`) against a real uvicorn server (free port, background thread, the suite's isolated stores): every command surface — status/login/logout with the session kept in `$LOGSMITH_CONFIG`, logs list/preview/upload, scripts list/show/create/update/delete plus the export/import round-trip (create/update cover the editor surface: `--command` templates and `--log-free` — the no-target-file case, flipped both ways), run (streamed stdout, chain step prefixes, failed-job exit code 1, `--no-wait`), jobs show/output/files/get/cancel/delete, `rerun --from-step` (seeded by the persisted step output), prune, pipelines save/run/delete, schedules save/toggle/run/delete + client-side validation, and the whole multi-user lifecycle through the CLI (bootstrap adopts the minted session, another user's private script invisible + unrunnable, share publishes it, the anonymous 401 with the login hint, disabling kills the live session) — on a per-test copy of `scripts/` (the live server is pointed at the copy) so the repo's own scripts are never touched |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,

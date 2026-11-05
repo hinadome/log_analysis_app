@@ -417,6 +417,13 @@ whole mechanism — LogSmith derives `needs_log` from the command, the UIs
 badge the script *log-free*, and it can be run and scheduled with no log
 selected at all.
 
+In the editors the choice is explicit: the **Target file** control right
+under the command field — *selected log* keeps (or inserts) `{log}`,
+*none (log-free)* strips it, and a flag it was glued to (like
+`--input={log}`) goes with it. The CLI matches:
+`logsmith scripts create|update --log-free`, or `--command TEMPLATE` for
+a full template.
+
 ```jsonc
 // scripts/disk_report.json — the shipped sample
 {
@@ -460,7 +467,8 @@ Three things to keep in mind:
 
 Running one: pick the script with nothing checked on the logs step — the
 run button is not blocked, and the UIs mark which scripts would need a
-log. Scheduling one: the schedule form's log select offers a
+log. The editors' own **Save & test run** accepts nothing selected too.
+Scheduling one: the schedule form's log select offers a
 **— none (log-free) —** option. In chains only step 1 is checked for
 `{log}` — a log-free first step feeding a `{log}` step 2 is fine, since
 step 2 reads step 1's output.

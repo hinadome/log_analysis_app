@@ -9,6 +9,7 @@ frontends share.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -866,6 +867,118 @@ def test_script_editor_rejects_bad_params_json(client):
     }, follow_redirects=False)
     assert res.status_code == 422
     assert "JSON array" in res.text
+
+
+def test_script_editor_target_file_radios(client):
+    """The editor shows the target-file choice, checked from the command:
+    error_counter reads {log}, disk_report is log-free, and a new script
+    defaults to reading it (a blank command means the extension default)."""
+    res = client.get("/scripts/error_counter/edit")
+    assert res.status_code == 200
+    assert 'name="target" value="log" checked' in res.text
+    assert 'name="target" value="none" checked' not in res.text
+
+    res = client.get("/scripts/disk_report/edit")
+    assert res.status_code == 200
+    assert 'name="target" value="none" checked' in res.text
+    assert 'name="target" value="log" checked' not in res.text
+
+    res = client.get("/scripts/new")
+    assert res.status_code == 200
+    assert 'name="target" value="log" checked' in res.text
+
+
+def test_script_editor_target_none_makes_script_log_free(client, unique_script_id):
+    """Saving with target file: none strips {log} from the command — the
+    script runs with nothing selected. Choosing the selected log again
+    puts it back."""
+    sid = unique_script_id
+    form = {
+        "original_id": "", "id": sid, "extension": "py",
+        "name": "No Target", "description": "",
+        "command": "python3 {script} {log} {args}",
+        "timeout": "30", "output_filename": "", "target": "none",
+        "parameters": "[]", "code": "print('no file needed')",
+    }
+    res = client.post("/scripts/save", data=form, follow_redirects=False)
+    assert res.status_code == 303
+    manifest = json.loads((SCRIPTS_DIR / f"{sid}.json").read_text())
+    assert manifest["command"] == "python3 {script} {args}"
+
+    # the editor re-renders with the none radio checked
+    res = client.get(f"/scripts/{sid}/edit")
+    assert 'name="target" value="none" checked' in res.text
+
+    # and back: the selected log re-inserts {log} before {args}
+    form.update({"original_id": sid, "target": "log",
+                 "command": "python3 {script} {args}"})
+    res = client.post("/scripts/save", data=form, follow_redirects=False)
+    assert res.status_code == 303
+    manifest = json.loads((SCRIPTS_DIR / f"{sid}.json").read_text())
+    assert manifest["command"] == "python3 {script} {log} {args}"
+
+
+def test_script_editor_target_none_blank_command_uses_stripped_default(
+        client, unique_script_id):
+    """A blank command + none: the strip starts from the extension default,
+    so the saved script is log-free rather than falling back to the
+    {log}-reading default."""
+    sid = unique_script_id
+    form = {
+        "original_id": "", "id": sid, "extension": "sh",
+        "name": "Blank Command", "description": "", "command": "",
+        "timeout": "30", "output_filename": "", "target": "none",
+        "parameters": "[]", "code": "echo no file needed",
+    }
+    res = client.post("/scripts/save", data=form, follow_redirects=False)
+    assert res.status_code == 303
+    manifest = json.loads((SCRIPTS_DIR / f"{sid}.json").read_text())
+    assert manifest["command"] == "bash {script} {args}"
+
+
+def test_script_editor_without_target_keeps_command_as_typed(
+        client, unique_script_id):
+    """Posts without the target field (older forms, direct posts) keep the
+    command verbatim — the choice is opt-in."""
+    sid = unique_script_id
+    form = {
+        "original_id": "", "id": sid, "extension": "py",
+        "name": "Verbatim", "description": "",
+        "command": "python3 {script} {args}",
+        "timeout": "30", "output_filename": "",
+        "parameters": "[]", "code": "print('hi')",
+    }
+    res = client.post("/scripts/save", data=form, follow_redirects=False)
+    assert res.status_code == 303
+    manifest = json.loads((SCRIPTS_DIR / f"{sid}.json").read_text())
+    assert manifest["command"] == "python3 {script} {args}"
+
+
+def test_script_editor_test_run_without_a_log(client, unique_script_id):
+    """Save & test run with nothing selected: a target file: none script
+    runs log-free; one that reads {log} is told to pick a log."""
+    sid = unique_script_id
+    form = {
+        "original_id": "", "id": sid, "extension": "py",
+        "name": "Test Run", "description": "",
+        "command": "python3 {script} {log} {args}",
+        "timeout": "30", "output_filename": "", "target": "none",
+        "parameters": "[]", "code": "print('no file needed')",
+    }
+    res = client.post("/scripts/test-run", data=form, follow_redirects=False)
+    assert res.status_code == 303
+    job = wait_done(client, res.headers["location"].split("/")[-1])
+    assert job["status"] == "completed"
+    assert job["log_name"] == ""          # nothing was selected
+    assert "no file needed" in client.get(
+        f"/api/jobs/{job['id']}/stdout").text
+
+    # a needs-log script with no log chosen: saved, but refused with why
+    form.update({"original_id": sid, "target": "log",
+                 "command": "python3 {script} {args}"})
+    res = client.post("/scripts/test-run", data=form, follow_redirects=False)
+    assert res.status_code == 422
+    assert "Pick a log" in res.text
 
 
 # --- auth: login page, cookie, logout ----------------------------------------

@@ -293,9 +293,13 @@ Vite proxy talks HTTPS to the backend.
   CSV download of what's on screen; any finished job can be diffed against
   another with "⇄ Compare" (unified line diff, before/after at a glance).
 - **Script editor** — create, edit, duplicate and delete scripts in the
-  browser: code textarea, manifest form (name, command, timeout, output file)
-  and a JSON parameter editor. Writes ordinary flat-style files into
-  `scripts/`, so hand-added scripts and UI-created ones are interchangeable.
+  browser: code textarea, manifest form (name, command, timeout, output
+  file) and a JSON parameter editor. The command template pairs with a
+  **target file** choice — *selected log*, or *none (log-free)* — that
+  keeps or strips `{log}` from the command for you, so a script that
+  needs no input is one click, not a hand-edited template. Writes
+  ordinary flat-style files into `scripts/`, so hand-added scripts and
+  UI-created ones are interchangeable.
   One-click **backup** (tar.gz download) and code copy make deletes
   non-scary, and **Import** brings a backup back — or moves scripts between
   servers (a pack of scripts in one archive works too). **Export all**
@@ -304,7 +308,8 @@ Vite proxy talks HTTPS to the backend.
   samples cover every editor language — Python, Bash (`.sh`/`.bash`/`.zsh`),
   Node, Ruby and Perl — and double as reference templates.
 - **Test-run from the editor** — ▶ Run… saves the script (even unsaved
-  edits), runs it with its default parameters on a log you pick, and jumps
+  edits), runs it with its default parameters on a log you pick — or with
+  nothing selected, for a script whose target file is none — and jumps
   straight to the live result.
 - **Brute-force protection** — failed logins are rate-limited per client
   (5 per minute) once `LOGSMITH_TOKEN` is set.

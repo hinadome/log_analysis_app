@@ -30,6 +30,13 @@
   <label>Command <span class="muted">({{ '{script}' }}, {{ '{log}' }}, {{ '{output}' }} and {{ '{args}' }} placeholders; empty = the extension's default)</span>
     <input type="text" name="command" value="{{ values.command }}" class="mono">
   </label>
+  <div class="target-file">
+    <span>Target file:</span>
+    <label><input type="radio" name="target" value="log"{% if values.needs_log %} checked{% endif %}>
+      selected log — the command reads {{ '{log}' }}</label>
+    <label><input type="radio" name="target" value="none"{% if not values.needs_log %} checked{% endif %}>
+      none (log-free) — {{ '{log}' }} is removed from the command</label>
+  </div>
   <p class="muted">{{ '{log}' }} is always the plain, uncompressed input — .gz/.bz2/.xz logs
     (and compressed chain outputs) are decompressed before your script runs.</p>
   <label>Output filename <span class="muted">(optional — declares an {{ '{output}' }} artifact)</span>
@@ -43,16 +50,34 @@
   </label>
 
   <button class="btn primary" type="submit">Save</button>
-  {% if logs %}
   <span class="test-run">
     <button class="btn" type="submit" formaction="/scripts/test-run"
             title="Save, then run the saved version with manifest defaults on the chosen log">
       Save &amp; test run</button>
     <select name="log">
-      <option value="">— pick a log —</option>
+      <option value="">{{ '— none (log-free) —' if not values.needs_log else '— pick a log —' }}</option>
       {% for l in logs %}<option value="{{ l.name }}">{{ l.name }}</option>{% endfor %}
     </select>
   </span>
-  {% endif %}
 </form>
+<script>
+  // The target-file radios follow the command field, and the test-run
+  // select's empty option with them: typing or removing {log} flips the
+  // choice, so what you see is what saves (the server stays authoritative).
+  (() => {
+    const cmd = document.querySelector("input[name='command']");
+    const [withLog, noLog] = document.querySelectorAll("input[name='target']");
+    const noneOpt = document.querySelector("select[name='log'] option[value='']");
+    if (!cmd || !withLog || !noLog) return;
+    const sync = () => {
+      const needs = cmd.value.includes("{log}") || !cmd.value.trim();
+      withLog.checked = needs;
+      noLog.checked = !needs;
+      if (noneOpt) {
+        noneOpt.textContent = needs ? "— pick a log —" : "— none (log-free) —";
+      }
+    };
+    cmd.addEventListener("input", sync);
+  })();
+</script>
 {% endblock %}

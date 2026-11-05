@@ -78,6 +78,11 @@ _DEFAULT_COMMAND = {
 }
 
 
+def default_command(extension: str) -> str:
+    """The command template a manifest gets when it leaves its own blank."""
+    return _DEFAULT_COMMAND.get(extension, "{script} {log} {args}")
+
+
 @router.get("")
 def get_scripts(request: Request):
     """The caller's scripts: the shared library plus their own private ones
@@ -202,7 +207,7 @@ def _validate(req: ScriptUpsertRequest) -> dict:
     if not manifest["category"]:
         del manifest["category"]  # keep manifest files free of empty labels
     if not manifest.get("command", "").strip():
-        manifest["command"] = _DEFAULT_COMMAND[req.extension]
+        manifest["command"] = default_command(req.extension)
     return manifest
 
 

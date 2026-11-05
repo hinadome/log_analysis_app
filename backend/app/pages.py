@@ -1080,6 +1080,34 @@ def scripts_page(request: Request):
                  allow_editing=ALLOW_SCRIPT_EDITING)
 
 
+def _command_needs_log(command: str, extension: str) -> bool:
+    """A command reads the selected log while it holds {log}; a blank one
+    means the extension default, which reads it too."""
+    return "{log}" in ((command or "").strip()
+                       or scripts_api.default_command(extension))
+
+
+def _apply_target_choice(target: str, command: str, extension: str) -> str:
+    """The editor's target-file choice, applied to the command template.
+
+    'none' is the no-file case — {log} leaves the command (a flag it was
+    glued to goes with it), so the script runs with nothing selected.
+    'log' keeps or inserts {log}. Anything else — posts from older forms,
+    or direct API calls — leaves the command exactly as typed.
+    """
+    command = (command or "").strip()
+    if target == "none":
+        base = command or scripts_api.default_command(extension)
+        tokens = [t.replace("{log}", "") for t in base.split()]
+        return " ".join(t for t in tokens if t and not t.endswith("=")) \
+            or "{script} {args}"
+    if target == "log" and command and "{log}" not in command:
+        if "{args}" in command:
+            return command.replace("{args}", "{log} {args}", 1)
+        return f"{command} {{log}}"
+    return command
+
+
 def _script_form_values(request: Request, sid: str) -> dict:
     if sid:
         src = scripts_api.get_script_source(sid, request)
@@ -1091,6 +1119,8 @@ def _script_form_values(request: Request, sid: str) -> dict:
             "description": src["manifest"]["description"],
             "category": src["manifest"]["category"] or "",
             "command": src["manifest"]["command"],
+            "needs_log": _command_needs_log(src["manifest"]["command"],
+                                            src["extension"]),
             "timeout": src["manifest"]["timeout"],
             "output_filename": src["manifest"]["output_filename"] or "",
             "parameters_text": json.dumps(src["manifest"]["parameters"], indent=2),
@@ -1099,7 +1129,8 @@ def _script_form_values(request: Request, sid: str) -> dict:
     return {
         "id": "", "original_id": "", "extension": "py",
         "name": "", "description": "", "category": "", "command": "",
-        "timeout": 600, "output_filename": "",
+        "needs_log": True,  # a blank command means the extension default,
+        "timeout": 600, "output_filename": "",   # which reads the log
         "parameters_text": "[]", "code": STARTER_CODE,
     }
 
@@ -1121,6 +1152,7 @@ def _form_values_from(form) -> dict:
         "description": form.get("description") or "",
         "category": form.get("category") or "",
         "command": form.get("command") or "",
+        "needs_log": form.get("target") != "none",
         "timeout": form.get("timeout") or "",
         "output_filename": form.get("output_filename") or "",
         "parameters_text": form.get("parameters") or "[]",
@@ -1172,7 +1204,8 @@ def _script_upsert_request(form) -> ScriptUpsertRequest:
             name=(form.get("name") or "").strip(),
             description=(form.get("description") or "").strip(),
             category=(form.get("category") or "").strip(),
-            command=(form.get("command") or "").strip(),
+            command=_apply_target_choice(form.get("target"),
+                                        form.get("command"), ext),
             timeout=timeout,
             output_filename=(form.get("output_filename") or "").strip() or None,
             parameters=parameters,
@@ -1217,7 +1250,8 @@ async def script_save(request: Request):
 
 @router.post("/scripts/test-run")
 async def script_test_run(request: Request):
-    """Save the form's current state, then run it on a chosen log.
+    """Save the form's current state, then run it on the chosen log — or
+    with nothing selected, when the form was saved as target file: none.
 
     Mirrors the React editor's test-run: manifest defaults are used (no
     parameter overrides) and the browser lands on the job page.
@@ -1228,12 +1262,12 @@ async def script_test_run(request: Request):
         return _render_error(request, _editing_disabled(), back="/scripts")
     form = await request.form()
     log = (form.get("log") or "").strip()
-    if not log:
-        return _script_form_context(request, _form_values_from(form),
-                                    form_error="Pick a log for the test run",
-                                    status_code=422)
     try:
         sid = _save_script(request, form)
+        if not log:  # the no-file case — only a log-free script runs like this
+            src = scripts_api.get_script_source(sid, request)
+            if _command_needs_log(src["manifest"]["command"], src["extension"]):
+                raise HTTPException(422, detail="Pick a log for the test run")
         result = await jobs_api.create_jobs(JobCreateRequest(
             log_path=log, mode="parallel",
             jobs=[JobSpecIn(script_id=sid, params={})]), request)

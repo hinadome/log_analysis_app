@@ -107,6 +107,10 @@ input:focus, select:focus, textarea:focus {
 }
 input.num { width: 78px; }
 label { display: block; margin: 10px 0; }
+.target-file { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: baseline;
+               margin: 8px 0 10px; font-size: 13px; }
+.target-file > span:first-child { color: var(--muted); }
+.target-file label { display: inline-flex; gap: 4px; margin: 0; }
 label input[type="text"], label input[type="number"], label input[type="password"],
 label select, label textarea { display: block; width: 100%; max-width: 640px; margin-top: 4px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }

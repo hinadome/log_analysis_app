@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { commandNeedsLog, ensureLog, stripLog } from "../command.js";
 import { Modal } from "./ui.jsx";
 
 const LANGUAGES = [
@@ -120,6 +121,11 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  // The target-file choice, derived from the command: {log} present — or
+  // blank, meaning the extension default — means the script reads the log.
+  const needsLog = commandNeedsLog(form.command);
+  const setCommand = (command) => setForm((f) => ({ ...f, command }));
+
   const changeLanguage = (e) => {
     const extension = e.target.value;
     setForm((f) => ({
@@ -214,14 +220,16 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
     if (logs === null) {
       api.listLogs().then((r) => {
         setLogs(r.logs);
-        setLogPath(r.logs[0]?.path || "");
+        // a log-free script defaults to no file — that's its case
+        setLogPath(commandNeedsLog(form.command) ? (r.logs[0]?.path || "") : "");
       }).catch(onError);
     }
   };
 
-  /** Save (silently), then run the script with its manifest defaults on the chosen log. */
+  /** Save (silently), then run the script with its manifest defaults on the
+   *  chosen log — or with nothing selected, when it was saved log-free. */
   const runOn = async (path) => {
-    if (!path) return;
+    if (!path && needsLog) return;
     setRunning(true);
     try {
       const saved = await save({ silent: true });
@@ -311,6 +319,21 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
               for the default
             </span>
           </label>
+          <div className="editor-field span-2">
+            <span>Target file</span>
+            <div className="target-choices">
+              <label>
+                <input type="radio" name="target-file" checked={needsLog}
+                       onChange={() => setCommand(ensureLog(form.command))} />
+                selected log — the command reads {"{log}"}
+              </label>
+              <label>
+                <input type="radio" name="target-file" checked={!needsLog}
+                       onChange={() => setCommand(stripLog(form.command, form.extension))} />
+                none (log-free) — {"{log}"} is removed from the command
+              </label>
+            </div>
+          </div>
           <label className="editor-field span-2">
             <span>Output file name <span className="muted">(optional — enables the {"{output}"} placeholder)</span></span>
             <input className="editor-input mono" value={form.output_filename} onChange={set("output_filename")}
@@ -355,16 +378,19 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
               value={logPath}
               onChange={(e) => setLogPath(e.target.value)}
             >
+              {!needsLog && <option value="">— none (log-free) —</option>}
               {logs === null
                 ? <option value="">loading logs…</option>
                 : logs.length === 0
-                  ? <option value="">(no logs available)</option>
+                  ? <option value="">{needsLog ? "(no logs available)" : "(no logs — none needed)"}</option>
                   : logs.map((l) => <option key={l.path} value={l.path}>{l.name}</option>)}
             </select>
             <button
               className="btn primary sm"
-              disabled={!logPath || running || saving || busy || !idOk || !form.code.trim()}
+              disabled={(needsLog && !logPath) || running || saving || busy || !idOk || !form.code.trim()}
               onClick={() => runOn(logPath)}
+              title={needsLog ? "Save, then run on the chosen log"
+                              : "Save, then run with no file selected"}
             >
               {running ? "Starting…" : "▶ Run now"}
             </button>
