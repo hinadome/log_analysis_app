@@ -14,11 +14,13 @@ import os
 import re
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import app.auth as auth_module
 from app.config import SCRIPTS_DIR
+from conftest import DATA_TMP
 
 LOG = "app.log"
 ACCESS = "access.log"
@@ -979,6 +981,157 @@ def test_script_editor_test_run_without_a_log(client, unique_script_id):
     res = client.post("/scripts/test-run", data=form, follow_redirects=False)
     assert res.status_code == 422
     assert "Pick a log" in res.text
+
+
+# --- scripts: the editor's visibility choice (multi-user) --------------------
+
+@pytest.fixture()
+def as_alice(client, tmp_path, monkeypatch):
+    """Multi-user mode on a throwaway copy of scripts/: an admin (root)
+    plus a regular account (alice), logged in as alice. The single-user
+    state and the repo's own scripts/ are restored afterwards."""
+    import shutil
+
+    import app.routers.scripts as scripts_router
+    import app.services.scanner as scanner_module
+    from app.services import session_store, user_store
+
+    target = tmp_path / "scripts"
+    shutil.copytree(SCRIPTS_DIR, target, ignore=shutil.ignore_patterns("users"))
+    monkeypatch.setattr(scanner_module, "SCRIPTS_DIR", target)
+    monkeypatch.setattr(scripts_router, "SCRIPTS_DIR", target)
+
+    # the bootstrap: the first account must be an admin and mints its session
+    client.post("/api/users", json={"username": "root", "password": "root-pw",
+                                    "role": "admin"})
+    client.post("/api/users", json={"username": "alice", "password": "alice-pw"})
+    client.post("/login", data={"username": "alice", "password": "alice-pw",
+                                "next": "/"})
+
+    def login(username, password):
+        client.post("/login", data={"username": username, "password": password,
+                                    "next": "/"})
+
+    yield SimpleNamespace(client=client, scripts=target, login=login)
+
+    (DATA_TMP / "users.json").unlink(missing_ok=True)
+    (DATA_TMP / "sessions.json").unlink(missing_ok=True)
+    user_store.store._users, user_store.store._stamp = [], None
+    session_store.store._sessions, session_store.store._stamp = {}, None
+
+
+def test_script_editor_visibility_only_in_multi_user(client):
+    """Single-user servers never show the choice — everything is shared."""
+    res = client.get("/scripts/new")
+    assert res.status_code == 200
+    assert 'name="visibility"' not in res.text
+
+
+def test_script_editor_new_script_defaults_private(as_alice):
+    """The new-script form starts on private (creations are private by
+    design) with shared offered, unlocked."""
+    res = as_alice.client.get("/scripts/new")
+    assert res.status_code == 200
+    assert 'name="visibility" value="private" checked' in res.text
+    assert 'name="visibility" value="shared" checked' not in res.text
+    assert 'name="visibility" value="shared" disabled' not in res.text
+
+
+def test_script_editor_creates_shared_in_one_step(as_alice):
+    """visibility=shared creates and publishes in one save: the file pair
+    lands in the shared library, not the creator's private space."""
+    a = as_alice
+    sid = f"visshare{os.getpid()}"
+    form = {
+        "original_id": "", "id": sid, "extension": "py",
+        "name": "Sharedborn", "description": "", "command": "",
+        "timeout": "30", "output_filename": "", "visibility": "shared",
+        "parameters": "[]", "code": "print('shared from birth')",
+    }
+    res = a.client.post("/scripts/save", data=form, follow_redirects=False)
+    assert res.status_code == 303
+    assert (a.scripts / f"{sid}.py").is_file()                 # shared library
+    assert not (a.scripts / "users" / "alice" / f"{sid}.py").exists()
+    scripts = {s["id"]: s for s in a.client.get("/api/scripts").json()["scripts"]}
+    assert scripts[sid]["owner"] is None
+
+    # explicit private — and posts without the field — land in alice's space
+    form.update({"id": sid + "_p", "visibility": "private"})
+    a.client.post("/scripts/save", data=form, follow_redirects=False)
+    form.pop("visibility")
+    form.update({"id": sid + "_n"})
+    a.client.post("/scripts/save", data=form, follow_redirects=False)
+    for suffix in ("_p", "_n"):
+        assert (a.scripts / "users" / "alice" / f"{sid}{suffix}.py").is_file()
+
+
+def test_script_editor_shared_script_locks_private_for_users(as_alice):
+    """A shared script renders shared-checked; the private flip is locked
+    for a regular user and open for an admin."""
+    a = as_alice
+    res = a.client.get("/scripts/error_counter/edit")
+    assert res.status_code == 200
+    assert 'name="visibility" value="shared" checked disabled' in res.text
+    assert "only an admin can make it private again" in res.text
+
+    a.login("root", "root-pw")
+    res = a.client.get("/scripts/error_counter/edit")
+    assert 'name="visibility" value="shared" checked' in res.text
+    assert 'value="shared" checked disabled' not in res.text
+
+
+def test_script_editor_visibility_flip(as_alice):
+    """Saving a flip performs the same share/unshare the list buttons do:
+    alice's private script becomes shared; the admin's flip back moves it
+    into the admin's own space."""
+    a = as_alice
+    sid = f"visflip{os.getpid()}"
+    form = {
+        "original_id": "", "id": sid, "extension": "py",
+        "name": "Flipper", "description": "", "command": "",
+        "timeout": "30", "output_filename": "",
+        "parameters": "[]", "code": "print('flip')",
+    }
+    a.client.post("/scripts/save", data=form, follow_redirects=False)
+    assert (a.scripts / "users" / "alice" / f"{sid}.py").is_file()
+
+    # alice flips it to shared on edit
+    form.update({"original_id": sid, "visibility": "shared"})
+    res = a.client.post("/scripts/save", data=form, follow_redirects=False)
+    assert res.status_code == 303
+    assert (a.scripts / f"{sid}.py").is_file()
+    assert not (a.scripts / "users" / "alice" / f"{sid}.py").exists()
+
+    # the admin flips it back — into the admin's own private space
+    a.login("root", "root-pw")
+    form.update({"visibility": "private"})
+    res = a.client.post("/scripts/save", data=form, follow_redirects=False)
+    assert res.status_code == 303
+    assert (a.scripts / "users" / "root" / f"{sid}.py").is_file()
+    scripts = {s["id"]: s for s in a.client.get("/api/scripts").json()["scripts"]}
+    assert scripts[sid]["owner"] == "root"
+
+
+def test_script_editor_direct_private_post_refused(as_alice):
+    """The lock is UI-level: a direct post still meets the server's 403 —
+    unshare is admin-only."""
+    a = as_alice
+    src = a.client.get("/api/scripts/error_counter").json()
+    form = {
+        "original_id": "error_counter", "id": "error_counter",
+        "extension": src["extension"],
+        "name": src["manifest"]["name"], "description": "",
+        "command": src["manifest"]["command"],
+        "timeout": str(src["manifest"]["timeout"]),
+        "output_filename": "", "visibility": "private",
+        "parameters": json.dumps(src["manifest"]["parameters"]),
+        "code": src["code"],
+    }
+    res = a.client.post("/scripts/save", data=form, follow_redirects=False)
+    assert res.status_code == 403
+    assert "Only an admin account may unshare" in res.text
+    # the script itself was saved — only the move was refused
+    assert (a.scripts / "error_counter.py").is_file()
 
 
 # --- auth: login page, cookie, logout ----------------------------------------

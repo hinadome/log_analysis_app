@@ -173,8 +173,12 @@ Vite proxy talks HTTPS to the backend.
   workbench splits per user while the shared script library stays usable by
   everyone. Each account has a private script space (`scripts/users/<name>/`)
   and a private job history: another user's script or job is a 404, never a
-  confirmation it exists. Share a private script to publish it into the
-  library (🔒 chips and ⇪/⇩ buttons in both UIs); scheduled runs and
+  confirmation it exists. New scripts start private — the editors'
+  **Visibility** choice (*private* / *shared*) publishes one in the same
+  save, and flips it later; otherwise the script cards do it (🔒 chips and
+  ⇪/⇩ buttons in both UIs). Sharing is one-way for a regular account:
+  only an admin can pull a script back out, into their own space.
+  Scheduled runs and
   anything submitted before accounts existed are shared "system" history —
   readable by all, managed by admins. An admin account oversees everything:
   all scripts and jobs (with per-account filters on the Jobs pages), the
@@ -297,7 +301,11 @@ Vite proxy talks HTTPS to the backend.
   file) and a JSON parameter editor. The command template pairs with a
   **target file** choice — *selected log*, or *none (log-free)* — that
   keeps or strips `{log}` from the command for you, so a script that
-  needs no input is one click, not a hand-edited template. Writes
+  needs no input is one click, not a hand-edited template. In multi-user
+  mode a **visibility** choice rides along: *private* (the default) or
+  *shared* — shared creates and publishes in one save, and the editor
+  can flip it later (an admin's flip back moves the script into the
+  admin's own space). Writes
   ordinary flat-style files into `scripts/`, so hand-added scripts and
   UI-created ones are interchangeable.
   One-click **backup** (tar.gz download) and code copy make deletes
@@ -634,8 +642,8 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | GET | `/api/logs/preview?path=…&lines=200[&tail=1]` | first (or last, with `tail=1`) N lines |
 | POST | `/api/logs/upload` | multipart upload of a log file into `logs/` (409 on collision, 413 over `MAX_LOG_UPLOAD_MB`) |
 | GET | `/api/scripts` | scripts + manifests — the shared library plus the caller's private scripts (an admin's: everything) |
-| GET | `/api/scripts/{id}` | code + manifest of a script (for the editor) |
-| POST | `/api/scripts` | create a script `{id, extension, code, manifest}` (UI editor) — lands in the caller's private space in multi-user mode, top level (shared) otherwise |
+| GET | `/api/scripts/{id}` | code + manifest of a script (for the editor), plus `owner` (null = shared) for the visibility choice |
+| POST | `/api/scripts` | create a script `{id, extension, code, manifest}` (UI editor) — lands in the caller's private space in multi-user mode, top level (shared) otherwise; the editors follow with `/share` when the visibility choice says shared |
 | PUT | `/api/scripts/{id}` | update code/manifest (extension change moves the file) — private: owner or admin; shared: any editor |
 | DELETE | `/api/scripts/{id}` | remove script + manifest (job history is kept) — private: owner or admin; shared: admin only |
 | POST | `/api/scripts/{id}/share` `/unshare` | move a private script into the shared library (owner or admin) / pull a shared one back out into the calling admin's private space (admin only) — ids don't change, so history keeps resolving |

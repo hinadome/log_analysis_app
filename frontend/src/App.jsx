@@ -883,6 +883,8 @@ export default function App() {
           onDeleted={onScriptDeleted}
           onRan={onScriptRan}
           onError={showError}
+          me={authUser}
+          multiUser={multiUser}
         />
       )}
       {toast && <div className={`toast ${toast.kind}`}>{toast.text}</div>}

@@ -192,7 +192,10 @@ frontend/src/
     │                      target-file choice under the command template
     │                      strips/re-adds {log} — command.js), JSON
     │                      parameters — writes flat-style files via the
-    │                      API; copy-code + tar.gz backup buttons
+    │                      API; the multi-user Visibility choice rides on
+    │                      save (create+share in one step, flips via
+    │                      share/unshare); copy-code + tar.gz backup
+    │                      buttons
     ├── ParamForm.jsx       Per-step parameter card, ↑/↓ ordering, presets
     ├── JobsPanel.jsx       Job list: badges, server-side search (debounced
     │                      in App), Load-more paging, chain "step 2/3"
@@ -662,6 +665,12 @@ deep-linkable URL. Design points:
   with the command field — enhancement only, the server is authoritative
   and no-JS posts work. The editors' test-run accepts an empty log for
   a log-free script.
+- **The visibility choice composes, it doesn't fork the API**: the editor
+  posts `visibility=private|shared`; `_apply_visibility` re-reads the
+  saved script's owner and calls the same `share_script`/`unshare_script`
+  the scripts page's buttons hit — permissions stay in one place, and a
+  regular user's "make it private" on a shared script still meets the
+  403 (the radio is locked for them; a direct post is refused).
 - **Direct calls, not HTTP round-trips**: handlers call the API routers'
   functions (`jobs_api.create_jobs`, `logs_api.upload_log`, …) directly.
   Same validation, same behavior, one auth story — but an `HTTPException`
@@ -845,7 +854,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
-| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false, log-free incl. the no-log run page + 422), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values, the target-file radios render + save: none strips `{log}` both ways, blank command + none → stripped default, no-target posts keep the command verbatim, test-run with no log — log-free runs, needs-log 422), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, script mode: wizard prefill, fieldset, save/run, needs-log rejection, no-pipelines form) |
+| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false, log-free incl. the no-log run page + 422), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values, the target-file radios render + save: none strips `{log}` both ways, blank command + none → stripped default, no-target posts keep the command verbatim, test-run with no log — log-free runs, needs-log 422), the editor's visibility choice on a sandboxed scripts/ copy with real accounts (multi-user only: new defaults private, shared creates + publishes in one save, posts without the field unchanged, shared locks the private flip for users but not admins, flips call the same share/unshare — the admin's flip back moves it into the admin's space, a direct private post on a shared script meets the 403), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, script mode: wizard prefill, fieldset, save/run, needs-log rejection, no-pipelines form) |
 | `test_security.py` | the script authoring lock: API writes 403 (nothing lands on disk), reads/export/job submission unaffected, python UI editor pages bounce and hide actions, health reports the flag, editor works when unlocked |
 | `test_sandbox.py` | the Docker sandbox: the `docker run` wrapper's shape (mounts, no network, uid:gid, JOB_* env, container name, image + command order), compressed-input mounts, log-free shape (no input mount, no JOB_LOG_* env); e2e (skipped without Docker + image): completion, artifacts owned by the host user, no network, timeout kills the container, every interpreter |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |

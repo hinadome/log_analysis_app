@@ -1121,6 +1121,7 @@ def _script_form_values(request: Request, sid: str) -> dict:
             "command": src["manifest"]["command"],
             "needs_log": _command_needs_log(src["manifest"]["command"],
                                             src["extension"]),
+            "visibility": "shared" if src["owner"] is None else "private",
             "timeout": src["manifest"]["timeout"],
             "output_filename": src["manifest"]["output_filename"] or "",
             "parameters_text": json.dumps(src["manifest"]["parameters"], indent=2),
@@ -1130,13 +1131,29 @@ def _script_form_values(request: Request, sid: str) -> dict:
         "id": "", "original_id": "", "extension": "py",
         "name": "", "description": "", "category": "", "command": "",
         "needs_log": True,  # a blank command means the extension default,
-        "timeout": 600, "output_filename": "",   # which reads the log
+        "visibility": "private",  # which reads the log — and creations
+        "timeout": 600, "output_filename": "",   # start private
         "parameters_text": "[]", "code": STARTER_CODE,
     }
 
 
 def _script_form_context(request: Request, values: dict, form_error: str = "",
                          status_code: int = 200):
+    # A shared script goes private only through an admin's unshare — the
+    # editor locks that flip for everyone else (a direct post still meets
+    # the server's 403). Derived from the saved script's actual state, so
+    # the duplicate flow (a new id, which starts private) stays open.
+    current = auth.current_user(request)
+    actual = None
+    original = values.get("original_id") or ""
+    if original:
+        try:
+            owner = scripts_api.get_script_source(original, request)["owner"]
+        except HTTPException:
+            owner = None  # a fresh id in the duplicate flow, not saved yet
+        actual = "shared" if owner is None else "private"
+    values["shared_locked"] = (actual == "shared" and current is not None
+                               and current.role != "admin")
     return _page(request, "script_form.html", nav="scripts", status_code=status_code,
                  values=values, logs=list_logs(), extensions=EXTENSIONS,
                  form_error=form_error)
@@ -1153,6 +1170,7 @@ def _form_values_from(form) -> dict:
         "category": form.get("category") or "",
         "command": form.get("command") or "",
         "needs_log": form.get("target") != "none",
+        "visibility": form.get("visibility") or "private",
         "timeout": form.get("timeout") or "",
         "output_filename": form.get("output_filename") or "",
         "parameters_text": form.get("parameters") or "[]",
@@ -1231,6 +1249,22 @@ def _save_script(request: Request, form) -> str:
     return req.id
 
 
+def _apply_visibility(request: Request, form, sid: str) -> None:
+    """The editor's visibility choice (multi-user): share or unshare the
+    saved script when the choice differs from its actual state — the same
+    explicit step the scripts page's buttons perform, folded into save.
+    Posts without the field (older forms, single-user servers) and
+    no-op choices change nothing."""
+    choice = form.get("visibility")
+    if choice not in ("private", "shared"):
+        return
+    owner = scripts_api.get_script_source(sid, request)["owner"]
+    if choice == "shared" and owner is not None:
+        scripts_api.share_script(sid, request)
+    elif choice == "private" and owner is None:
+        scripts_api.unshare_script(sid, request)
+
+
 @router.post("/scripts/save")
 async def script_save(request: Request):
     if redirect := _need_login(request):
@@ -1240,6 +1274,7 @@ async def script_save(request: Request):
     form = await request.form()
     try:
         sid = _save_script(request, form)
+        _apply_visibility(request, form, sid)
     except HTTPException as exc:
         return _script_form_context(request, _form_values_from(form),
                                      form_error=str(exc.detail),
@@ -1264,6 +1299,7 @@ async def script_test_run(request: Request):
     log = (form.get("log") or "").strip()
     try:
         sid = _save_script(request, form)
+        _apply_visibility(request, form, sid)
         if not log:  # the no-file case — only a log-free script runs like this
             src = scripts_api.get_script_source(sid, request)
             if _command_needs_log(src["manifest"]["command"], src["extension"]):

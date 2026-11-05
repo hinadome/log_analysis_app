@@ -80,7 +80,8 @@ const DEFAULTS = {
   code: "",
 };
 
-export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, onRan, onError }) {
+export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, onRan, onError,
+                                       me = null, multiUser = false }) {
   const [form, setForm] = useState(DEFAULTS);
   const [paramsText, setParamsText] = useState("[]");
   const [paramsError, setParamsError] = useState(null);
@@ -90,10 +91,19 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
   const [origForm, setOrigForm] = useState(null); // the form as it was before duplicating
   const isNew = !scriptId;
   const isCreate = isNew || dup;
+  // The visibility choice (multi-user only): what the script is now, and
+  // what the user picked. wasShared is the saved state — a shared script
+  // goes private only through an admin's unshare, so the flip is locked
+  // for everyone else.
+  const [visibility, setVisibility] = useState("private");
+  const [wasShared, setWasShared] = useState(false);
+  const sharedLocked = wasShared && me?.role !== "admin";
 
   useEffect(() => {
     if (isNew) {
       setForm({ ...DEFAULTS, code: STARTERS.py });
+      setVisibility("private");            // creations start private
+      setWasShared(false);
       return;
     }
     let cancelled = false;
@@ -111,6 +121,8 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
           output_filename: src.manifest.output_filename || "",
           code: src.code,
         });
+        setVisibility(src.owner == null ? "shared" : "private");
+        setWasShared(src.owner == null);
         setParamsText(JSON.stringify(src.manifest.parameters || [], null, 2));
       })
       .catch((e) => !cancelled && (onError(e), onClose()))
@@ -167,6 +179,18 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
       const res = isCreate
         ? await api.createScript(body)
         : await api.updateScript(scriptId, body);
+      if (multiUser) {
+        // the visibility choice rides on save: the same share/unshare the
+        // script cards perform, folded into one click
+        const shared = res.script.owner == null;
+        if (visibility === "shared" && !shared) {
+          await api.shareScript(res.script.id);
+          res.script.owner = null;          // it's in the shared library now
+        } else if (visibility === "private" && shared && me?.role === "admin") {
+          await api.unshareScript(res.script.id);
+          res.script.owner = me.username;   // unshare moves it to the admin
+        }
+      }
       if (!silent) onSaved(res.script);
       return { script: res.script, parameters };
     } catch (e) {
@@ -369,6 +393,30 @@ export default function ScriptEditor({ scriptId, onClose, onSaved, onDeleted, on
                   choices · default · required · help
                 </span>}
           </label>
+          {multiUser && (
+            <div className="editor-field span-2">
+              <span>Visibility</span>
+              <div className="target-choices">
+                <label>
+                  <input type="radio" name="visibility" checked={visibility === "private"}
+                         onChange={() => setVisibility("private")} />
+                  private — only you (and admins) can see and run it
+                </label>
+                <label>
+                  <input type="radio" name="visibility" checked={visibility === "shared"}
+                         disabled={sharedLocked} onChange={() => setVisibility("shared")} />
+                  shared — everyone can see and run it
+                </label>
+              </div>
+              <span className="field-hint">
+                {sharedLocked
+                  ? "This script is shared; only an admin can make it private again."
+                  : me?.role === "admin"
+                    ? "Making a shared script private moves it into your own private scripts — other users lose access."
+                    : "Sharing is one-way for you — only an admin can pull a script back out of the shared library."}
+              </span>
+            </div>
+          )}
         </div>
         {runOpen && (
           <div className="run-strip">

@@ -49,6 +49,23 @@
     <textarea name="code" rows="16" class="mono" spellcheck="false">{{ values.code }}</textarea>
   </label>
 
+  {% if multi_user %}
+  <div class="target-file">
+    <span>Visibility:</span>
+    <label><input type="radio" name="visibility" value="private"{% if values.visibility == 'private' %} checked{% endif %}>
+      private — only you (and admins) can see and run it</label>
+    <label><input type="radio" name="visibility" value="shared"{% if values.visibility == 'shared' %} checked{% endif %}{% if values.shared_locked %} disabled{% endif %}>
+      shared — everyone can see and run it</label>
+  </div>
+  {% if values.shared_locked %}
+  <p class="muted">This script is shared; only an admin can make it private again.</p>
+  {% elif is_admin %}
+  <p class="muted">Making a shared script private moves it into your own private scripts — other users lose access.</p>
+  {% else %}
+  <p class="muted">Sharing is one-way for you — only an admin can pull a script back out of the shared library.</p>
+  {% endif %}
+  {% endif %}
+
   <button class="btn primary" type="submit">Save</button>
   <span class="test-run">
     <button class="btn" type="submit" formaction="/scripts/test-run"

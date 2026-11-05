@@ -224,6 +224,9 @@ def get_script_source(script_id: str, request: Request):
         "id": script_id,
         "extension": code_path.suffix.lstrip("."),
         "code": code,
+        # None = the shared library, a username = its private space — the
+        # editors render the visibility choice from this
+        "owner": script.owner,
         # the manifest is reported as-discovered (parsed + defaults), so a
         # broken sidecar still opens in the editor and saving fixes it
         "manifest": {
