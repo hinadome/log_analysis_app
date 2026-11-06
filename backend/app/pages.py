@@ -11,6 +11,7 @@ and share their session cookie, so both frontends have one auth story.
 """
 from __future__ import annotations
 
+import asyncio
 import csv
 import difflib
 import io
@@ -32,6 +33,7 @@ from .models import (
     ScheduleSaveRequest, ScriptManifest, ScriptUpsertRequest,
 )
 from .routers import jobs as jobs_api
+from .routers import llm as llm_api
 from .routers import logs as logs_api
 from .routers import pipelines as pipelines_api
 from .routers import schedules as schedules_api
@@ -39,6 +41,7 @@ from .routers import scripts as scripts_api
 from .routers import users as users_api
 from .services import pipeline_store
 from .services import script_access
+from .services import llm_store
 from .services.scanner import list_logs
 from .services.terminal import terminal as terminal_service
 
@@ -1535,6 +1538,108 @@ async def terminal_run(request: Request):
     result = await terminal_service.run_command(command, timeout=30.0)
     return _page(request, "terminal.html", nav="terminal",
                  command=command, result=result)
+
+
+# --- settings: the LLM provider switch ------------------------------------
+
+def _settings_body(form) -> llm_api.SettingsBody:
+    """The shared form → API body: every provider's fields post every
+    time (all fieldsets ride along; blank api keys mean "keep stored")."""
+    providers = {
+        key: llm_api.ProviderBody(
+            api_key=form.get(f"key_{key}") or "",
+            model=form.get(f"model_{key}") or "",
+            base_url=form.get(f"base_{key}") or "",
+        )
+        for key in llm_store.PROVIDERS
+    }
+    return llm_api.SettingsBody(provider=(form.get("provider") or "none"),
+                               providers=providers)
+
+
+def _settings_values(request: Request, form=None) -> dict:
+    """The render payload (stored settings, masked keys), overlaid with
+    what was just typed when re-rendering a failed save — the same
+    keep-values rule the script editor has. A blank key stays blank:
+    blank means "keep the stored one", so nothing sensitive is echoed."""
+    data = llm_api.get_settings(request)
+    if form is None:
+        return data
+    typed = form.get("provider")
+    if typed in ("none", *llm_store.PROVIDERS):
+        data["provider"] = typed
+    for p in data["providers"]:
+        for name, field in (("model", "model"), ("base_url", "base")):
+            value = form.get(f"{field}_{p['key']}")
+            if value is not None:
+                p[name] = value
+    return data
+
+
+def _settings_context(request: Request, form=None, status_code: int = 200,
+                      form_error: str = ""):
+    try:
+        values = _settings_values(request, form)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/")
+    return _page(request, "settings.html", nav="settings",
+                 status_code=status_code, values=values, form_error=form_error)
+
+
+@router.get("/settings")
+def settings_page(request: Request):
+    """The admin settings page — today, the LLM provider switch: pick
+    the active provider, fill its key / model / base URL, and test the
+    wire before trusting it. Admin-only in multi-user mode (the terminal
+    rule — an API key and an outbound endpoint are the server's, not a
+    regular account's business); the single-user operator is the admin."""
+    if redirect := _need_login(request):
+        return redirect
+    return _settings_context(request)
+
+
+@router.post("/settings/save")
+async def settings_save(request: Request):
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        auth.require_admin(request)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/")
+    form = await request.form()
+    try:
+        llm_api.update_settings(_settings_body(form), request)
+    except HTTPException as exc:
+        return _settings_context(request, form, status_code=exc.status_code,
+                                 form_error=str(exc.detail))
+    return RedirectResponse("/settings?" + urlencode({"msg": "Settings saved"}),
+                            status_code=303)
+
+
+@router.post("/settings/test")
+async def settings_test(request: Request):
+    """Save first, then one tiny completion — the same save-then-act
+    shape as the script editor's test run, so the test hits exactly
+    what a later call would. The call itself runs off the event loop:
+    httpx is blocking and this handler is async (it parses the form)."""
+    if redirect := _need_login(request):
+        return redirect
+    try:
+        auth.require_admin(request)
+    except HTTPException as exc:
+        return _render_error(request, exc, back="/")
+    form = await request.form()
+    try:
+        llm_api.update_settings(_settings_body(form), request)
+        result = await asyncio.to_thread(llm_api.test_provider, request)
+    except HTTPException as exc:
+        return _settings_context(request, form, status_code=exc.status_code,
+                                 form_error=str(exc.detail))
+    if result["ok"]:
+        msg = f"Provider replied in {result['elapsed_ms']} ms: “{result['reply']}”"
+        return RedirectResponse("/settings?" + urlencode({"msg": msg}),
+                                status_code=303)
+    return _settings_context(request, form, form_error=result["error"])
 
 
 # --- catch-all: a real 404 page -------------------------------------------

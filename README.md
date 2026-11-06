@@ -158,6 +158,17 @@ Vite proxy talks HTTPS to the backend.
   every terminal endpoint answers 404. In multi-user mode the shell is
   **admin-only** — a regular account gets a 403 and no nav link; the
   single-user operator keeps it.
+- **LLM provider (switchable in the UI)** — the Settings page (⚙ in both
+  UIs; admin-only in multi-user mode) picks which LLM the app calls:
+  OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint (vLLM, LM
+  Studio, OpenRouter, DeepSeek, Groq, …) — two wire formats cover the
+  whole market. Every configured provider is remembered in
+  `data/llm.json`, so switching is one dropdown and never loses a key;
+  "None" (the default) means nothing calls out. API keys are stored
+  server-side only and render masked (a blank key field keeps the stored
+  one), and **Save & test** fires a one-shot completion so a switch is
+  verified before it's trusted. `LOGSMITH_LLM_*` env vars seed the file
+  on first boot; afterwards the UI owns it (no restart needed).
 - **File artifacts** — anything a script writes to its `outputs/` directory is
   viewable/downloadable in the browser; Markdown files render nicely.
 - **Authentication** — `LOGSMITH_TOKEN` requires a password for the UI
@@ -664,6 +675,9 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | POST | `/api/auth/login` `/logout` | password → session cookie; multi-user mode takes username + password (login is rate-limited: 5 failures/min per client) |
 | GET/POST | `/api/users` | **admin** — list accounts / create `{username, password, role}` (the first account ever created must be an admin: that is the single-user operator bootstrapping multi-user mode) |
 | POST | `/api/users/{name}/password` `/role` `/disable` `/enable` | **admin** — reset password (kills that user's live sessions), change role, disable (kills sessions) / enable; the last working admin can never be demoted or disabled |
+| GET | `/api/llm/settings` | **admin** — the LLM provider switch: the active provider plus every configured one (api keys come back **masked** — never the raw key) |
+| PUT | `/api/llm/settings` | **admin** — `{provider, providers: {openai/anthropic/ollama/openai-compatible: {api_key, model, base_url}}}`; a blank api_key keeps the stored one; base_url empty = the provider's default |
+| POST | `/api/llm/test` | **admin** — one tiny completion through the saved settings → `{ok, reply, elapsed_ms}` or `{ok: false, error}` (a dead provider is an answer, not a 500) |
 | POST | `/api/terminal/sessions` | (flag-gated: 404 while `LOGSMITH_TERMINAL` is off; **admin-only in multi-user mode** — 403 otherwise) start a shell session → `{id, shell}` (429 at `LOGSMITH_TERMINAL_MAX_SESSIONS`) |
 | GET | `/api/terminal/sessions/{id}/output` | SSE stream of the session's output — `{"type":"output","data":<base64>}` frames, then one `{"type":"exit","code":N}` |
 | POST | `/api/terminal/sessions/{id}/input` | raw body = keystrokes, written to the pty verbatim |
@@ -749,6 +763,7 @@ after the subcommand.
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `LOGSMITH_TOKEN` | *(unset)* | password for the UI; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
 | `LOGSMITH_ADMIN_USER` / `LOGSMITH_ADMIN_PASSWORD` | *(unset)* | first-run bootstrap into multi-user mode: when `data/users.json` doesn't exist yet and both are set, an admin account is created at startup. Afterwards user management lives in the admin UI — these are ignored |
+| `LOGSMITH_LLM_PROVIDER` / `_API_KEY` / `_MODEL` / `_BASE_URL` | *(unset)* | first-run seeding for `data/llm.json`: when the file doesn't exist yet and a provider is named (`openai` / `anthropic` / `ollama` / `openai-compatible`), the other three fill its key, model and base URL. Afterwards the Settings UI owns the file — these are ignored |
 | `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` keeps a non-local server open with no password (not recommended) |
 | `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` locks the script editor: write endpoints answer 403 in both UIs, existing scripts stay runnable |
 | `LOGSMITH_DOCKER_SANDBOX` | `0` | `1` runs every script in a throwaway Docker container — no network, memory-capped, mounts limited to script + input + outputs |
@@ -824,6 +839,12 @@ Mitigations built in:
   `LOGSMITH_ALLOW_SCRIPT_EDITING=0` is set. Sessions die with their browser
   tab, on explicit close, or after `LOGSMITH_TERMINAL_IDLE_TIMEOUT` (30 min
   default) with no input and no output.
+- **The LLM is opt-in** (provider "None" by default = nothing calls out).
+  Picking a provider aims the server at an external endpoint — prompts sent
+  to it leave the machine, so it is admin-only in multi-user mode. API keys
+  live in `data/llm.json` (server-side only, mode like the other data
+  files) and never travel back to a browser: reads are masked, a blank
+  key field keeps the stored one.
 - Markdown artifacts are sanitized with DOMPurify before rendering
 
 Still do not expose it directly to the internet — put it behind a VPN or a

@@ -1134,6 +1134,126 @@ def test_script_editor_direct_private_post_refused(as_alice):
     assert (a.scripts / "error_counter.py").is_file()
 
 
+# --- settings: the LLM provider switch ---------------------------------------
+
+@pytest.fixture()
+def llm_settings_file(tmp_path, monkeypatch):
+    """The LLM settings singleton on a throwaway per-test file (the
+    users_file pattern — nothing leaks between tests)."""
+    from app.services import llm_store
+
+    monkeypatch.setattr(llm_store.store, "_path", tmp_path / "llm.json")
+    llm_store.store._data = {"provider": "none",
+                             "providers": llm_store.LlmStore._defaults()}
+    llm_store.store._stamp = None
+    yield llm_store.store
+
+
+def _settings_form(**overrides):
+    """A full settings post: every provider's fields ride along (all
+    fieldsets are in the form; blanks mean "keep")."""
+    form = {"provider": "none"}
+    for key in ("openai", "anthropic", "ollama", "openai-compatible"):
+        form[f"key_{key}"] = ""
+        form[f"model_{key}"] = ""
+        form[f"base_{key}"] = ""
+    form.update(overrides)
+    return form
+
+
+def test_settings_page_renders_single_user(client):
+    res = client.get("/settings")
+    assert res.status_code == 200
+    assert "LLM provider" in res.text
+    assert "None — LLM off" in res.text
+    for label in ("OpenAI", "Anthropic", "Ollama", "OpenAI-compatible"):
+        assert label in res.text
+    # the admin-operator nav link is there, and no key field is pre-filled
+    assert 'href="/settings"' in res.text
+    assert 'name="key_openai"' in res.text
+
+
+def test_settings_page_requires_admin_in_multi_user(client, users_file,
+                                                    sessions_file, fresh_logins):
+    users_file.create("root", "root-pw", role="admin")
+    users_file.create("alice", "alice-pw")
+    client.post("/login", data={"username": "alice", "password": "alice-pw",
+                                "next": "/"})
+    res = client.get("/settings")
+    assert res.status_code == 403  # the server's own gate, not just a hidden link
+    client.post("/login", data={"username": "root", "password": "root-pw",
+                                "next": "/"})
+    assert client.get("/settings").status_code == 200
+
+
+def test_settings_save_writes_store_and_redirects(client, llm_settings_file):
+    res = client.post("/settings/save", data=_settings_form(
+        provider="openai", key_openai="sk-page", model_openai="gpt-4o-mini",
+    ), follow_redirects=False)
+    assert res.status_code == 303
+    assert "msg=Settings+saved" in res.headers["location"]
+    settings = llm_settings_file.settings()
+    assert settings["provider"] == "openai"
+    assert settings["providers"]["openai"]["api_key"] == "sk-page"
+    assert settings["providers"]["openai"]["model"] == "gpt-4o-mini"
+    # the saved page renders the mask, never the raw key
+    page = client.get("/settings")
+    assert "sk-page" not in page.text
+    assert "••••" in page.text  # short keys mask to bullets
+
+
+def test_settings_save_blank_key_keeps_stored(client, llm_settings_file):
+    client.post("/settings/save", data=_settings_form(
+        provider="openai", key_openai="sk-keep-me-9999", model_openai="m1",
+    ), follow_redirects=False)
+    client.post("/settings/save", data=_settings_form(
+        provider="openai", model_openai="m2",  # no key_openai field at all
+    ), follow_redirects=False)
+    fields = llm_settings_file.settings()["providers"]["openai"]
+    assert fields["api_key"] == "sk-keep-me-9999"
+    assert fields["model"] == "m2"
+
+
+def test_settings_save_rejects_bad_base_url_and_keeps_values(client,
+                                                              llm_settings_file):
+    res = client.post("/settings/save", data=_settings_form(
+        provider="openai-compatible",
+        **{"base_openai-compatible": "ftp://nope",
+           "model_openai-compatible": "m"},
+    ))
+    assert res.status_code == 422
+    assert "http://" in res.text  # the reason renders
+    # the typed values survive the error re-render
+    assert 'value="ftp://nope"' in res.text
+    assert 'value="m"' in res.text
+
+
+def test_settings_test_button_reports_reply(client, llm_settings_file, monkeypatch):
+    import app.services.llm as llm_module
+
+    monkeypatch.setattr(llm_module, "complete", lambda *a, **k: " ok")
+    res = client.post("/settings/test", data=_settings_form(
+        provider="openai", key_openai="sk-x", model_openai="m",
+    ), follow_redirects=False)
+    assert res.status_code == 303
+    assert "ok" in res.headers["location"]
+    # the test ran on the saved settings — the switch itself persisted
+    assert llm_settings_file.settings()["provider"] == "openai"
+
+
+def test_settings_test_button_renders_failure(client, llm_settings_file, monkeypatch):
+    import app.services.llm as llm_module
+    from app.services.llm import LlmError
+
+    def boom(*args, **kwargs):
+        raise LlmError("OpenAI answered HTTP 401: bad key")
+
+    monkeypatch.setattr(llm_module, "complete", boom)
+    res = client.post("/settings/test", data=_settings_form(provider="openai"))
+    assert res.status_code == 200  # a dead provider is an answer, not an error
+    assert "bad key" in res.text
+
+
 # --- auth: login page, cookie, logout ----------------------------------------
 
 @pytest.fixture()

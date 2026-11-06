@@ -113,13 +113,19 @@ backend/app/
 │   │                  is the one surface no regular account reaches):
 │   │                  create/kill pty sessions, SSE output stream,
 │   │                  raw-body input, pty resize
-│   └── users.py       Admin user management: list / create / password
-│                      reset (drops the user's live sessions) / role
-│                      change / disable / enable; the single-user
-│                      operator may create the first account (the
-│                      bootstrap — its response mints the session);
-│                      the last working admin can never be demoted or
-│                      disabled
+│   ├── users.py       Admin user management: list / create / password
+│   │                  reset (drops the user's live sessions) / role
+│   │                  change / disable / enable; the single-user
+│   │                  operator may create the first account (the
+│   │                  bootstrap — its response mints the session);
+│   │                  the last working admin can never be demoted or
+│   │                  disabled
+│   └── llm.py         The LLM provider switch (admin-only in
+│                      multi-user mode): GET/PUT settings — the active
+│                      provider plus every configured one, api keys
+│                      masked, never returned raw; POST /test fires a
+│                      one-shot completion so a switch is verified
+│                      before it's trusted
 └── services/
     ├── scanner.py     Discovers logs (recursive, newest first) and scripts
     │                  (flat + directory styles, default commands — which
@@ -135,6 +141,21 @@ backend/app/
     ├── user_store.py  users.json persistence (mtime-cached reads, atomic
     │                  writes, scrypt hashes): the accounts list — its
     │                  mere existence flips auth into multi-user mode
+    ├── llm_store.py   llm.json persistence + the provider registry
+    │                  (openai / anthropic / ollama / openai-compatible
+    │                  — two wire formats cover the market): the active
+    │                  provider plus remembered per-provider settings,
+    │                  mtime-cached and atomically written like the
+    │                  other stores, so a switch (or a hand-edit) takes
+    │                  effect with no restart; seed_from_env() turns
+    │                  LOGSMITH_LLM_* into the first boot's file
+    ├── llm.py         The adapter: complete() over the OpenAI chat
+    │                  wire (also Ollama, vLLM, LM Studio, OpenRouter,
+    │                  … — Bearer auth, omitted when no key is set)
+    │                  and Anthropic's native one (x-api-key + version
+    │                  header, max_tokens mandatory); httpx, sync,
+    │                  always timed — every failure surfaces as LlmError
+    │                  with a user-facing message
     ├── session_store.py  sessions.json: opaque cookie id → username,
     │                  the mapping that makes logout, password resets
     │                  and disabling actually revoke access; lazily pruned
@@ -207,6 +228,11 @@ frontend/src/
     │                      run-now / pause / delete
     ├── UsersPanel.jsx      Admin account management: create, reset
     │                      password, disable/enable, role changes
+    ├── SettingsPanel.jsx  Admin settings: the LLM provider switch —
+    │                      provider dropdown, per-provider key (masked,
+    │                      blank = keep) / model / base URL, Save and
+    │                      Save & test (one-shot completion); pure
+    │                      helpers in llm.js
     ├── JobDetail.jsx      SSE live view, chain strip, markdown artifacts,
     │                      copy-as-command, re-run (full / from here),
     │                      ⇄ Compare (opens DiffView), owner meta row
@@ -580,6 +606,17 @@ sessions older than 7 days. Per-user scripts live outside `data/`
 entirely: ownership is locational, `scripts/users/<name>/` being the
 account's private space, attributed by the scanner's multi-root discovery.
 
+`llm.json` (`services/llm_store.py`) rides the same pattern for the one
+piece of server configuration meant to change at runtime: which LLM
+provider to call. Env vars can't (they're read once at import), so the
+choice is data — mtime-cached reads, atomic writes, hand-edits win
+without a restart. Absent file = provider "none" = nothing calls out
+(the terminal's opt-in stance); `LOGSMITH_LLM_*` seed it on first boot
+only, then the admin Settings UI owns it. Per-provider settings are all
+remembered, so switching is one field and never loses a key; api keys
+never travel back to a browser (reads are masked; a blank key field
+means "keep the stored one" — the password-change rule).
+
 ## 7. Live streaming (SSE)
 
 `GET /api/jobs/{id}/events` streams `text/event-stream`: it replays the last
@@ -608,7 +645,9 @@ Single-page React app; state lives in `App.jsx`:
   share/unshare buttons, JobsPanel's owner chips + per-account filter +
   gated prune/cancel/delete, JobDetail's owner row and gated actions.
 - **Routing**: the URL hash is the source of truth — `#/` is home,
-  `#/job/<id>` the job view, `#/terminal` the terminal tab (`useHashRoute` +
+  `#/job/<id>` the job view, `#/terminal` the terminal tab, `#/settings`
+  the admin settings (the LLM provider switch — SettingsPanel; the link
+  and the route gate on admin exactly like Users) (`useHashRoute` +
   `parseRoute` validating the job id shape). Refresh, browser back/forward
   and shareable job links all work without server-side routing.
 - **TerminalPanel** (rendered only while `health.terminal` is on **and the
@@ -671,6 +710,15 @@ deep-linkable URL. Design points:
   the scripts page's buttons hit — permissions stay in one place, and a
   regular user's "make it private" on a shared script still meets the
   403 (the radio is locked for them; a direct post is refused).
+- **The settings page follows the terminal's admin gate**: `/settings`
+  (the LLM provider switch) calls `require_admin` — admins only once
+  accounts exist, the single-user operator is the admin. Its Save &
+  test uses the script editor's save-then-act shape (`settings_save` →
+  `settings_test`), and the blocking LLM call runs through
+  `asyncio.to_thread` so the form-parsing async handler never stalls the
+  event loop on a hung endpoint. A tiny inline `<script>` hides the
+  non-active provider fieldsets — enhancement only; every fieldset posts
+  every time (blank key = keep), so no-JS saves work identically.
 - **Direct calls, not HTTP round-trips**: handlers call the API routers'
   functions (`jobs_api.create_jobs`, `logs_api.upload_log`, …) directly.
   Same validation, same behavior, one auth story — but an `HTTPException`
@@ -854,7 +902,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_job_store.py` | the parse cache: freshness after save, copy-on-return semantics, delete/wipe never leaking, corrupt job.json skipped |
 | `test_preview.py` | log preview in head and tail modes, plain + compressed, the no-trailing-newline boundary, 50k-line file, 400/404/422 paths |
 | `test_upload.py` | log upload: round-trip into the listing, duplicate 409, filename sanitization (traversal → basename), empty 422, 413 cap with partial cleanup, 403 when disabled |
-| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false, log-free incl. the no-log run page + 422), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values, the target-file radios render + save: none strips `{log}` both ways, blank command + none → stripped default, no-target posts keep the command verbatim, test-run with no log — log-free runs, needs-log 422), the editor's visibility choice on a sandboxed scripts/ copy with real accounts (multi-user only: new defaults private, shared creates + publishes in one save, posts without the field unchanged, shared locks the private flip for users but not admins, flips call the same share/unshare — the admin's flip back moves it into the admin's space, a direct private post on a shared script meets the 403), the output table (sort, raw toggle, CSV incl. sorted), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, script mode: wizard prefill, fieldset, save/run, needs-log rejection, no-pipelines form) |
+| `test_pages.py` | the python UI page flow: home/run pages, form login + logout + Bearer, submission (single, fan-out, chain, unknown script 404, explicit boolean false, log-free incl. the no-log run page + 422), jobs list search/status/sort, cancel/delete/clear-finished, compare diff, upload + preview pages, the script editor (save, test-run, duplicate-safe ids, error re-render keeps values, the target-file radios render + save: none strips `{log}` both ways, blank command + none → stripped default, no-target posts keep the command verbatim, test-run with no log — log-free runs, needs-log 422), the editor's visibility choice on a sandboxed scripts/ copy with real accounts (multi-user only: new defaults private, shared creates + publishes in one save, posts without the field unchanged, shared locks the private flip for users but not admins, flips call the same share/unshare — the admin's flip back moves it into the admin's space, a direct private post on a shared script meets the 403), the output table (sort, raw toggle, CSV incl. sorted), the settings page — the LLM provider switch (render with all providers + the off default, admin-only in multi-user, save writes the store and redirects, the page never shows a raw key, a missing key field keeps the stored one, a bad base URL re-renders 422 with the typed values kept, Save & test reports the reply and persists the switch, a failed test renders the reason), saved pipelines (runbar save → shareable redirect URL, `?pipeline=` load prefills steps + params, `p::` values surviving Update and reorder links, unknown-name flash, Load-card delete + 404), schedules (page + create form + flash, validation rendering, `?schedule=` edit prefill and `?cron=` preset prefill, toggle/run/delete, script mode: wizard prefill, fieldset, save/run, needs-log rejection, no-pipelines form) |
 | `test_security.py` | the script authoring lock: API writes 403 (nothing lands on disk), reads/export/job submission unaffected, python UI editor pages bounce and hide actions, health reports the flag, editor works when unlocked |
 | `test_sandbox.py` | the Docker sandbox: the `docker run` wrapper's shape (mounts, no network, uid:gid, JOB_* env, container name, image + command order), compressed-input mounts, log-free shape (no input mount, no JOB_LOG_* env); e2e (skipped without Docker + image): completion, artifacts owned by the host user, no network, timeout kills the container, every interpreter |
 | `test_auth.py` | the auth surface: 401 gate, Bearer + cookie login/logout (cookie never contains the token, carries a 7-day Max-Age), rate limiting, slate-clearing on success, no-op when auth is off |
@@ -865,6 +913,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_terminal.py` | the remote terminal: flag off = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`LOGSMITH_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), the python UI page (nav link, run, blank-input flash, the interactive-shell markup with the command box as fallback, vendored assets serving + traversal/allowlist + hidden while off), and the multi-user gate (a regular account: 403s + hidden nav link + the page refusing; flag-off still a plain 404 — the feature's existence is not revealed; the admin keeps the full lifecycle) |
 | `test_users_auth.py` | the multi-user foundation: store round-trip (hashes, roles, disabled), login contract (username+password, one 401 message, disabled refusal, live mode flip on first account), session revocation on password change, hand-edited users.json picked up live |
 | `test_users_admin.py` | the admin surface: 403 for non-admins, create/reset/role/disable/enable incl. last-admin protection, the bootstrap (single-user operator creates the first admin and stays signed in), the python UI Users page |
+| `test_llm.py` | the LLM provider switch — no network, httpx.post is faked with canned wire payloads: the store (defaults off, update persists + roundtrips across instances, blank api key keeps the stored one, unknown providers refused, hand-edits win via the mtime cache, corrupt file = off), env seeding (first boot writes llm.json, later boots ignore the env even when it changed, unknown providers ignored), the adapter per wire (openai: Bearer + url + messages + mandatory timeout, system role, Bearer omitted when no key for Ollama, custom base URLs tolerate trailing slashes; anthropic: x-api-key + version header + system + max_tokens; off/missing-model/missing-key each raise LlmError; HTTP and transport failures become LlmError), key masking, and the API (single-user operator allowed, admin-only in multi-user, raw keys never leak, blank key keeps, 422 validation, /test ok and the failure-as-200-answer shape) |
 | `test_scripts_ownership.py` | script ownership (invariant 8/9): locational attribution by the scanner, visibility (another's private = 404 everywhere incl. runs and pipeline references), private-landing creates, globally-unique ids (409s that don't say whose), edit/delete rights, share/unshare flows and edges (incl. directory scripts, the single-user 403), import destination/overwrite rights, export-all visibility, rerun-after-unshare, the python UI page |
 | `test_jobs_ownership.py` | job ownership: owner tagging on submit, the 404 wall (incl. cancel/delete — visibility before rights), system jobs readable by all but admin-managed, list scoping + `?user=` narrowing, rerun belongs to the rerunner, prune/clear-finished rights, the python UI pages |
 | `test_cli.py` | the command-line client (`cli/logsmith.py`) against a real uvicorn server (free port, background thread, the suite's isolated stores): every command surface — status/login/logout with the session kept in `$LOGSMITH_CONFIG`, logs list/preview/upload, scripts list/show/create/update/delete plus the export/import round-trip (create/update cover the editor surface: `--command` templates and `--log-free` — the no-target-file case, flipped both ways), run (streamed stdout, chain step prefixes, failed-job exit code 1, `--no-wait`), jobs show/output/files/get/cancel/delete, `rerun --from-step` (seeded by the persisted step output), prune, pipelines save/run/delete, schedules save/toggle/run/delete + client-side validation, and the whole multi-user lifecycle through the CLI (bootstrap adopts the minted session, another user's private script invisible + unrunnable, share publishes it, the anonymous 401 with the login hint, disabling kills the live session) — on a per-test copy of `scripts/` (the live server is pointed at the copy) so the repo's own scripts are never touched |

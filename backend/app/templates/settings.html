@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Settings · LogSmith{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Settings</h1>
+  <a class="btn ghost sm" href="/">← Run</a>
+</div>
+
+{% if form_error %}<div class="flash bad">{{ form_error }}</div>{% endif %}
+<p class="muted">The LLM provider the app calls — switch it here, no restart needed.
+  Keys stay on the server (a blank key field keeps the stored one); everything
+  saves to <span class="mono">data/llm.json</span>.</p>
+
+<form method="post" action="/settings/save" class="card editor">
+  <label>LLM provider
+    <select name="provider" id="provider-choice">
+      <option value="none"{% if values.provider == 'none' %} selected{% endif %}>None — LLM off (default)</option>
+      {% for p in values.providers %}
+      <option value="{{ p.key }}"{% if values.provider == p.key %} selected{% endif %}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="muted">{% if values.provider == 'none' %}Nothing calls out until you pick a
+    provider.{% else %}Every provider you configure is remembered, so switching back
+    never loses its key or model.{% endif %}</p>
+
+  {% for p in values.providers %}
+  <fieldset class="provider-fields" data-provider="{{ p.key }}">
+    <legend>{{ p.label }} <span class="muted">— {{ p.hint }}</span></legend>
+    <label>API key
+      <input type="password" name="key_{{ p.key }}" autocomplete="off"
+             placeholder="{{ p.api_key_masked ~ ' saved — leave blank to keep' if p.has_key else 'not set' }}">
+    </label>
+    <label>Model <span class="muted">(the provider's model name)</span>
+      <input type="text" name="model_{{ p.key }}" value="{{ p.model }}"
+             placeholder="{{ 'gpt-4o-mini' if p.wire == 'openai' else 'claude-sonnet-4-5' }}">
+    </label>
+    <label>Base URL <span class="muted">(empty = {{ p.default_base_url if p.default_base_url else 'required — set the endpoint' }})</span>
+      <input type="text" name="base_{{ p.key }}" value="{{ p.base_url }}" class="mono"
+             placeholder="{{ p.default_base_url }}">
+    </label>
+  </fieldset>
+  {% endfor %}
+
+  <button class="btn primary" type="submit">Save</button>
+  <span class="test-run">
+    <button class="btn" type="submit" formaction="/settings/test"
+            title="Save, then send one tiny completion through the saved settings">
+      Save &amp; test</button>
+  </span>
+</form>
+<script>
+  // Enhancement only: show just the chosen provider's fields. The server
+  // stays authoritative — every fieldset posts every time (a blank key
+  // means "keep the stored one"), so a no-JS save works identically.
+  (() => {
+    const select = document.getElementById("provider-choice");
+    if (!select) return;
+    const sync = () => {
+      for (const fs of document.querySelectorAll(".provider-fields"))
+        fs.style.display = fs.dataset.provider === select.value ? "" : "none";
+    };
+    select.addEventListener("change", sync);
+    sync();
+  })();
+</script>
+{% endblock %}

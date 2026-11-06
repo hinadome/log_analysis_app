@@ -14,6 +14,7 @@ import SchedulesPanel from "./components/SchedulesPanel.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 import TerminalPanel from "./components/TerminalPanel.jsx";
 import UsersPanel from "./components/UsersPanel.jsx";
+import SettingsPanel from "./components/SettingsPanel.jsx";
 
 const ACTIVE = new Set(["queued", "waiting", "running"]);
 const JOB_ID_RE = /^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$/;
@@ -24,6 +25,7 @@ function parseRoute(hash) {
   if (m && JOB_ID_RE.test(m[1])) return { name: "job", id: m[1] };
   if (hash === "#/terminal") return { name: "terminal" };
   if (hash === "#/users") return { name: "users" };
+  if (hash === "#/settings") return { name: "settings" };
   return { name: "home" };
 }
 
@@ -616,6 +618,12 @@ export default function App() {
               👤 Users
             </a>
           )}
+          {isAdmin && (
+            <a className={`btn ghost sm ${view.name === "settings" ? "on" : ""}`}
+               href="#/settings" title="LLM provider and server settings">
+              ⚙ Settings
+            </a>
+          )}
           {health?.terminal && isAdmin && (
             <a className={`btn ghost sm ${view.name === "terminal" ? "on" : ""}`}
                href="#/terminal" title="Interactive shell on the server (LOGSMITH_TERMINAL)">
@@ -862,6 +870,21 @@ export default function App() {
             onIdentityChange={refreshIdentity}
             onBack={goHome}
           />
+        ) : view.name === "settings" ? (
+          isAdmin ? (
+            <SettingsPanel onBack={goHome} />
+          ) : multiUser && authUser ? (
+            // the server enforces it; this just avoids mounting a panel
+            // that could only fail — provider keys are the admin's
+            <div className="card">
+              <h2>Settings</h2>
+              <p className="muted">
+                Settings are an admin feature — the LLM provider and its API
+                key belong to the server, not to a regular account.
+              </p>
+              <button className="btn" onClick={goHome}>← Back</button>
+            </div>
+          ) : null // still resolving who is asking — no flash of a denial
         ) : (
           <JobDetail
             id={view.id}

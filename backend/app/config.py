@@ -87,6 +87,16 @@ TERMINAL_MAX_SESSIONS = int(os.environ.get("LOGSMITH_TERMINAL_MAX_SESSIONS", "4"
 # browser leaves one behind; 0 disables the reaper).
 TERMINAL_IDLE_TIMEOUT = int(os.environ.get("LOGSMITH_TERMINAL_IDLE_TIMEOUT", "1800"))
 
+# LLM provider, first-boot seeding for data/llm.json (the admin Settings
+# page owns the file afterwards — these are ignored once it exists, the
+# ADMIN_BOOTSTRAP pattern): LOGSMITH_LLM_PROVIDER names the initial
+# provider (openai / anthropic / ollama / openai-compatible); the other
+# three fill in that provider's api key, model and base URL.
+LLM_PROVIDER = os.environ.get("LOGSMITH_LLM_PROVIDER", "").strip()
+LLM_API_KEY = os.environ.get("LOGSMITH_LLM_API_KEY", "").strip()
+LLM_MODEL = os.environ.get("LOGSMITH_LLM_MODEL", "").strip()
+LLM_BASE_URL = os.environ.get("LOGSMITH_LLM_BASE_URL", "").strip()
+
 # Upper bound for a single log file uploaded through the browser (MiB).
 MAX_LOG_UPLOAD_MB = int(os.environ.get("MAX_LOG_UPLOAD_MB", "512"))
 

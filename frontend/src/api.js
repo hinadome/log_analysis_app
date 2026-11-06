@@ -60,6 +60,12 @@ export const api = {
   // --- script sharing (multi-user) ---
   shareScript: (id) => request(`/api/scripts/${id}/share`, { method: "POST" }),
   unshareScript: (id) => request(`/api/scripts/${id}/unshare`, { method: "POST" }),
+
+  // --- LLM provider settings (admin only) ---
+  llmSettings: () => request("/api/llm/settings"),
+  llmUpdateSettings: (body) =>
+    request("/api/llm/settings", { method: "PUT", body: JSON.stringify(body) }),
+  llmTest: () => request("/api/llm/test", { method: "POST" }),
   health: () => request("/api/health"),
   listLogs: () => request("/api/logs"),
   listScripts: () => request("/api/scripts"),

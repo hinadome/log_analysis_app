@@ -19,12 +19,13 @@ from .config import (FRONTEND_DIST, LOGS_DIR, SCRIPTS_DIR, MAX_CONCURRENT_JOBS,
                      DATA_DIR, JOB_RETENTION_DAYS, UI, ALLOW_SCRIPT_EDITING,
                      DOCKER_SANDBOX, SANDBOX_IMAGE, SCHEDULER_ENABLED,
                      TERMINAL_ENABLED, ADMIN_BOOTSTRAP_USER, ADMIN_BOOTSTRAP_PASSWORD)
-from .routers import jobs, logs, pipelines, schedules, scripts, terminal, users
+from .routers import jobs, llm, logs, pipelines, schedules, scripts, terminal, users
 from .services import decompress_cache
 from .services.job_store import JobStore
 from .services.scheduler import scheduler
 from .services.terminal import terminal as terminal_service
 from .services.user_store import store as users_store
+from .services import llm_store
 
 jobs_store: JobStore = jobs.store
 
@@ -59,6 +60,10 @@ async def lifespan(app: FastAPI):
     if auth.multi_user_enabled():
         print(f"multi-user: {len(users_store.list())} account(s) — "
               "login is username + password; scripts and jobs are per-user")
+    # First run with LOGSMITH_LLM_* set: write the initial data/llm.json
+    # so a container/deployment lands pre-configured (afterwards the
+    # Settings UI owns the file — the env vars are ignored).
+    llm_store.seed_from_env()
     if DOCKER_SANDBOX:
         print(f"docker sandbox: enabled (image {SANDBOX_IMAGE}, no network)")
         if which("docker") is None:
@@ -112,6 +117,7 @@ app.include_router(pipelines.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")
 app.include_router(terminal.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
+app.include_router(llm.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["meta"])
