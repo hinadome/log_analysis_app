@@ -230,6 +230,19 @@ DELETE, or the idle reaper — `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT`
 seconds (default 1800) with no input and no output. Nothing is written to
 disk. `GET /api/health` reports the feature as `"terminal": bool`.
 
+### LLM settings (admin only)
+
+Which LLM provider the app is configured to call — switchable at runtime,
+no restart. An absent `data/llm.json` means provider "none": nothing calls
+out. Admin-gated like the terminal (§ Terminal): the single-user operator
+is the admin; a regular account gets 403.
+
+| Method & Path | Description |
+|---|---|
+| `GET /api/llm/settings` | the active provider plus every configured one — registry metadata (label, hint, wire format, default base URL) joined with the stored fields. Api keys come back **masked** (`has_key`, `api_key_masked` — the raw key never leaves the server) |
+| `PUT /api/llm/settings` | `{provider, providers: {openai/anthropic/ollama/openai-compatible: {api_key, model, base_url}}}` — a blank api_key keeps the stored one (a masked key round-trips a browser without re-typing), a blank base_url means the provider's default; unknown provider names or non-http(s) base URLs → 422. Returns the new state, masked |
+| `POST /api/llm/test` | one tiny completion through the saved settings, timed → `{ok, reply, elapsed_ms}` — or `{ok: false, error}` with HTTP 200: a dead provider is a settings answer, not a server error |
+
 ### Logs
 
 | Method & Path | Description |
@@ -363,7 +376,7 @@ Firing semantics (normative):
 
 | Method & Path | Description |
 |---|---|
-| `GET /api/health` | `{status, logs_dir, scripts_dir, data_dir, max_concurrent_jobs, auth_required, script_editing, docker_sandbox, sandbox_image, job_retention_days, scheduler, data_dir_size}` |
+| `GET /api/health` | `{status, logs_dir, scripts_dir, data_dir, max_concurrent_jobs, auth_required, multi_user, script_editing, docker_sandbox, sandbox_image, job_retention_days, scheduler, terminal, data_dir_size}` |
 
 Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
@@ -389,6 +402,8 @@ missing.
 | `POST /schedules/delete` | a row's 🗑 button (`name` field): deletes and 303-redirects with a flash |
 | `GET /terminal` | **admin-only; hidden with `SCRIPTENGINE_TERMINAL=0`** (else 404 and no nav link): an interactive shell **plus** a zero-JS command box — progressive enhancement, one page. The page ships an xterm.js mount (`#term-mount`, a status badge, a hidden "New session" restart button) and keeps the command box (`#term-fallback`: a `command` textarea, run via the terminal service directly — no HTTP — output + exit badge rendered in a `<pre>`, blank input caught with a flash; one command at a time, 30 s timeout, output capped, nothing stored). With JavaScript the shell mounts over the same pty protocol as the React tab and the box is hidden; without it the box is the page. If the shell cannot start (flag flipped, session cap reached), the client says why in the mount and re-reveals the box. Assets: `GET /terminal/assets/{name}` serves an allowlist of four files — vendored `xterm.js` + `addon-fit.js` + `xterm.css` (byte-identical to the React build's, `backend/app/vendor/`) and ScriptEngine's own `terminal.js` client — 404 for anything else, and 404 for all four while the flag is off |
 | `POST /terminal` | the form target of the same page (same gating): runs `command`, re-renders with the result and the command kept in the textarea |
+| `GET /settings` | **admin-only** (a regular account gets the error page): the LLM provider switch — pick the active provider, fill its key / model / base URL, "Test" button. Zero-JS forms (the `POST` rows below) carry the page; the React UI's Settings panel rides the `/api/llm/*` routes (§ LLM settings) |
+| `POST /settings/save` / `/settings/test` | the form handlers — save re-renders inline on 422 (the form keeps what was typed); test **saves first, then** fires one tiny completion (the script editor's test-run shape) and reports the reply or the error |
 | `GET /jobs?q=&status=&user=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page); `&user=` narrows to one account's runs (admins see an owner box and an Owner column — "system" for ownerless rows — regular users neither) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |
 | `GET /jobs/{id}/result.csv?sortcol=&sortdir=` | the table view as CSV (`output.csv`), sorted as shown; 422 when the output is not a JSON table |
@@ -641,6 +656,7 @@ too — same reasoning, stronger: it is a shell as the server user.
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
 | `SCRIPTENGINE_TOKEN` | *(unset)* | UI password; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
 | `SCRIPTENGINE_ADMIN_USER` / `SCRIPTENGINE_ADMIN_PASSWORD` | *(unset)* | first-run bootstrap into multi-user mode: an admin account is created at startup while `data/users.json` doesn't exist yet — ignored afterwards (§8) |
+| `SCRIPTENGINE_LLM_PROVIDER` / `_API_KEY` / `_MODEL` / `_BASE_URL` | *(unset)* | first-run seeding for `data/llm.json` (§ LLM settings): when the file doesn't exist yet and a provider is named (`openai` / `anthropic` / `ollama` / `openai-compatible`), the other three fill its key, model and base URL. Afterwards the Settings UI owns the file — these are ignored |
 | `SCRIPTENGINE_INSECURE` | `0` | launcher escape hatch: `1` = non-local bind with no password (not recommended) |
 | `SCRIPTENGINE_ALLOW_SCRIPT_EDITING` | `1` | `0` = script write endpoints answer 403 (§8.1); existing scripts stay runnable |
 | `SCRIPTENGINE_DOCKER_SANDBOX` | `0` | `1` = scripts run in throwaway Docker containers (see "Docker sandbox" under the script runtime contract) |

@@ -759,11 +759,12 @@ deep-linkable URL. Design points:
 - **Compare** (`/jobs/{id}/compare`) diffs two completed jobs' stdout with
   `difflib.SequenceMatcher`, capped at 2000 lines per side like DiffView;
   the other job defaults to the latest run of the same script.
-- **The one JS-bearing page**: `/terminal` (while `SCRIPTENGINE_TERMINAL` is on)
-  mounts an interactive shell — xterm.js and the fit addon vendored in
-  `app/vendor/` (byte-identical to the React build's copies, so no Node, no
-  npm, no build step) and served flag-gated from `/terminal/assets/*` as an
-  allowlist of four files. It is progressive enhancement: the page's command
+- **The one JS-bearing page**: `/terminal` (admin-only; hidden with
+  `SCRIPTENGINE_TERMINAL=0`) mounts an interactive shell — xterm.js and
+  the fit addon vendored in `app/vendor/` (byte-identical to the React
+  build's copies, so no Node, no npm, no build step) and served from
+  `/terminal/assets/*` (404 while the flag is off) as an allowlist of
+  four files. It is progressive enhancement: the page's command
   box stands in without JavaScript, and the client re-reveals it if the
   shell cannot start. Everything else stays plain HTML + forms.
 

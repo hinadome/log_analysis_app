@@ -58,6 +58,11 @@ Three things to keep in mind:
   `#!/usr/bin/env python3`-style shebangs for direct execution. A missing
   interpreter fails the job **at submission** with its name in the error
   — no guessing. The Docker sandbox image ships all five interpreters.
+  This is the *script's* interpreter, named by the manifest command or
+  shebang — `SCRIPTENGINE_PYTHON` (the app's own interpreter,
+  [Configuration](README.md#configuration-environment-variables)) does
+  not change it; when the server's default isn't the one a script needs,
+  name an absolute interpreter path in the command.
 - **Save scripts with Unix LF line endings.** A Windows-style CRLF file
   passes every interpreter check yet dies at spawn with the cryptic
   `env: 'bash\r': No such file or directory` — the carriage return
