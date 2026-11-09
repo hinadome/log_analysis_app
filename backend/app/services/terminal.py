@@ -3,8 +3,8 @@
 The React tab gets a real interactive shell (xterm.js on one side, an
 SSE output stream + input POSTs on the other); the python UI gets a
 one-shot command box (run_command, no pty). Everything hides behind
-config.TERMINAL_ENABLED (SCRIPTENGINE_TERMINAL) — the router refuses with
-404 while it is off, so the feature does not exist unless asked for.
+config.TERMINAL_ENABLED (SCRIPTENGINE_TERMINAL=0) — the router refuses
+with 404 while it is off, so the feature only disappears when asked to.
 
 A session is a forked pty running $SHELL in BASE_DIR. Output flows
 master -> bounded queue -> SSE generator; input goes the other way as

@@ -71,13 +71,13 @@ SCHEDULER_ENABLED = os.environ.get(
 
 # Remote terminal: an interactive shell on the server, in the browser
 # (React's Terminal tab; a command box on the python UI's /terminal page).
-# OFF by default — a shell is arbitrary code as the server user, strictly
-# more powerful than script editing, so it also stays off whenever
-# SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 (the "run the vetted scripts only"
-# lockdown). While off, every terminal endpoint answers 404 and both UIs
-# hide the feature.
+# ON by default — visible (and live) for admins, hidden with 404s for
+# everyone else. A shell is arbitrary code as the server user, so it also
+# stays off whenever SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 (the "run the
+# vetted scripts only" lockdown), and SCRIPTENGINE_TERMINAL=0 hides the
+# feature entirely: every endpoint answers 404 and both UIs drop it.
 TERMINAL_ENABLED = (
-    os.environ.get("SCRIPTENGINE_TERMINAL", "0").strip().lower() in ("1", "true", "yes", "on")
+    os.environ.get("SCRIPTENGINE_TERMINAL", "1").strip().lower() not in ("0", "false", "no", "off")
     and ALLOW_SCRIPT_EDITING
 )
 # Concurrent shell sessions (each holds a pty; strays are reaped by the

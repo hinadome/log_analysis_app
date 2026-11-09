@@ -1504,10 +1504,11 @@ def terminal_page(request: Request):
     """The command box (zero JS): one command, its output, a back button.
 
     The interactive shell lives in the React tab — a pty cannot be driven
-    from plain HTML forms. While SCRIPTENGINE_TERMINAL is off this is a 404,
-    matching what the API does; with accounts on it is admin-only (a
-    shell as the server user is the one surface no regular account
-    should reach — the single-user operator keeps it).
+    from plain HTML forms. While SCRIPTENGINE_TERMINAL=0 (or the editing
+    lockdown) is in effect this is a 404, matching what the API does; with
+    accounts on it is admin-only (a shell as the server user is the one
+    surface no regular account should reach — the single-user operator
+    keeps it).
     """
     if redirect := _need_login(request):
         return redirect

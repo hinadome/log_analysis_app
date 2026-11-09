@@ -150,14 +150,17 @@ Vite proxy talks HTTPS to the backend.
   with automatic fallback to polling.
 - **Remote terminal** — `SCRIPTENGINE_TERMINAL=1` adds a Terminal tab: a real
   interactive shell on the server in the browser (xterm.js over SSE + POST,
-  no WebSocket, no extra dependency). Off by default — a shell is the whole
-  machine. Both UIs have it: React's Terminal tab, and the python UI's
-  `/terminal` page, where the same shell is progressive enhancement — with
-  JavaScript it mounts (xterm.js vendored into the repo, no Node needed),
-  without it the page's command box stands in. Off also means *hidden*:
-  every terminal endpoint answers 404. In multi-user mode the shell is
-  **admin-only** — a regular account gets a 403 and no nav link; the
-  single-user operator keeps it.
+  no WebSocket, no extra dependency). On by default and **admin-only** —
+  the single-user operator, or an admin account, sees the Terminal tab
+  without touching any configuration; a regular account gets a 403 and
+  no nav link. Both UIs have it: React's Terminal tab, and the python
+  UI's `/terminal` page, where the same shell is progressive
+  enhancement — with JavaScript it mounts (xterm.js vendored into the
+  repo, no Node needed), without it the page's command box stands in.
+  `SCRIPTENGINE_TERMINAL=0` hides it — off also means *hidden*: every
+  terminal endpoint answers 404. It is forced off whenever
+  `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` (the "run the vetted scripts
+  only" lockdown).
 - **LLM provider (switchable in the UI)** — the Settings page (⚙ in both
   UIs; admin-only in multi-user mode) picks which LLM the app calls:
   OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint (vLLM, LM
@@ -678,7 +681,7 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | GET | `/api/llm/settings` | **admin** — the LLM provider switch: the active provider plus every configured one (api keys come back **masked** — never the raw key) |
 | PUT | `/api/llm/settings` | **admin** — `{provider, providers: {openai/anthropic/ollama/openai-compatible: {api_key, model, base_url}}}`; a blank api_key keeps the stored one; base_url empty = the provider's default |
 | POST | `/api/llm/test` | **admin** — one tiny completion through the saved settings → `{ok, reply, elapsed_ms}` or `{ok: false, error}` (a dead provider is an answer, not a 500) |
-| POST | `/api/terminal/sessions` | (flag-gated: 404 while `SCRIPTENGINE_TERMINAL` is off; **admin-only in multi-user mode** — 403 otherwise) start a shell session → `{id, shell}` (429 at `SCRIPTENGINE_TERMINAL_MAX_SESSIONS`) |
+| POST | `/api/terminal/sessions` | (**admin-only**; hidden entirely while `SCRIPTENGINE_TERMINAL=0` — 404s; in multi-user mode a regular account gets 403) start a shell session → `{id, shell}` (429 at `SCRIPTENGINE_TERMINAL_MAX_SESSIONS`) |
 | GET | `/api/terminal/sessions/{id}/output` | SSE stream of the session's output — `{"type":"output","data":<base64>}` frames, then one `{"type":"exit","code":N}` |
 | POST | `/api/terminal/sessions/{id}/input` | raw body = keystrokes, written to the pty verbatim |
 | POST | `/api/terminal/sessions/{id}/size` | `{cols, rows}` → pty resize + SIGWINCH |
@@ -772,7 +775,7 @@ after the subcommand.
 | `SCRIPTENGINE_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
 | `SCRIPTENGINE_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
 | `SCRIPTENGINE_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable, they just never fire on their own |
-| `SCRIPTENGINE_TERMINAL` | `0` | `1` enables the interactive shell on the server in the browser: React's Terminal tab, and the python UI's `/terminal` page (same shell as progressive enhancement — its no-JS command box stays as the fallback). Also off whenever `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` |
+| `SCRIPTENGINE_TERMINAL` | `1` | the interactive shell on the server in the browser — **admin-only** (the single-user operator is the admin): React's Terminal tab, and the python UI's `/terminal` page (same shell as progressive enhancement — its no-JS command box stays as the fallback). `0` hides it entirely (every endpoint 404s, no nav links); also off whenever `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` |
 | `SCRIPTENGINE_TERMINAL_MAX_SESSIONS` | `4` | concurrent shell sessions (429 when full; strays are reaped by the idle timeout) |
 | `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT` | `1800` | seconds without input or output before a session is killed (0 disables the reaper) |
 | `SCRIPTENGINE_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |
@@ -783,7 +786,7 @@ Example: `SCRIPTENGINE_TOKEN=s3cret JOB_RETENTION_DAYS=14 ./run.sh`
 `SCRIPTENGINE_*` variables may also live in the repo's `.env` — run.sh reads only
 the lines it recognizes (`SCRIPTENGINE_…=…`; anything else in the file, other
 tools' keys included, stays untouched) and the real environment wins over the
-file. Example `.env` line: `SCRIPTENGINE_TERMINAL=1`.
+file. Example `.env` line: `SCRIPTENGINE_TERMINAL=0`.
 
 ## Tests
 
@@ -833,12 +836,15 @@ Mitigations built in:
 - Bind address configurable via `SCRIPTENGINE_HOST` (default `0.0.0.0` — all
   interfaces; the start script warns loudly when exposed with no token);
   HTTPS with a local certificate
-- **The terminal is opt-in** (`SCRIPTENGINE_TERMINAL`, default off = hidden:
-  404s, no nav links). It is a shell as the server user — anyone with the
-  password can run anything, which is why it also refuses to turn on while
-  `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` is set. Sessions die with their browser
-  tab, on explicit close, or after `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT` (30 min
-  default) with no input and no output.
+- **The terminal is on by default, admin-gated** — it is a shell as the
+  server user, so in multi-user mode only admins see it (a regular
+  account gets 403s and no nav link); the single-user operator is the
+  admin. `SCRIPTENGINE_TERMINAL=0` hides it entirely (404s, no nav
+  links), and it refuses to stay on while
+  `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` is set. Sessions die with their
+  browser tab, on explicit close, or after
+  `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT` (30 min default) with no input
+  and no output.
 - **The LLM is opt-in** (provider "None" by default = nothing calls out).
   Picking a provider aims the server at an external endpoint — prompts sent
   to it leave the machine, so it is admin-only in multi-user mode. API keys

@@ -6,8 +6,7 @@
 {% block content %}
 <h1>⌨ Terminal</h1>
 <p class="muted">Runs on the server, as the ScriptEngine process user — the same trust as the
-  script editor, without the vetting. Enabled by <span class="mono">SCRIPTENGINE_TERMINAL=1</span>
-  (environment or the repo's <span class="mono">.env</span>).</p>
+  script editor, without the vetting. Admins only; hidden with <span class="mono">SCRIPTENGINE_TERMINAL=0</span>.</p>
 
 <section class="card terminal-card">
   <div class="terminal-head">

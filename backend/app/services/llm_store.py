@@ -25,7 +25,8 @@ base_url against the registry default, builds the wire request).
 
 An absent file means {"provider": "none"} — no LLM, no outbound calls,
 the deployment unchanged until an admin turns a provider on in the
-Settings UI (the opt-in stance the terminal takes).
+Settings UI (the LLM's own opt-in stance: nothing calls out until
+configured).
 
 SCRIPTENGINE_LLM_* env vars seed the file on first boot only
 (seed_from_env, called from the app lifespan): after that the UI owns

@@ -37,7 +37,9 @@ def terminal_on(monkeypatch):
 
 # --- flag off: the feature does not exist ---------------------------------
 
-def test_disabled_by_default(client):
+def test_disabled_flag_hides_the_feature(client):
+    """SCRIPTENGINE_TERMINAL=0 (pinned in conftest): the feature does not
+    exist — every endpoint 404s and both UIs drop it."""
     assert client.get("/api/health").json()["terminal"] is False
     for method, path in (("post", "/api/terminal/sessions"),
                          ("get", "/api/terminal/sessions/abc/output"),
@@ -51,6 +53,23 @@ def test_disabled_by_default(client):
     assert 'href="/terminal"' not in client.get("/").text
     assert client.get("/terminal").status_code == 404
     assert client.post("/terminal", data={"command": "echo hi"}).status_code == 404
+
+
+def test_enabled_by_default():
+    """No configuration, no accounts: the terminal is simply there — the
+    single-user operator (the admin when no accounts exist) sees it."""
+    import app.config as config_module
+    saved = os.environ.pop("SCRIPTENGINE_TERMINAL", None)
+    saved_editing = os.environ.get("SCRIPTENGINE_ALLOW_SCRIPT_EDITING")
+    os.environ.pop("SCRIPTENGINE_ALLOW_SCRIPT_EDITING", None)
+    try:
+        assert importlib.reload(config_module).TERMINAL_ENABLED is True
+    finally:
+        if saved is not None:
+            os.environ["SCRIPTENGINE_TERMINAL"] = saved
+        if saved_editing is not None:
+            os.environ["SCRIPTENGINE_ALLOW_SCRIPT_EDITING"] = saved_editing
+        importlib.reload(config_module)
 
 
 def test_lockdown_forces_terminal_off():

@@ -34,6 +34,11 @@ os.environ["JOB_RETENTION_DAYS"] = "0"
 # Test the python frontend: pages router mounted, no SPA catch-all. The API
 # routes are identical either way, so the rest of the suite is unaffected.
 os.environ["SCRIPTENGINE_UI"] = "python"
+# The terminal ships ON by default now (admins see it without config), but
+# the suite pins it off: every page/nav assertion elsewhere was written
+# against a terminal-less UI, and test_terminal.py exercises both states
+# explicitly anyway.
+os.environ["SCRIPTENGINE_TERMINAL"] = "0"
 
 SAMPLE_LOG = LOGS_TMP / "app.log"
 SAMPLE_LOG.write_text(

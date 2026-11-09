@@ -198,23 +198,25 @@ sandbox_report() {
   echo "Sandbox  ●  docker ($SANDBOX_IMAGE — no network, ${SCRIPTENGINE_SANDBOX_MEMORY:-512m} RAM per job)"
 }
 
-# SCRIPTENGINE_TERMINAL=1 turns the browser into a shell on the server. It is
-# also forced off by SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 (the lockdown that
-# means "run the vetted scripts only" — a shell beats the script editor).
+# The terminal is on by default: admins get a shell on the server in the
+# browser. SCRIPTENGINE_TERMINAL=0 hides it, and it is also forced off by
+# SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 (the lockdown that means "run the
+# vetted scripts only" — a shell beats the script editor).
 truthy() { case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
              1|true|yes|on) return 0 ;; *) return 1 ;; esac; }
+
+falsy() { case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+             0|false|no|off) return 0 ;; *) return 1 ;; esac; }
 
 terminal_report() {
   local locked=0
   truthy "${SCRIPTENGINE_ALLOW_SCRIPT_EDITING:-1}" || locked=1
-  if truthy "${SCRIPTENGINE_TERMINAL:-0}"; then
-    if [ "$locked" = "1" ]; then
-      echo "Terminal ✗  requested (SCRIPTENGINE_TERMINAL=1) but locked off by SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0"
-    else
-      echo "Terminal ●  enabled (SCRIPTENGINE_TERMINAL) — shells run as the server user"
-    fi
+  if [ "$locked" = "1" ] && ! falsy "${SCRIPTENGINE_TERMINAL:-1}"; then
+    echo "Terminal ✗  locked off by SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 (the lockdown)"
+  elif falsy "${SCRIPTENGINE_TERMINAL:-1}"; then
+    echo "Terminal ○  off (SCRIPTENGINE_TERMINAL=0 hides it)"
   else
-    echo "Terminal ○  off (SCRIPTENGINE_TERMINAL=1 in .env or the environment enables it)"
+    echo "Terminal ●  enabled (admins only) — shells run as the server user"
   fi
 }
 

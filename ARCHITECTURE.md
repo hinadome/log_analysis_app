@@ -107,12 +107,12 @@ backend/app/
 │   │                  upsert-by-name (cron + pipeline + log validated) /
 │   │                  toggle / run-now (shares the ticker's fire path) /
 │   │                  delete
-│   ├── terminal.py    Remote terminal endpoints (every one flag-gated
-│   │                  to 404 while SCRIPTENGINE_TERMINAL is off; admin-only
-│   │                  in multi-user mode — a shell as the server user
-│   │                  is the one surface no regular account reaches):
-│   │                  create/kill pty sessions, SSE output stream,
-│   │                  raw-body input, pty resize
+│   ├── terminal.py    Remote terminal endpoints — on by default,
+│   │                  admin-only (a shell as the server user is the one
+│   │                  surface no regular account reaches); hidden with
+│   │                  404s while SCRIPTENGINE_TERMINAL=0: create/kill
+│   │                  pty sessions, SSE output stream, raw-body input,
+│   │                  pty resize
 │   ├── users.py       Admin user management: list / create / password
 │   │                  reset (drops the user's live sessions) / role
 │   │                  change / disable / enable; the single-user
@@ -611,7 +611,8 @@ piece of server configuration meant to change at runtime: which LLM
 provider to call. Env vars can't (they're read once at import), so the
 choice is data — mtime-cached reads, atomic writes, hand-edits win
 without a restart. Absent file = provider "none" = nothing calls out
-(the terminal's opt-in stance); `SCRIPTENGINE_LLM_*` seed it on first boot
+(the LLM's own opt-in stance — nothing calls out until configured);
+`SCRIPTENGINE_LLM_*` seed it on first boot
 only, then the admin Settings UI owns it. Per-provider settings are all
 remembered, so switching is one field and never loses a key; api keys
 never travel back to a browser (reads are masked; a blank key field
@@ -814,12 +815,15 @@ deep-linkable URL. Design points:
   import, API and both UIs) answers 403, reads (listing, source view, both
   exports) and job submission keep working, and `/api/health` reports
   `script_editing: false` so the UIs hide their editor entry points.
-- **Remote terminal** (`SCRIPTENGINE_TERMINAL`, default off): an interactive
-  shell is strictly more powerful than script authoring, so it is opt-in
-  *and* subordinate to the lock — `TERMINAL_ENABLED` is the conjunction of
-  the flag and `ALLOW_SCRIPT_EDITING`. While off, every endpoint 404s and
-  both UIs hide it, so the feature does not exist to an attacker probing
-  URLs. There is no sandbox path: the terminal is the trust boundary taken
+- **Remote terminal** (`SCRIPTENGINE_TERMINAL`, default **on**): an
+  interactive shell is strictly more powerful than script authoring, so
+  it is admin-gated *and* subordinate to the lock — `TERMINAL_ENABLED`
+  is the conjunction of the flag and `ALLOW_SCRIPT_EDITING`, with the
+  flag defaulting to on: admins (and the single-user operator) see it
+  with no configuration. `SCRIPTENGINE_TERMINAL=0` hides it — every
+  endpoint 404s and both UIs drop it, so the feature does not exist to
+  an attacker probing URLs. There is no sandbox path: the terminal is
+  the trust boundary taken
   knowingly. Sessions are bounded (`SCRIPTENGINE_TERMINAL_MAX_SESSIONS`), die
   with their tab, and are reaped after `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT`
   without I/O; nothing a shell prints is persisted to disk. The transport
@@ -910,7 +914,7 @@ every push and pull request; the repo is under git with `data/`,
 | `test_cron.py` | the cron matcher: next-fire for every construct (steps, ranges, lists, names, Vixie `a/n`, the day OR rule, Sunday 0/7, leap day), strictly-after semantics, rejection table (field count, ranges, Feb 30, zero steps), `describe()` labels |
 | `test_scheduler.py` | the ticker engine with an injected clock: fires once per matching minute, no double-fire within a minute, no catch-up for minutes lost while down, disabled never fires, overlap skip (recorded, nothing submitted), finished previous run doesn't block, inline steps fire as a chain (log-free), neither-pipeline-nor-steps error, missing pipeline / submission errors recorded not raised, multiple schedules in one tick |
 | `test_schedules_api.py` | the schedule API: save/list round-trip with next_due + cron_desc + target, upsert keeps bookkeeping, validation (cron 422 incl. never-matching, pipeline/log/script 404, escape 400, broken pipeline 404, pipeline XOR steps 422, log-required-iff-first-step-needs-it), inline-steps save/toggle/run-now, toggle/delete + 404s, run-now submits a real chain labelled with the schedule's name, custom label, missing log recorded as `error:` |
-| `test_terminal.py` | the remote terminal: flag off = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), the python UI page (nav link, run, blank-input flash, the interactive-shell markup with the command box as fallback, vendored assets serving + traversal/allowlist + hidden while off), and the multi-user gate (a regular account: 403s + hidden nav link + the page refusing; flag-off still a plain 404 — the feature's existence is not revealed; the admin keeps the full lifecycle) |
+| `test_terminal.py` | the remote terminal: on by default (config-level, env unset), flag off (pinned in conftest) = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), the python UI page (nav link, run, blank-input flash, the interactive-shell markup with the command box as fallback, vendored assets serving + traversal/allowlist + hidden while off), and the multi-user gate (a regular account: 403s + hidden nav link + the page refusing; flag-off still a plain 404 — the feature's existence is not revealed; the admin keeps the full lifecycle) |
 | `test_users_auth.py` | the multi-user foundation: store round-trip (hashes, roles, disabled), login contract (username+password, one 401 message, disabled refusal, live mode flip on first account), session revocation on password change, hand-edited users.json picked up live |
 | `test_users_admin.py` | the admin surface: 403 for non-admins, create/reset/role/disable/enable incl. last-admin protection, the bootstrap (single-user operator creates the first admin and stays signed in), the python UI Users page |
 | `test_llm.py` | the LLM provider switch — no network, httpx.post is faked with canned wire payloads: the store (defaults off, update persists + roundtrips across instances, blank api key keeps the stored one, unknown providers refused, hand-edits win via the mtime cache, corrupt file = off), env seeding (first boot writes llm.json, later boots ignore the env even when it changed, unknown providers ignored), the adapter per wire (openai: Bearer + url + messages + mandatory timeout, system role, Bearer omitted when no key for Ollama, custom base URLs tolerate trailing slashes; anthropic: x-api-key + version header + system + max_tokens; off/missing-model/missing-key each raise LlmError; HTTP and transport failures become LlmError), key masking, and the API (single-user operator allowed, admin-only in multi-user, raw keys never leak, blank key keeps, 422 validation, /test ok and the failure-as-200-answer shape) |

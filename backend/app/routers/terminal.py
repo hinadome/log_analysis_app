@@ -1,14 +1,14 @@
 """Terminal endpoints: create a shell session, stream its output, feed it.
 
-Everything hides behind SCRIPTENGINE_TERMINAL (config.TERMINAL_ENABLED): while
-the flag is off, every endpoint answers 404 as if the feature did not
-exist. With accounts on (multi-user mode) the shell is admin-only — a
-terminal is a shell as the server user, the one surface no regular
-account should reach; the single-user operator keeps it. The transport is
-deliberately SSE + POST rather than a WebSocket — it needs no extra
-dependency and rides the same HTTP auth middleware as the rest of the
-API (and EventSource cannot send headers, but the session cookie needs
-none).
+On by default and visible to admins; SCRIPTENGINE_TERMINAL=0 (or the
+SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 lockdown) hides it — while the flag
+is off, every endpoint answers 404 as if the feature did not exist. With
+accounts on (multi-user mode) the shell is admin-only — a terminal is a
+shell as the server user, the one surface no regular account should
+reach; the single-user operator keeps it. The transport is deliberately
+SSE + POST rather than a WebSocket — it needs no extra dependency and
+rides the same HTTP auth middleware as the rest of the API (and
+EventSource cannot send headers, but the session cookie needs none).
 
 Protocol (SSE frames, JSON like the job events stream):
     data: {"type": "output", "data": "<base64 pty bytes>"}

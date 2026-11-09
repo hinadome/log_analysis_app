@@ -76,8 +76,8 @@ async def lifespan(app: FastAPI):
         print(f"scheduler: enabled (checking schedules every "
               f"{scheduler.interval:.0f}s, local time)")
     if TERMINAL_ENABLED:
-        print("terminal: enabled (SCRIPTENGINE_TERMINAL) — shells run as the "
-              "server user")
+        print("terminal: enabled — admin shells run as the server user "
+              "(SCRIPTENGINE_TERMINAL=0 hides it)")
     yield
     await scheduler.shutdown()
     await jobs.executor.shutdown()
