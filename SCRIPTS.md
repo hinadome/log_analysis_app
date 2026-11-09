@@ -1,6 +1,6 @@
 # SCRIPTS.md — writing analysis scripts, with per-language samples
 
-LogSmith runs ordinary programs: your code, an interpreter, and a manifest
+ScriptEngine runs ordinary programs: your code, an interpreter, and a manifest
 that tells the workbench how to invoke it. This file is the hands-on
 companion to the README's
 ["How command, parameters and code fit together"](README.md#how-command-parameters-and-code-fit-together):
@@ -62,7 +62,7 @@ Three things to keep in mind:
   passes every interpreter check yet dies at spawn with the cryptic
   `env: 'bash\r': No such file or directory` — the carriage return
   becomes part of the interpreter name, and of every shell command.
-  LogSmith fails such a job **at submission** with the reason named
+  ScriptEngine fails such a job **at submission** with the reason named
   (convert with `dos2unix`, or re-save the script in the UI editor,
   which always writes LF — even for text pasted from Windows tools).
 - **No shell ever runs your command**, so parameter values are literal
@@ -413,7 +413,7 @@ Analysis scripts read a log; generator scripts don't need one — a snapshot
 of the host, a report built from an API, anything that produces rather
 than analyzes input. The switch is the command template: **a command
 without the `{log}` placeholder makes the script log-free.** That's the
-whole mechanism — LogSmith derives `needs_log` from the command, the UIs
+whole mechanism — ScriptEngine derives `needs_log` from the command, the UIs
 badge the script *log-free*, and it can be run and scheduled with no log
 selected at all.
 
@@ -421,7 +421,7 @@ In the editors the choice is explicit: the **Target file** control right
 under the command field — *selected log* keeps (or inserts) `{log}`,
 *none (log-free)* strips it, and a flag it was glued to (like
 `--input={log}`) goes with it. The CLI matches:
-`logsmith scripts create|update --log-free`, or `--command TEMPLATE` for
+`scriptengine scripts create|update --log-free`, or `--command TEMPLATE` for
 a full template.
 
 ```jsonc
@@ -644,7 +644,7 @@ a browser:
   inside explains where to unpack by hand.
 - **The whole library** — ⬇ Export all (React script picker, or the
   Scripts page head in the python UI) downloads one dated
-  `logsmith-scripts-YYYYMMDD.tar.gz`: flat scripts as code + manifest
+  `scriptengine-scripts-YYYYMMDD.tar.gz`: flat scripts as code + manifest
   pairs, directory-style scripts under their names. Handy before an
   upgrade, or for moving everything to another server. It's a read, so it
   works even where editing is locked down.

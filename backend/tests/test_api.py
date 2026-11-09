@@ -54,7 +54,7 @@ def test_health(client):
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "ok"
-    assert body["auth_required"] is False  # LOGSMITH_TOKEN="" in conftest
+    assert body["auth_required"] is False  # SCRIPTENGINE_TOKEN="" in conftest
 
 
 def test_logs_and_scripts_endpoints(client):

@@ -1,4 +1,4 @@
-"""The command-line client (cli/logsmith.py) against a live server.
+"""The command-line client (cli/scriptengine.py) against a live server.
 
 The CLI is exercised in-process (main(argv) → exit code, capsys for the
 output) against a real uvicorn server on a free port, started once per
@@ -6,7 +6,7 @@ module in a background thread. It shares the suite's isolated stores —
 conftest points the env at temp dirs before any app import — so the
 tests run scripts from the repo's scripts/ against the sample logs.
 
-Every test gets a fresh config file (LOGSMITH_CONFIG), a wiped job
+Every test gets a fresh config file (SCRIPTENGINE_CONFIG), a wiped job
 history and single-user mode; the multi-user lifecycle test flips the
 server into accounts mode and restores single-user mode on exit.
 """
@@ -24,7 +24,7 @@ import pytest
 from conftest import DATA_TMP, REPO, wipe_jobs
 
 sys.path.insert(0, str(REPO / "cli"))
-import logsmith  # noqa: E402
+import scriptengine  # noqa: E402
 
 
 def reset_single_user() -> None:
@@ -92,11 +92,11 @@ def cli(server_url, tmp_path, monkeypatch, scripts_sandbox):
     wipe_jobs()
     pipeline_store.PIPELINES_FILE.unlink(missing_ok=True)
     schedule_store.SCHEDULES_FILE.unlink(missing_ok=True)
-    monkeypatch.setenv("LOGSMITH_CONFIG", str(tmp_path / "cli-config.json"))
-    monkeypatch.setenv("LOGSMITH_URL", server_url)
+    monkeypatch.setenv("SCRIPTENGINE_CONFIG", str(tmp_path / "cli-config.json"))
+    monkeypatch.setenv("SCRIPTENGINE_URL", server_url)
 
     def run(*argv) -> int:
-        return logsmith.main([str(a) for a in argv])
+        return scriptengine.main([str(a) for a in argv])
 
     return run
 
@@ -110,27 +110,27 @@ def latest_job_ids(cli, capsys, count=1) -> list[str]:
 # --- step-spec parsing (pure client logic) ---------------------------------
 
 def test_parse_step_decodes_json_values():
-    sid, params = logsmith.parse_step(
+    sid, params = scriptengine.parse_step(
         "grep_search:pattern=ERROR,context=2,ignore_case=true")
     assert sid == "grep_search"
     assert params == {"pattern": "ERROR", "context": 2, "ignore_case": True}
 
 
 def test_parse_step_lists_and_quoting():
-    _, params = logsmith.parse_step('t:hosts=["a","b"],note="x,y"')
+    _, params = scriptengine.parse_step('t:hosts=["a","b"],note="x,y"')
     assert params["hosts"] == ["a", "b"]
     assert params["note"] == "x,y"          # the comma survived the split
-    _, params = logsmith.parse_step("t:hosts=a,hosts=b")
+    _, params = scriptengine.parse_step("t:hosts=a,hosts=b")
     assert params["hosts"] == ["a", "b"]    # repetition collects a list
-    _, params = logsmith.parse_step("plain")
+    _, params = scriptengine.parse_step("plain")
     assert params == {}
 
 
 def test_parse_step_rejects_garbage():
     with pytest.raises(ValueError):
-        logsmith.parse_step("s:justakey")
+        scriptengine.parse_step("s:justakey")
     with pytest.raises(ValueError):
-        logsmith.parse_step(":x=1")
+        scriptengine.parse_step(":x=1")
 
 
 # --- unauthenticated, single-user -------------------------------------------
@@ -457,11 +457,11 @@ def test_multi_user_lifecycle(server_url, tmp_path, monkeypatch, capsys,
         configs = {"root": tmp_path / "root.json",
                    "alice": tmp_path / "alice.json",
                    "bob": tmp_path / "bob.json"}
-        monkeypatch.setenv("LOGSMITH_URL", server_url)
+        monkeypatch.setenv("SCRIPTENGINE_URL", server_url)
 
         def run(user, *argv) -> int:
-            monkeypatch.setenv("LOGSMITH_CONFIG", str(configs[user]))
-            return logsmith.main([str(a) for a in argv])
+            monkeypatch.setenv("SCRIPTENGINE_CONFIG", str(configs[user]))
+            return scriptengine.main([str(a) for a in argv])
 
         # the server starts single-user; the first account must be an admin
         assert run("root", "status") == 0
@@ -518,7 +518,7 @@ def test_multi_user_lifecycle(server_url, tmp_path, monkeypatch, capsys,
         # unauthenticated in an accounts world → 401 with the login hint
         assert run("alice", "logout") == 0
         assert run("alice", "logs", "list") == 2
-        assert "run `logsmith login`" in capsys.readouterr().err
+        assert "run `scriptengine login`" in capsys.readouterr().err
 
         # disabling an account kills its live session and blocks logins
         assert run("alice", "login", "alice", "--password", "alice-pw") == 0

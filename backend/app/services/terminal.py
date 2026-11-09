@@ -3,7 +3,7 @@
 The React tab gets a real interactive shell (xterm.js on one side, an
 SSE output stream + input POSTs on the other); the python UI gets a
 one-shot command box (run_command, no pty). Everything hides behind
-config.TERMINAL_ENABLED (LOGSMITH_TERMINAL) — the router refuses with
+config.TERMINAL_ENABLED (SCRIPTENGINE_TERMINAL) — the router refuses with
 404 while it is off, so the feature does not exist unless asked for.
 
 A session is a forked pty running $SHELL in BASE_DIR. Output flows
@@ -12,7 +12,7 @@ raw keystroke bytes. The session outlives a dropped SSE connection: the
 queue holds the newest _QUEUE_CHUNKS chunks while nobody drains and the
 older ones are dropped (terminal output is ephemeral — nothing is
 written to disk). Cleanup happens on explicit kill, when the shell
-exits, or via the idle reaper when LOGSMITH_TERMINAL_IDLE_TIMEOUT
+exits, or via the idle reaper when SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT
 passes with no input and no output.
 """
 from __future__ import annotations

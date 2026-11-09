@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}LogSmith{% endblock %}</title>
+<title>{% block title %}ScriptEngine{% endblock %}</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230d1117'/%3E%3Ctext x='2' y='12' font-size='10'%3E%E2%9A%92%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 {% block refresh %}{% endblock %}
@@ -11,7 +11,7 @@
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="/">⚒ LogSmith</a>
+  <a class="brand" href="/">⚒ ScriptEngine</a>
   <nav>
     <a href="/" class="{{ 'on' if nav == 'logs' }}">Run</a>
     <a href="/jobs" class="{{ 'on' if nav == 'jobs' }}">Jobs</a>
@@ -33,6 +33,6 @@
 {% if err %}<div class="flash bad">{{ err }}</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
-<footer class="foot">LogSmith · server-rendered UI (LOGSMITH_UI=python){% if docker_sandbox %} · 🐳 scripts run in the docker sandbox{% endif %}</footer>
+<footer class="foot">ScriptEngine · server-rendered UI (SCRIPTENGINE_UI=python){% if docker_sandbox %} · 🐳 scripts run in the docker sandbox{% endif %}</footer>
 </body>
 </html>

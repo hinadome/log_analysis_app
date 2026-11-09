@@ -11,7 +11,7 @@ import { api } from "../api.js";
  * for output (base64 JSON frames, same cookie auth as every other call),
  * term.onData POSTs keystrokes verbatim, and unmount (or the tab closing)
  * kills the session. The whole tab only renders while health.terminal
- * says LOGSMITH_TERMINAL is on.
+ * says SCRIPTENGINE_TERMINAL is on.
  */
 export default function TerminalPanel({ onBack }) {
   const holder = useRef(null);
@@ -129,9 +129,9 @@ export default function TerminalPanel({ onBack }) {
         )}
       </div>
       <p className="chip warn terminal-warn">
-        Everything typed here runs on the server as the LogSmith process user —
+        Everything typed here runs on the server as the ScriptEngine process user —
         the same trust as the script editor, without the vetting. Server-side feature:
-        LOGSMITH_TERMINAL=1 enables it.
+        SCRIPTENGINE_TERMINAL=1 enables it.
       </p>
       {status === "error" && <p className="chip bad">{error}</p>}
       <div className={`terminal-hold ${status === "connecting" ? "connecting" : ""}`}

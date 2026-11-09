@@ -396,7 +396,7 @@ def test_export_all_contents(client, scripts_dir):
     res = client.get("/api/scripts/export")
     assert res.status_code == 200, res.text
     assert res.headers["content-type"] == "application/gzip"
-    assert res.headers["content-disposition"].startswith('attachment; filename="logsmith-scripts-')
+    assert res.headers["content-disposition"].startswith('attachment; filename="scriptengine-scripts-')
     with tarfile.open(fileobj=io.BytesIO(res.content)) as tar:
         names = set(tar.getnames())
         assert {"shout.sh", "shout.json",
@@ -425,7 +425,7 @@ def test_export_all_round_trip(client, scripts_dir):
         shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
     assert client.get("/api/scripts").json()["scripts"] == []
 
-    res = _post_import(client, archive, filename="logsmith-scripts.tar.gz")
+    res = _post_import(client, archive, filename="scriptengine-scripts.tar.gz")
     assert res.status_code == 200, res.text
     assert sorted(res.json()["imported"]) == ["bundle", "shout"]
 
@@ -490,7 +490,7 @@ def test_import_plain_tar_after_safari_decoded_it(client, scripts_dir):
     client.delete("/api/scripts/shout")  # restore-elsewhere is the point
 
     res = _post_import(client, gzip.decompress(archive),
-                       filename="logsmith-scripts-20261104.tar")
+                       filename="scriptengine-scripts-20261104.tar")
     assert res.status_code == 200, res.text
     assert res.json()["imported"] == ["shout"]
     assert (scripts_dir / "shout.sh").read_text() == 'tr a-z A-Z < "$1"'

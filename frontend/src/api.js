@@ -1,7 +1,7 @@
 const BASE = "";
 
 /** Fired whenever any API call gets a 401, so the app can show the login view. */
-export const UNAUTHORIZED_EVENT = "logsmith:unauthorized";
+export const UNAUTHORIZED_EVENT = "scriptengine:unauthorized";
 
 async function request(url, opts = {}) {
   const res = await fetch(BASE + url, {

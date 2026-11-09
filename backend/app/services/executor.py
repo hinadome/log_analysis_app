@@ -18,7 +18,7 @@ Environment passed to every script:
   JOB_ID, JOB_LOG_PATH, JOB_OUTPUT_DIR, JOB_ORIGINAL_LOG
   (+ the server's environment)
 
-Docker sandbox (LOGSMITH_DOCKER_SANDBOX=1): the same command template runs
+Docker sandbox (SCRIPTENGINE_DOCKER_SANDBOX=1): the same command template runs
 inside a throwaway container instead of on the host. The script file, the
 input and the original log are mounted read-only at their original paths,
 the output directory read-write; the container gets no network, a memory
@@ -48,7 +48,7 @@ _DECOMPRESSORS = DECOMPRESSORS  # shared with the decompressed-input cache
 
 # Sandbox containers are named after their job so a timeout or cancel can
 # stop the container itself, not just the docker CLI (see _terminate).
-_CONTAINER_PREFIX = "logsmith-job-"
+_CONTAINER_PREFIX = "scriptengine-job-"
 
 
 def _spawn_error(argv: list[str], exc: OSError) -> str:
@@ -556,7 +556,7 @@ class Executor:
                 if DOCKER_SANDBOX and shutil.which("docker") is None:
                     job.status = "failed"
                     job.error = ("Docker sandbox is enabled "
-                                 "(LOGSMITH_DOCKER_SANDBOX=1) but the docker "
+                                 "(SCRIPTENGINE_DOCKER_SANDBOX=1) but the docker "
                                  "CLI is not on PATH — install Docker or unset "
                                  "the flag")
                     return

@@ -9,7 +9,7 @@ model: scripts are arbitrary code running as the server user by design
 can never escape those directories.
 
 When that trust is not shared — other people have the password — set
-LOGSMITH_ALLOW_SCRIPT_EDITING=0: the write endpoints below then answer 403,
+SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0: the write endpoints below then answer 403,
 and reads (list, source view, export, running jobs) keep working.
 
 Visibility: a regular account sees the shared library plus its own private
@@ -46,7 +46,7 @@ def _require_editing_enabled() -> None:
         raise HTTPException(
             status_code=403,
             detail="Script editing is disabled on this server "
-                   "(LOGSMITH_ALLOW_SCRIPT_EDITING=0) — scripts on disk can be "
+                   "(SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0) — scripts on disk can be "
                    "run, but not created, changed or deleted",
         )
 
@@ -123,7 +123,7 @@ def export_all_scripts(request: Request):
                         tar.add(member, arcname=str(member.relative_to(script_dir.parent)))
         now = datetime.now(timezone.utc)
         readme = (
-            f"LogSmith script library export — {len(scripts)} script(s)\n"
+            f"ScriptEngine script library export — {len(scripts)} script(s)\n"
             f"Exported {now.isoformat()} from {SCRIPTS_DIR}\n\n"
             "Restore: use Import in either UI (or POST to /api/scripts/import)\n"
             "with this file. Flat scripts (code + sidecar pairs) come back as\n"
@@ -141,7 +141,7 @@ def export_all_scripts(request: Request):
         content=buf.getvalue(),
         media_type="application/gzip",
         headers={"Content-Disposition":
-                 f'attachment; filename="logsmith-scripts-{stamp}.tar.gz"'},
+                 f'attachment; filename="scriptengine-scripts-{stamp}.tar.gz"'},
     )
 
 
@@ -341,7 +341,7 @@ def export_script(script_id: str, request: Request):
                 "The script is discovered on the next API request (no restart needed).\n"
             )
         readme = (
-            f"LogSmith script export — {script.name} ({script.id})\n"
+            f"ScriptEngine script export — {script.name} ({script.id})\n"
             f"Exported {datetime.now(timezone.utc).isoformat()}\n\n"
             f"{how_to}"
         ).encode("utf-8")
@@ -461,7 +461,7 @@ def _extract_to_staging(data: bytes) -> Path:
         tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
     except tarfile.TarError:
         raise HTTPException(422, detail="Not a tar archive — expected a .tar.gz from Export (a plain .tar works too, and a pack of scripts)")
-    staging = Path(tempfile.mkdtemp(prefix="logsmith-import-"))
+    staging = Path(tempfile.mkdtemp(prefix="scriptengine-import-"))
     try:
         with tar:
             total = 0

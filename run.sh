@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LogSmith — start and stop the app. Plain userland, no root/systemctl needed.
+# ScriptEngine — start and stop the app. Plain userland, no root/systemctl needed.
 #
 #   ./run.sh                  production server in the FOREGROUND (Ctrl+C stops it)
 #   ./run.sh start            production server in the background
@@ -11,7 +11,7 @@
 #
 # Every mode also accepts --ui python|react (default react): which frontend
 # the backend serves — the built React SPA, or the server-rendered pages
-# (no build step). The LOGSMITH_UI environment variable does the same.
+# (no build step). The SCRIPTENGINE_UI environment variable does the same.
 #
 #   --cert-hostname host(s)  regenerate the TLS certificate covering the
 #                            given hostname(s) — comma-separated for
@@ -20,14 +20,14 @@
 #                            Normally a certificate is generated once and
 #                            kept; passing this option replaces it.
 #
-# Security: binding a non-local address without LOGSMITH_TOKEN generates a
+# Security: binding a non-local address without SCRIPTENGINE_TOKEN generates a
 # strong password (printed once, saved in .run/authtoken, reused across
 # restarts) — scripts run as this user, so an open server is remote code
-# execution. Set LOGSMITH_TOKEN to choose the password, or LOGSMITH_INSECURE=1
-# to run open anyway (not recommended). LOGSMITH_ALLOW_SCRIPT_EDITING=0 also
+# execution. Set SCRIPTENGINE_TOKEN to choose the password, or SCRIPTENGINE_INSECURE=1
+# to run open anyway (not recommended). SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 also
 # locks script authoring while keeping the existing scripts runnable.
 #
-# LOGSMITH_DOCKER_SANDBOX=1 runs every script inside a throwaway Docker
+# SCRIPTENGINE_DOCKER_SANDBOX=1 runs every script inside a throwaway Docker
 # container instead of directly on the host: no network, a memory cap, and
 # only the script + its input + the output directory mounted. The sandbox
 # image (sandbox.Dockerfile) is built automatically on first use.
@@ -46,15 +46,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# --- .env: LOGSMITH_* lines only ------------------------------------------
+# --- .env: SCRIPTENGINE_* lines only ------------------------------------------
 # The repo's .env is shared with other tooling, so only variables named
-# LOGSMITH_* are honored — anything else in the file stays untouched.
+# SCRIPTENGINE_* are honored — anything else in the file stays untouched.
 # A variable already in the environment wins over the file (CLI flags
 # still win over both).
 if [ -f .env ]; then
   while IFS= read -r envline || [ -n "$envline" ]; do
     case "$envline" in
-      LOGSMITH_*\=*) ;;
+      SCRIPTENGINE_*\=*) ;;
       *) continue ;;
     esac
     envline="${envline#export }"
@@ -70,8 +70,8 @@ BACKEND_LOG="$RUN_DIR/backend.log"
 FRONTEND_LOG="$RUN_DIR/frontend.log"
 FRONTEND_PORT=5173
 BACKEND_PORT=8000  # overridden by --port in start/foreground modes
-HOST="${LOGSMITH_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 to go back to local-only)
-UI="${LOGSMITH_UI:-react}"        # frontend: react SPA or python pages (--ui)
+HOST="${SCRIPTENGINE_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 to go back to local-only)
+UI="${SCRIPTENGINE_UI:-react}"        # frontend: react SPA or python pages (--ui)
 CERT_HOSTNAMES=""                 # --cert-hostname: regenerate the TLS cert for these names
 
 usage() {
@@ -103,61 +103,61 @@ lan_ip() {
 }
 
 # Secure by default: scripts run with the permissions of this user, so a
-# non-local bind with no LOGSMITH_TOKEN would be remote code execution for
+# non-local bind with no SCRIPTENGINE_TOKEN would be remote code execution for
 # anyone on the network. This generates a strong password instead (reused
-# across restarts). Set LOGSMITH_TOKEN to choose your own, or
-# LOGSMITH_INSECURE=1 to run open (not recommended).
+# across restarts). Set SCRIPTENGINE_TOKEN to choose your own, or
+# SCRIPTENGINE_INSECURE=1 to run open (not recommended).
 AUTH_TOKEN_FILE="$RUN_DIR/authtoken"
 AUTH_MODE="none"   # none (local bind) | custom | generated | insecure
 AUTH_SHOW_TOKEN=0  # 1 = print the token value at startup (first generation)
 
 ensure_auth() {
-  if [ -n "${LOGSMITH_TOKEN:-}" ]; then AUTH_MODE="custom"; return 0; fi
+  if [ -n "${SCRIPTENGINE_TOKEN:-}" ]; then AUTH_MODE="custom"; return 0; fi
   if [ "$HOST" = "localhost" ] || [ "$HOST" = "127.0.0.1" ]; then return 0; fi
-  if [ "${LOGSMITH_INSECURE:-0}" = "1" ]; then AUTH_MODE="insecure"; return 0; fi
+  if [ "${SCRIPTENGINE_INSECURE:-0}" = "1" ]; then AUTH_MODE="insecure"; return 0; fi
   mkdir -p "$RUN_DIR"
   if [ -s "$AUTH_TOKEN_FILE" ]; then
-    LOGSMITH_TOKEN="$(cat "$AUTH_TOKEN_FILE")"
+    SCRIPTENGINE_TOKEN="$(cat "$AUTH_TOKEN_FILE")"
   else
     if command -v openssl >/dev/null 2>&1; then
-      LOGSMITH_TOKEN="$(openssl rand -hex 16)"
+      SCRIPTENGINE_TOKEN="$(openssl rand -hex 16)"
     else
-      LOGSMITH_TOKEN="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+      SCRIPTENGINE_TOKEN="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
     fi
-    printf '%s\n' "$LOGSMITH_TOKEN" > "$AUTH_TOKEN_FILE"
+    printf '%s\n' "$SCRIPTENGINE_TOKEN" > "$AUTH_TOKEN_FILE"
     chmod 600 "$AUTH_TOKEN_FILE" 2>/dev/null || true
     AUTH_SHOW_TOKEN=1
   fi
   AUTH_MODE="generated"
-  export LOGSMITH_TOKEN
+  export SCRIPTENGINE_TOKEN
 }
 
 auth_report() {
   case "$AUTH_MODE" in
     custom)
-      echo "Auth     ●  password required (LOGSMITH_TOKEN)" ;;
+      echo "Auth     ●  password required (SCRIPTENGINE_TOKEN)" ;;
     generated)
       if [ "$AUTH_SHOW_TOKEN" = "1" ]; then
-        echo "Auth     ●  password required: $LOGSMITH_TOKEN"
-        echo "           generated, saved in $AUTH_TOKEN_FILE — set LOGSMITH_TOKEN to pin your own"
+        echo "Auth     ●  password required: $SCRIPTENGINE_TOKEN"
+        echo "           generated, saved in $AUTH_TOKEN_FILE — set SCRIPTENGINE_TOKEN to pin your own"
       else
         echo "Auth     ●  password required (token: cat $AUTH_TOKEN_FILE)"
       fi
-      echo "           tip: LOGSMITH_ALLOW_SCRIPT_EDITING=0 also locks script authoring" ;;
+      echo "           tip: SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 also locks script authoring" ;;
     insecure)
-      echo "Auth     ✗  DISABLED (LOGSMITH_INSECURE=1) — anyone who can reach this" >&2
+      echo "Auth     ✗  DISABLED (SCRIPTENGINE_INSECURE=1) — anyone who can reach this" >&2
       echo "           machine can run scripts as you" >&2 ;;
     none)
       echo "Auth     ●  none (local bind only)" ;;
   esac
 }
 
-# Docker sandbox (LOGSMITH_DOCKER_SANDBOX=1): scripts run in throwaway
+# Docker sandbox (SCRIPTENGINE_DOCKER_SANDBOX=1): scripts run in throwaway
 # containers instead of directly on the host. Fails loudly — never silently
 # falls back to direct execution, which is exactly what the flag exists to
 # avoid.
 SANDBOX_ENABLED=0
-SANDBOX_IMAGE="${LOGSMITH_SANDBOX_IMAGE:-logsmith-sandbox:latest}"
+SANDBOX_IMAGE="${SCRIPTENGINE_SANDBOX_IMAGE:-scriptengine-sandbox:latest}"
 
 # `docker info` can hang for a long time when Docker Desktop is starting up
 # or half-quit; guard it with a watchdog so the launcher stays responsive.
@@ -174,15 +174,15 @@ docker_daemon_ok() {
 }
 
 ensure_sandbox() {
-  [ "${LOGSMITH_DOCKER_SANDBOX:-0}" = "1" ] || return 0
+  [ "${SCRIPTENGINE_DOCKER_SANDBOX:-0}" = "1" ] || return 0
   SANDBOX_ENABLED=1
-  export LOGSMITH_DOCKER_SANDBOX=1
+  export SCRIPTENGINE_DOCKER_SANDBOX=1
   if ! command -v docker >/dev/null 2>&1; then
-    echo "Error: LOGSMITH_DOCKER_SANDBOX=1 but docker is not installed." >&2
+    echo "Error: SCRIPTENGINE_DOCKER_SANDBOX=1 but docker is not installed." >&2
     exit 1
   fi
   if ! docker_daemon_ok; then
-    echo "Error: LOGSMITH_DOCKER_SANDBOX=1 but the Docker daemon is not" >&2
+    echo "Error: SCRIPTENGINE_DOCKER_SANDBOX=1 but the Docker daemon is not" >&2
     echo "       reachable — start Docker Desktop first (or unset the flag" >&2
     echo "       to run scripts directly)." >&2
     exit 1
@@ -195,32 +195,32 @@ ensure_sandbox() {
 
 sandbox_report() {
   [ "$SANDBOX_ENABLED" = "1" ] || return 0
-  echo "Sandbox  ●  docker ($SANDBOX_IMAGE — no network, ${LOGSMITH_SANDBOX_MEMORY:-512m} RAM per job)"
+  echo "Sandbox  ●  docker ($SANDBOX_IMAGE — no network, ${SCRIPTENGINE_SANDBOX_MEMORY:-512m} RAM per job)"
 }
 
-# LOGSMITH_TERMINAL=1 turns the browser into a shell on the server. It is
-# also forced off by LOGSMITH_ALLOW_SCRIPT_EDITING=0 (the lockdown that
+# SCRIPTENGINE_TERMINAL=1 turns the browser into a shell on the server. It is
+# also forced off by SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 (the lockdown that
 # means "run the vetted scripts only" — a shell beats the script editor).
 truthy() { case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
              1|true|yes|on) return 0 ;; *) return 1 ;; esac; }
 
 terminal_report() {
   local locked=0
-  truthy "${LOGSMITH_ALLOW_SCRIPT_EDITING:-1}" || locked=1
-  if truthy "${LOGSMITH_TERMINAL:-0}"; then
+  truthy "${SCRIPTENGINE_ALLOW_SCRIPT_EDITING:-1}" || locked=1
+  if truthy "${SCRIPTENGINE_TERMINAL:-0}"; then
     if [ "$locked" = "1" ]; then
-      echo "Terminal ✗  requested (LOGSMITH_TERMINAL=1) but locked off by LOGSMITH_ALLOW_SCRIPT_EDITING=0"
+      echo "Terminal ✗  requested (SCRIPTENGINE_TERMINAL=1) but locked off by SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0"
     else
-      echo "Terminal ●  enabled (LOGSMITH_TERMINAL) — shells run as the server user"
+      echo "Terminal ●  enabled (SCRIPTENGINE_TERMINAL) — shells run as the server user"
     fi
   else
-    echo "Terminal ○  off (LOGSMITH_TERMINAL=1 in .env or the environment enables it)"
+    echo "Terminal ○  off (SCRIPTENGINE_TERMINAL=1 in .env or the environment enables it)"
   fi
 }
 
 # The TLS cert only covers localhost; other devices will see a browser warning.
 cert_hint() {
-  if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then return 0; fi
+  if [ "${SCRIPTENGINE_HTTP:-0}" = "1" ]; then return 0; fi
   [ -n "$CERT_HOSTNAMES" ] && return 0  # just regenerated with explicit names
   if [ "$HOST" = "localhost" ] || [ "$HOST" = "127.0.0.1" ]; then return 0; fi
   local example="my-machine.local"
@@ -230,15 +230,15 @@ cert_hint() {
   echo "  Note: the TLS certificate only covers localhost — other devices" >&2
   echo "  will show a browser warning. To include them:" >&2
   echo "    ./run.sh restart --cert-hostname '$example'" >&2
-  echo "  (or set LOGSMITH_CERT_HOSTS='$example' and delete certs/)" >&2
+  echo "  (or set SCRIPTENGINE_CERT_HOSTS='$example' and delete certs/)" >&2
 }
 
-# Backend readiness URL for readiness checks (honors --port and LOGSMITH_HTTP).
+# Backend readiness URL for readiness checks (honors --port and SCRIPTENGINE_HTTP).
 # /api/auth/status is exempt from authentication, so it answers even when a
 # password is required (which /api/health would not).
 health_url() {
   local scheme="https"
-  [ "${LOGSMITH_HTTP:-0}" = "1" ] && scheme="http"
+  [ "${SCRIPTENGINE_HTTP:-0}" = "1" ] && scheme="http"
   echo "$scheme://localhost:$BACKEND_PORT/api/auth/status"
 }
 
@@ -259,7 +259,7 @@ wait_ready() { # $1 = url, $2 = label, $3 = log file
 # - python packages reinstall when backend/requirements.txt changed
 # - everything is reported, so a slow first start is never a mystery
 ensure_backend_env() {
-  local stamp=.venv/.logsmith-installed
+  local stamp=.venv/.scriptengine-installed
   if [ ! -x .venv/bin/python ]; then
     if ! command -v python3 >/dev/null 2>&1; then
       echo "Error: python3 (3.10+) is not installed or not on PATH." >&2
@@ -292,7 +292,7 @@ ensure_node_modules() {
     echo "         ./run.sh start --ui python" >&2
     exit 1
   fi
-  local stamp=frontend/node_modules/.logsmith-installed
+  local stamp=frontend/node_modules/.scriptengine-installed
   if [ ! -d frontend/node_modules ] || [ ! -f "$stamp" ] \
      || [ frontend/package-lock.json -nt "$stamp" ]; then
     echo "Setup    ●  installing frontend packages (frontend/package.json)…"
@@ -303,7 +303,7 @@ ensure_node_modules() {
 
 # TLS flags; generates the certificate on first use (never regenerates).
 ssl_flags() {
-  if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then
+  if [ "${SCRIPTENGINE_HTTP:-0}" = "1" ]; then
     return 0
   fi
   ./tools/generate_cert.sh >&2
@@ -345,23 +345,23 @@ scan_cert_hostname() {
 # --cert-hostname: the explicit "regenerate my certificate" path. The cert
 # is normally created once and never replaced (ssl_flags/generate_cert.sh);
 # this deletes it first so the next ssl_flags call makes a fresh one, with
-# the given names merged into LOGSMITH_CERT_HOSTS (which adds the SANs).
+# the given names merged into SCRIPTENGINE_CERT_HOSTS (which adds the SANs).
 ensure_cert() {
   [ -n "$CERT_HOSTNAMES" ] || return 0
-  if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then
-    echo "Error: --cert-hostname has no effect with LOGSMITH_HTTP=1 —" >&2
+  if [ "${SCRIPTENGINE_HTTP:-0}" = "1" ]; then
+    echo "Error: --cert-hostname has no effect with SCRIPTENGINE_HTTP=1 —" >&2
     echo "       HTTP mode serves no certificate." >&2
     exit 1
   fi
-  if [ -n "${LOGSMITH_CERT_HOSTS:-}" ]; then
-    CERT_HOSTNAMES="${LOGSMITH_CERT_HOSTS},${CERT_HOSTNAMES}"
+  if [ -n "${SCRIPTENGINE_CERT_HOSTS:-}" ]; then
+    CERT_HOSTNAMES="${SCRIPTENGINE_CERT_HOSTS},${CERT_HOSTNAMES}"
   fi
-  export LOGSMITH_CERT_HOSTS="$CERT_HOSTNAMES"
+  export SCRIPTENGINE_CERT_HOSTS="$CERT_HOSTNAMES"
   rm -f certs/localhost.pem certs/localhost-key.pem
   echo "TLS      ●  regenerating certificate for: $CERT_HOSTNAMES (localhost SANs stay included)"
 }
 
-# Pick up '--ui python|react' from the args (LOGSMITH_UI works too).
+# Pick up '--ui python|react' from the args (SCRIPTENGINE_UI works too).
 scan_ui() {
   local prev=""
   for arg in "$@"; do
@@ -373,7 +373,7 @@ scan_ui() {
     fi
     prev="$arg"
   done
-  export LOGSMITH_UI="$UI"
+  export SCRIPTENGINE_UI="$UI"
 }
 
 # The args left for uvicorn after this script's own flags ('--ui X',
@@ -453,7 +453,7 @@ cmd_start() { # args may contain --dev and --ui python|react
   cert_hint
 
   local scheme="https"
-  [ "${LOGSMITH_HTTP:-0}" = "1" ] && scheme="http"
+  [ "${SCRIPTENGINE_HTTP:-0}" = "1" ] && scheme="http"
 
   if [ "$mode" = "prod" ] && [ "$UI" = "react" ] && [ ! -f frontend/dist/index.html ]; then
     echo "Building the frontend (first start)…"
@@ -481,8 +481,8 @@ cmd_start() { # args may contain --dev and --ui python|react
     if [ "$UI" != "react" ]; then
       echo "           dev mode with --ui python: backend auto-reload only, no Vite."
     else
-      if [ "${LOGSMITH_HTTP:-0}" = "1" ]; then
-        echo "  NOTE: LOGSMITH_HTTP=1 — the Vite proxy expects HTTPS (vite.config.js)." >&2
+      if [ "${SCRIPTENGINE_HTTP:-0}" = "1" ]; then
+        echo "  NOTE: SCRIPTENGINE_HTTP=1 — the Vite proxy expects HTTPS (vite.config.js)." >&2
       fi
       if [ "$BACKEND_PORT" != "8000" ]; then
         echo "  NOTE: Vite's proxy targets localhost:8000 (vite.config.js); --port $BACKEND_PORT breaks it." >&2
@@ -533,7 +533,7 @@ cmd_stop() {
 
 cmd_status() {
   local rc=1 scheme="https"
-  [ "${LOGSMITH_HTTP:-0}" = "1" ] && scheme="http"
+  [ "${SCRIPTENGINE_HTTP:-0}" = "1" ] && scheme="http"
   if is_running "$BACKEND_PID"; then
     echo "Backend  ●  running, PID $(pid_of "$BACKEND_PID") — $scheme://localhost:$BACKEND_PORT"
     rc=0

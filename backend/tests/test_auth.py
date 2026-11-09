@@ -1,6 +1,6 @@
 """Authentication: token gate, cookie login, and brute-force protection.
 
-conftest pins LOGSMITH_TOKEN="" before import, so AUTH_TOKEN defaults to
+conftest pins SCRIPTENGINE_TOKEN="" before import, so AUTH_TOKEN defaults to
 disabled; these tests monkeypatch the module attribute to switch it on.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ def test_cookie_login_and_logout(client, auth_on):
     res = client.post("/api/auth/login", json={"password": TOKEN})
     assert res.status_code == 200 and res.json()["ok"] is True
     set_cookie = res.headers["set-cookie"]
-    assert "logsmith_session=" in set_cookie
+    assert "scriptengine_session=" in set_cookie
     assert TOKEN not in set_cookie  # the cookie carries a hash, never the token
     # the session expires — it must not live forever in the browser
     assert f"Max-Age={auth_module.SESSION_MAX_AGE}" in set_cookie

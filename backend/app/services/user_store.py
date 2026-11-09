@@ -3,7 +3,7 @@
 data/users.json holds every account. Its presence with at least one user
 switches the server into multi-user mode (see app/auth.py): login becomes
 username + password, and sessions carry a real identity. With no accounts
-the server keeps its legacy behavior — anonymous when LOGSMITH_TOKEN is
+the server keeps its legacy behavior — anonymous when SCRIPTENGINE_TOKEN is
 unset, one shared password when it is — so existing single-operator
 deployments are untouched.
 

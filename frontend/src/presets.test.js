@@ -22,7 +22,7 @@ afterEach(() => {
 describe("migrateLegacyChains", () => {
   it("moves saved chains to the server and clears the local copy", async () => {
     const data = stubStorage({
-      "logsmith.chainPresets": JSON.stringify({
+      "scriptengine.chainPresets": JSON.stringify({
         "errors then count": {
           steps: [
             { scriptId: "grep_search", params: { pattern: "ERROR" } },
@@ -48,12 +48,12 @@ describe("migrateLegacyChains", () => {
         { script_id: "error_counter", params: { level: "ERROR" } },
       ],
     }]);
-    expect(data["logsmith.chainPresets"]).toBeUndefined();
+    expect(data["scriptengine.chainPresets"]).toBeUndefined();
   });
 
   it("leaves names that already exist on the server alone", async () => {
     const data = stubStorage({
-      "logsmith.chainPresets": JSON.stringify({
+      "scriptengine.chainPresets": JSON.stringify({
         mine: { steps: [{ scriptId: "grep_search", params: {} }] },
         theirs: { steps: [{ scriptId: "error_counter", params: {} }] },
       }),
@@ -69,12 +69,12 @@ describe("migrateLegacyChains", () => {
     expect(moved).toBe(1);
     expect(saved.map((b) => b.name)).toEqual(["mine"]);
     // the whole legacy key is cleared once every name is accounted for
-    expect(data["logsmith.chainPresets"]).toBeUndefined();
+    expect(data["scriptengine.chainPresets"]).toBeUndefined();
   });
 
   it("keeps the local copy when a save fails, so the next load retries", async () => {
     const data = stubStorage({
-      "logsmith.chainPresets": JSON.stringify({
+      "scriptengine.chainPresets": JSON.stringify({
         mine: { steps: [{ scriptId: "grep_search", params: {} }] },
       }),
     });
@@ -84,7 +84,7 @@ describe("migrateLegacyChains", () => {
     };
 
     await expect(migrateLegacyChains(api)).rejects.toThrow("boom");
-    expect(data["logsmith.chainPresets"]).toBeDefined();
+    expect(data["scriptengine.chainPresets"]).toBeDefined();
   });
 
   it("is a no-op when nothing is saved locally", async () => {

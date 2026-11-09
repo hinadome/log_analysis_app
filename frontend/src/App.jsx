@@ -229,7 +229,7 @@ export default function App() {
         });
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
           try {
-            new Notification(`LogSmith: job ${j.status}`, {
+            new Notification(`ScriptEngine: job ${j.status}`, {
               body: `${j.script_name} — ${j.log_name}`,
               tag: j.id,
             });
@@ -604,7 +604,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <a className="brand" href="#/" title="Back to the workbench">
-          <span className="brand-mark">▤</span> LogSmith
+          <span className="brand-mark">▤</span> ScriptEngine
         </a>
         <div className="muted topbar-sub">
           server-side log analysis workbench
@@ -626,7 +626,7 @@ export default function App() {
           )}
           {health?.terminal && isAdmin && (
             <a className={`btn ghost sm ${view.name === "terminal" ? "on" : ""}`}
-               href="#/terminal" title="Interactive shell on the server (LOGSMITH_TERMINAL)">
+               href="#/terminal" title="Interactive shell on the server (SCRIPTENGINE_TERMINAL)">
               ⌨ Terminal
             </a>
           )}

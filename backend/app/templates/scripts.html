@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Scripts · LogSmith{% endblock %}
+{% block title %}Scripts · ScriptEngine{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -72,5 +72,5 @@ the directory name away): name the script here. Ignored for flat scripts.">
   {% endfor %}
   </tbody>
 </table>
-<p class="muted">{% if allow_editing %}Directory-style scripts are managed on disk; flat scripts are editable here.{% else %}Script authoring is locked (LOGSMITH_ALLOW_SCRIPT_EDITING=0) — the scripts below can be run but not changed. The operator edits files on disk.{% endif %}</p>
+<p class="muted">{% if allow_editing %}Directory-style scripts are managed on disk; flat scripts are editable here.{% else %}Script authoring is locked (SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0) — the scripts below can be run but not changed. The operator edits files on disk.{% endif %}</p>
 {% endblock %}

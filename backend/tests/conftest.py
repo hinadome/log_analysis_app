@@ -1,4 +1,4 @@
-"""Shared fixtures for the LogSmith test suite.
+"""Shared fixtures for the ScriptEngine test suite.
 
 Environment variables are pointed at temporary directories BEFORE any
 `app.*` import happens, so tests never touch the real `logs/`, `data/` or
@@ -20,7 +20,7 @@ REPO = BACKEND.parent
 sys.path.insert(0, str(BACKEND))
 
 # --- isolated environment (must be set before importing app.*) ---------
-_TMP = Path(tempfile.mkdtemp(prefix="logsmith-tests-"))
+_TMP = Path(tempfile.mkdtemp(prefix="scriptengine-tests-"))
 LOGS_TMP = _TMP / "logs"
 DATA_TMP = _TMP / "data"
 LOGS_TMP.mkdir(parents=True)
@@ -29,11 +29,11 @@ DATA_TMP.mkdir(parents=True)
 os.environ["LOGS_DIR"] = str(LOGS_TMP)
 os.environ["DATA_DIR"] = str(DATA_TMP)
 os.environ["SCRIPTS_DIR"] = str(REPO / "scripts")
-os.environ["LOGSMITH_TOKEN"] = ""
+os.environ["SCRIPTENGINE_TOKEN"] = ""
 os.environ["JOB_RETENTION_DAYS"] = "0"
 # Test the python frontend: pages router mounted, no SPA catch-all. The API
 # routes are identical either way, so the rest of the suite is unaffected.
-os.environ["LOGSMITH_UI"] = "python"
+os.environ["SCRIPTENGINE_UI"] = "python"
 
 SAMPLE_LOG = LOGS_TMP / "app.log"
 SAMPLE_LOG.write_text(

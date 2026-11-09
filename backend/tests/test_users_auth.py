@@ -164,7 +164,7 @@ def test_multi_user_login_flow(client, multi_user, sessions_file):
 
     res = login(client, "alice", "alice-pw")
     assert res.status_code == 200
-    assert "logsmith_session=" in res.headers["set-cookie"]
+    assert "scriptengine_session=" in res.headers["set-cookie"]
     assert "alice-pw" not in res.headers["set-cookie"]  # only the opaque sid
 
     status = client.get("/api/auth/status").json()

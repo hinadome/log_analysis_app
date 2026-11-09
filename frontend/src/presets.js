@@ -1,6 +1,6 @@
 /** Parameter presets, stored per browser in localStorage. */
 
-const KEY = "logsmith.presets";
+const KEY = "scriptengine.presets";
 
 export function loadPresets() {
   try {
@@ -38,7 +38,7 @@ export function deletePreset(scriptId, name) {
  *  and then cleared; the helpers stay so the legacy key's shape lives in
  *  one place and the migration stays unit-testable. */
 
-const LEGACY_CHAIN_KEY = "logsmith.chainPresets";
+const LEGACY_CHAIN_KEY = "scriptengine.chainPresets";
 
 function legacyChainPresets() {
   try {

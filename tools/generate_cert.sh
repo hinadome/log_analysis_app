@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Generate a local TLS certificate for serving LogSmith over HTTPS.
+# Generate a local TLS certificate for serving ScriptEngine over HTTPS.
 #
 # Idempotent: if the certificate already exists it is kept as-is.
 # Prefers mkcert (creates certs your browser actually trusts) and falls
 # back to a self-signed openssl certificate with localhost SANs.
 #
-# Extra SANs for LAN access: LOGSMITH_CERT_HOSTS='192.168.1.20,mac.local'
+# Extra SANs for LAN access: SCRIPTENGINE_CERT_HOSTS='192.168.1.20,mac.local'
 # (delete certs/ first — an existing certificate is never regenerated).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,8 +23,8 @@ mkdir -p certs
 # localhost + loopback IPs, plus any extra names for reaching the machine
 # from other devices.
 HOSTS=(localhost 127.0.0.1 ::1)
-if [ -n "${LOGSMITH_CERT_HOSTS:-}" ]; then
-  IFS=',' read -r -a extra <<< "$LOGSMITH_CERT_HOSTS"
+if [ -n "${SCRIPTENGINE_CERT_HOSTS:-}" ]; then
+  IFS=',' read -r -a extra <<< "$SCRIPTENGINE_CERT_HOSTS"
   for h in "${extra[@]}"; do
     h="${h#"${h%%[![:space:]]*}"}"   # trim whitespace
     h="${h%"${h##*[![:space:]]}"}"

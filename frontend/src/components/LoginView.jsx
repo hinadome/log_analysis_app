@@ -28,10 +28,10 @@ export default function LoginView({ multiUser = false, onSuccess }) {
     <div className="login-wrap">
       <form className="card login-card" onSubmit={submit}>
         <div className="brand login-brand">
-          <span className="brand-mark">▤</span> LogSmith
+          <span className="brand-mark">▤</span> ScriptEngine
         </div>
         <p className="muted">
-          {multiUser ? "Sign in with your account." : "This server requires a password (LOGSMITH_TOKEN)."}
+          {multiUser ? "Sign in with your account." : "This server requires a password (SCRIPTENGINE_TOKEN)."}
         </p>
         {multiUser && (
           <input

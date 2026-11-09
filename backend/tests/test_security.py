@@ -1,6 +1,6 @@
 """Security hardening: the script authoring lock.
 
-LOGSMITH_ALLOW_SCRIPT_EDITING=0 turns the server into "run the vetted
+SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 turns the server into "run the vetted
 scripts only": every write path — the API editor endpoints and both UIs —
 answers 403, while reads (list, source, export) and job submission keep
 working. The flag is monkeypatched per module, exactly how test_auth.py

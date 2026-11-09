@@ -1,4 +1,4 @@
-"""The remote terminal (LOGSMITH_TERMINAL).
+"""The remote terminal (SCRIPTENGINE_TERMINAL).
 
 The flag is module-level state read at import, so tests monkeypatch each
 consumer's copy (router, pages, main) — the same pattern test_sandbox.py
@@ -54,16 +54,16 @@ def test_disabled_by_default(client):
 
 
 def test_lockdown_forces_terminal_off():
-    """LOGSMITH_ALLOW_SCRIPT_EDITING=0 means "run the vetted scripts only" —
+    """SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0 means "run the vetted scripts only" —
     a shell is strictly more powerful, so it stays off even if asked for."""
     import app.config as config_module
     saved = {k: os.environ.get(k) for k in
-             ("LOGSMITH_TERMINAL", "LOGSMITH_ALLOW_SCRIPT_EDITING")}
+             ("SCRIPTENGINE_TERMINAL", "SCRIPTENGINE_ALLOW_SCRIPT_EDITING")}
     try:
-        os.environ["LOGSMITH_TERMINAL"] = "1"
-        os.environ["LOGSMITH_ALLOW_SCRIPT_EDITING"] = "0"
+        os.environ["SCRIPTENGINE_TERMINAL"] = "1"
+        os.environ["SCRIPTENGINE_ALLOW_SCRIPT_EDITING"] = "0"
         assert importlib.reload(config_module).TERMINAL_ENABLED is False
-        os.environ["LOGSMITH_ALLOW_SCRIPT_EDITING"] = "1"
+        os.environ["SCRIPTENGINE_ALLOW_SCRIPT_EDITING"] = "1"
         assert importlib.reload(config_module).TERMINAL_ENABLED is True
     finally:
         for key, value in saved.items():
@@ -270,7 +270,7 @@ def test_terminal_page_runs_commands(client, terminal_on):
     assert 'href="/terminal"' in client.get("/").text  # nav link appears
     page = client.get("/terminal")
     assert page.status_code == 200
-    assert "LOGSMITH_TERMINAL" in page.text
+    assert "SCRIPTENGINE_TERMINAL" in page.text
 
     res = client.post("/terminal", data={"command": "echo page-terminal-works"})
     assert res.status_code == 200

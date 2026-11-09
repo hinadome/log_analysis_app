@@ -1,6 +1,6 @@
-# LogSmith Architecture
+# ScriptEngine Architecture
 
-How LogSmith is built and why. For the normative behavior specification (API
+How ScriptEngine is built and why. For the normative behavior specification (API
 shapes, chain rules, manifest fields) see [SPECS.md](SPECS.md); for usage and
 setup see [README.md](README.md).
 
@@ -54,7 +54,7 @@ backend/app/
 │                      (reconcile → prune → scheduler start; scheduler +
 │                      executor + terminal shutdown on stop), and the
 │                      frontend mount: the React SPA from frontend/dist
-│                      or the python pages router, per LOGSMITH_UI
+│                      or the python pages router, per SCRIPTENGINE_UI
 ├── config.py          All settings, read from environment variables once
 ├── models.py          Pydantic models: ParamSpec, ScriptManifest, ScriptInfo
 │                      (incl. the derived needs_log computed field, and
@@ -72,7 +72,7 @@ backend/app/
 │                      scheduler) with full rights; check_password /
 │                      apply_session_cookie shared by the JSON API login
 │                      and the HTML form login
-├── pages.py           The python UI (LOGSMITH_UI=python): Jinja2 pages that
+├── pages.py           The python UI (SCRIPTENGINE_UI=python): Jinja2 pages that
 │                      call the routers' functions directly; templates in
 │                      app/templates/, styles in app/static/, xterm.js
 │                      (the terminal's) vendored in app/vendor/
@@ -108,7 +108,7 @@ backend/app/
 │   │                  toggle / run-now (shares the ticker's fire path) /
 │   │                  delete
 │   ├── terminal.py    Remote terminal endpoints (every one flag-gated
-│   │                  to 404 while LOGSMITH_TERMINAL is off; admin-only
+│   │                  to 404 while SCRIPTENGINE_TERMINAL is off; admin-only
 │   │                  in multi-user mode — a shell as the server user
 │   │                  is the one surface no regular account reaches):
 │   │                  create/kill pty sessions, SSE output stream,
@@ -148,7 +148,7 @@ backend/app/
     │                  mtime-cached and atomically written like the
     │                  other stores, so a switch (or a hand-edit) takes
     │                  effect with no restart; seed_from_env() turns
-    │                  LOGSMITH_LLM_* into the first boot's file
+    │                  SCRIPTENGINE_LLM_* into the first boot's file
     ├── llm.py         The adapter: complete() over the OpenAI chat
     │                  wire (also Ollama, vLLM, LM Studio, OpenRouter,
     │                  … — Bearer auth, omitted when no key is set)
@@ -176,7 +176,7 @@ backend/app/
     └── scheduler.py   The ticker: one asyncio task, wakes every 30s,
                        fires due schedules through the normal submission
                        path; injectable clock for tests
-    └── terminal.py    The remote terminal (LOGSMITH_TERMINAL): a pty
+    └── terminal.py    The remote terminal (SCRIPTENGINE_TERMINAL): a pty
                        session registry — pty.fork() of $SHELL, reader
                        callback → bounded drop-oldest queue → SSE frames
                        (base64 JSON, like the job events stream), blocking-
@@ -246,13 +246,13 @@ repo root
 │                      node_modules and the SPA build on demand; secure-by-
 │                      default token generation
 ├── Dockerfile         Ships the whole app as one container (optional)
-├── sandbox.Dockerfile Interpreter image for LOGSMITH_DOCKER_SANDBOX=1 runs
-├── cli/logsmith.py   The command-line client: a single-file, stdlib-only
+├── sandbox.Dockerfile Interpreter image for SCRIPTENGINE_DOCKER_SANDBOX=1 runs
+├── cli/scriptengine.py   The command-line client: a single-file, stdlib-only
 │                      (argparse + urllib) mirror of the API — logs,
 │                      scripts (editor, share, export/import), jobs,
 │                      pipelines, schedules, users; `login` stores a
-│                      session in ~/.logsmith.json (Bearer via --token /
-│                      $LOGSMITH_TOKEN for the legacy shared password);
+│                      session in ~/.scriptengine.json (Bearer via --token /
+│                      $SCRIPTENGINE_TOKEN for the legacy shared password);
 │                      step specs `script_id:param=value,...` with
 │                      JSON-typed values; run / pipelines run / jobs
 │                      rerun poll the jobs and stream stdout deltas
@@ -331,7 +331,7 @@ originally selected file — chain steps can still reach it). On a log-free
 run the two log variables are absent — not empty. Artifacts are
 whatever the script writes to `{output}` or into `$JOB_OUTPUT_DIR`.
 
-With `LOGSMITH_DOCKER_SANDBOX=1` the same argv runs inside a `docker run
+With `SCRIPTENGINE_DOCKER_SANDBOX=1` the same argv runs inside a `docker run
 --rm` container instead: bind mounts keep the original paths, so template
 rendering is untouched (see §9 for the isolation details).
 
@@ -498,7 +498,7 @@ every enabled schedule whose cron expression matches the current minute
 in server-local time. Double-firing within a minute is guarded by the
 persisted `last_run_at` (written on every fire, skip and error alike), so
 a slow or duplicated tick can never run a schedule twice in one minute.
-`LOGSMITH_SCHEDULER=0` leaves the task unstarted — schedules stay listed
+`SCRIPTENGINE_SCHEDULER=0` leaves the task unstarted — schedules stay listed
 and editable, and run-now still works.
 
 **Cron matching** (`services/cron.py`, zero dependencies): the five
@@ -611,7 +611,7 @@ piece of server configuration meant to change at runtime: which LLM
 provider to call. Env vars can't (they're read once at import), so the
 choice is data — mtime-cached reads, atomic writes, hand-edits win
 without a restart. Absent file = provider "none" = nothing calls out
-(the terminal's opt-in stance); `LOGSMITH_LLM_*` seed it on first boot
+(the terminal's opt-in stance); `SCRIPTENGINE_LLM_*` seed it on first boot
 only, then the admin Settings UI owns it. Per-provider settings are all
 remembered, so switching is one field and never loses a key; api keys
 never travel back to a browser (reads are masked; a blank key field
@@ -629,7 +629,7 @@ chain step stays open — it is not terminal). The frontend uses
 ## 8. Frontend architecture
 
 Two interchangeable frontends serve the same `/api` and the same session
-cookie; `LOGSMITH_UI` (`run.sh --ui`) picks one at import time in
+cookie; `SCRIPTENGINE_UI` (`run.sh --ui`) picks one at import time in
 `main.py`. They are mutually exclusive because the SPA owns a catch-all
 route that would otherwise swallow the page routes.
 
@@ -757,7 +757,7 @@ deep-linkable URL. Design points:
 - **Compare** (`/jobs/{id}/compare`) diffs two completed jobs' stdout with
   `difflib.SequenceMatcher`, capped at 2000 lines per side like DiffView;
   the other job defaults to the latest run of the same script.
-- **The one JS-bearing page**: `/terminal` (while `LOGSMITH_TERMINAL` is on)
+- **The one JS-bearing page**: `/terminal` (while `SCRIPTENGINE_TERMINAL` is on)
   mounts an interactive shell — xterm.js and the fit addon vendored in
   `app/vendor/` (byte-identical to the React build's copies, so no Node, no
   npm, no build step) and served flag-gated from `/terminal/assets/*` as an
@@ -767,7 +767,7 @@ deep-linkable URL. Design points:
 
 ## 9. Security model
 
-- **Auth**: optional shared password (`LOGSMITH_TOKEN`). Browser login sets
+- **Auth**: optional shared password (`SCRIPTENGINE_TOKEN`). Browser login sets
   an HttpOnly, SameSite=Lax cookie (Secure on HTTPS, expires after 7 days);
   automation uses `Authorization: Bearer`. Comparisons are constant-time.
   Failed logins are rate-limited per client IP (5 per 60 s sliding window →
@@ -775,7 +775,7 @@ deep-linkable URL. Design points:
   Bearer path is unaffected. **Secure by default**: when unset and the bind
   is non-local, the launcher generates a strong token into `.run/authtoken`
   (gitignored, mode 600, reused across restarts) — an exposed server is
-  never open unless `LOGSMITH_INSECURE=1` says so explicitly. A local bind
+  never open unless `SCRIPTENGINE_INSECURE=1` says so explicitly. A local bind
   skips auth entirely.
 - **Multi-user ownership** (once `data/users.json` holds an account —
   auto-detected live, no restart): login becomes username + password with
@@ -808,24 +808,24 @@ deep-linkable URL. Design points:
   id/extension-constrained names inside `SCRIPTS_DIR` — no path traversal;
   the code itself is arbitrary, which is the same trust level scripts already
   have (they run as the server user by design).
-- **Script authoring lock** (`LOGSMITH_ALLOW_SCRIPT_EDITING=0`): authoring
+- **Script authoring lock** (`SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0`): authoring
   is remote code execution by design, so it can be switched off without
   losing anything else — every write endpoint (create/update/delete and
   import, API and both UIs) answers 403, reads (listing, source view, both
   exports) and job submission keep working, and `/api/health` reports
   `script_editing: false` so the UIs hide their editor entry points.
-- **Remote terminal** (`LOGSMITH_TERMINAL`, default off): an interactive
+- **Remote terminal** (`SCRIPTENGINE_TERMINAL`, default off): an interactive
   shell is strictly more powerful than script authoring, so it is opt-in
   *and* subordinate to the lock — `TERMINAL_ENABLED` is the conjunction of
   the flag and `ALLOW_SCRIPT_EDITING`. While off, every endpoint 404s and
   both UIs hide it, so the feature does not exist to an attacker probing
   URLs. There is no sandbox path: the terminal is the trust boundary taken
-  knowingly. Sessions are bounded (`LOGSMITH_TERMINAL_MAX_SESSIONS`), die
-  with their tab, and are reaped after `LOGSMITH_TERMINAL_IDLE_TIMEOUT`
+  knowingly. Sessions are bounded (`SCRIPTENGINE_TERMINAL_MAX_SESSIONS`), die
+  with their tab, and are reaped after `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT`
   without I/O; nothing a shell prints is persisted to disk. The transport
   is SSE + POST over the same auth middleware — a WebSocket would have
   bypassed it (the HTTP middleware does not intercept WS handshakes).
-- **Docker sandbox** (`LOGSMITH_DOCKER_SANDBOX=1`): execution isolation
+- **Docker sandbox** (`SCRIPTENGINE_DOCKER_SANDBOX=1`): execution isolation
   for the run side of the trust boundary. The executor wraps the same argv
   in `docker run --rm --network none` with a memory cap, a pids limit, the
   host user's uid:gid and three bind mounts (script and input read-only at
@@ -876,15 +876,15 @@ cd frontend && npm test          # vitest — the diff/table pure logic
 ```
 
 `conftest.py` points `LOGS_DIR`/`DATA_DIR` at temp directories **before any
-`app.*` import** (settings are read once at import), sets `LOGSMITH_TOKEN=""`,
-pins `LOGSMITH_UI=python` (so the app under test serves the Jinja2 pages —
+`app.*` import** (settings are read once at import), sets `SCRIPTENGINE_TOKEN=""`,
+pins `SCRIPTENGINE_UI=python` (so the app under test serves the Jinja2 pages —
 the `/api` routes are identical either way), and points `SCRIPTS_DIR` at the
 repository's real sample scripts — the suite
 runs actual `grep`/`python3` subprocesses, so it exercises the real execution
 path. Executor-level tests fabricate `ScriptInfo` objects and patch the
 executor's script lookup so advancement can be driven deterministically;
 API tests drive one `TestClient` (full lifespan: reconcile → start → prune)
-per test; the CLI tests call `logsmith.main(argv)` in-process against a
+per test; the CLI tests call `scriptengine.main(argv)` in-process against a
 real uvicorn server on a free port (one per module, a background thread),
 sharing the same isolated stores. CI (`.github/workflows/tests.yml`) installs the pinned
 `requirements.lock`, runs the suite, builds the frontend and runs vitest on
@@ -910,13 +910,13 @@ every push and pull request; the repo is under git with `data/`,
 | `test_cron.py` | the cron matcher: next-fire for every construct (steps, ranges, lists, names, Vixie `a/n`, the day OR rule, Sunday 0/7, leap day), strictly-after semantics, rejection table (field count, ranges, Feb 30, zero steps), `describe()` labels |
 | `test_scheduler.py` | the ticker engine with an injected clock: fires once per matching minute, no double-fire within a minute, no catch-up for minutes lost while down, disabled never fires, overlap skip (recorded, nothing submitted), finished previous run doesn't block, inline steps fire as a chain (log-free), neither-pipeline-nor-steps error, missing pipeline / submission errors recorded not raised, multiple schedules in one tick |
 | `test_schedules_api.py` | the schedule API: save/list round-trip with next_due + cron_desc + target, upsert keeps bookkeeping, validation (cron 422 incl. never-matching, pipeline/log/script 404, escape 400, broken pipeline 404, pipeline XOR steps 422, log-required-iff-first-step-needs-it), inline-steps save/toggle/run-now, toggle/delete + 404s, run-now submits a real chain labelled with the schedule's name, custom label, missing log recorded as `error:` |
-| `test_terminal.py` | the remote terminal: flag off = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`LOGSMITH_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), the python UI page (nav link, run, blank-input flash, the interactive-shell markup with the command box as fallback, vendored assets serving + traversal/allowlist + hidden while off), and the multi-user gate (a regular account: 403s + hidden nav link + the page refusing; flag-off still a plain 404 — the feature's existence is not revealed; the admin keeps the full lifecycle) |
+| `test_terminal.py` | the remote terminal: flag off = hidden (404s everywhere, no nav link, health false), the lockdown conjunction (`SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` forces it off at config level), full session lifecycle over the SSE protocol (create → typed command → stream: output frames + one exit frame with the code), unknown ids, resize bounds, kill + 404, 413 over-long input, 410 after exit, the session cap (429), output queuing across a dropped connection, the one-shot `run_command` (ok / nonzero / timeout), the python UI page (nav link, run, blank-input flash, the interactive-shell markup with the command box as fallback, vendored assets serving + traversal/allowlist + hidden while off), and the multi-user gate (a regular account: 403s + hidden nav link + the page refusing; flag-off still a plain 404 — the feature's existence is not revealed; the admin keeps the full lifecycle) |
 | `test_users_auth.py` | the multi-user foundation: store round-trip (hashes, roles, disabled), login contract (username+password, one 401 message, disabled refusal, live mode flip on first account), session revocation on password change, hand-edited users.json picked up live |
 | `test_users_admin.py` | the admin surface: 403 for non-admins, create/reset/role/disable/enable incl. last-admin protection, the bootstrap (single-user operator creates the first admin and stays signed in), the python UI Users page |
 | `test_llm.py` | the LLM provider switch — no network, httpx.post is faked with canned wire payloads: the store (defaults off, update persists + roundtrips across instances, blank api key keeps the stored one, unknown providers refused, hand-edits win via the mtime cache, corrupt file = off), env seeding (first boot writes llm.json, later boots ignore the env even when it changed, unknown providers ignored), the adapter per wire (openai: Bearer + url + messages + mandatory timeout, system role, Bearer omitted when no key for Ollama, custom base URLs tolerate trailing slashes; anthropic: x-api-key + version header + system + max_tokens; off/missing-model/missing-key each raise LlmError; HTTP and transport failures become LlmError), key masking, and the API (single-user operator allowed, admin-only in multi-user, raw keys never leak, blank key keeps, 422 validation, /test ok and the failure-as-200-answer shape) |
 | `test_scripts_ownership.py` | script ownership (invariant 8/9): locational attribution by the scanner, visibility (another's private = 404 everywhere incl. runs and pipeline references), private-landing creates, globally-unique ids (409s that don't say whose), edit/delete rights, share/unshare flows and edges (incl. directory scripts, the single-user 403), import destination/overwrite rights, export-all visibility, rerun-after-unshare, the python UI page |
 | `test_jobs_ownership.py` | job ownership: owner tagging on submit, the 404 wall (incl. cancel/delete — visibility before rights), system jobs readable by all but admin-managed, list scoping + `?user=` narrowing, rerun belongs to the rerunner, prune/clear-finished rights, the python UI pages |
-| `test_cli.py` | the command-line client (`cli/logsmith.py`) against a real uvicorn server (free port, background thread, the suite's isolated stores): every command surface — status/login/logout with the session kept in `$LOGSMITH_CONFIG`, logs list/preview/upload, scripts list/show/create/update/delete plus the export/import round-trip (create/update cover the editor surface: `--command` templates and `--log-free` — the no-target-file case, flipped both ways), run (streamed stdout, chain step prefixes, failed-job exit code 1, `--no-wait`), jobs show/output/files/get/cancel/delete, `rerun --from-step` (seeded by the persisted step output), prune, pipelines save/run/delete, schedules save/toggle/run/delete + client-side validation, and the whole multi-user lifecycle through the CLI (bootstrap adopts the minted session, another user's private script invisible + unrunnable, share publishes it, the anonymous 401 with the login hint, disabling kills the live session) — on a per-test copy of `scripts/` (the live server is pointed at the copy) so the repo's own scripts are never touched |
+| `test_cli.py` | the command-line client (`cli/scriptengine.py`) against a real uvicorn server (free port, background thread, the suite's isolated stores): every command surface — status/login/logout with the session kept in `$SCRIPTENGINE_CONFIG`, logs list/preview/upload, scripts list/show/create/update/delete plus the export/import round-trip (create/update cover the editor surface: `--command` templates and `--log-free` — the no-target-file case, flipped both ways), run (streamed stdout, chain step prefixes, failed-job exit code 1, `--no-wait`), jobs show/output/files/get/cancel/delete, `rerun --from-step` (seeded by the persisted step output), prune, pipelines save/run/delete, schedules save/toggle/run/delete + client-side validation, and the whole multi-user lifecycle through the CLI (bootstrap adopts the minted session, another user's private script invisible + unrunnable, share publishes it, the anonymous 401 with the login hint, disabling kills the live session) — on a per-test copy of `scripts/` (the live server is pointed at the copy) so the repo's own scripts are never touched |
 | `frontend/src/logic.test.js` | vitest: `lineDiff` (LCS insert/delete/modify, empty sides, truncation) and `tableRows` (array-of-objects detection) — the UI's riskiest pure logic |
 
 Invariant → test mapping: (1) cancel-flag blocking + `test_chain_cancel`,

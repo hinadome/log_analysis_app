@@ -3,7 +3,7 @@
 Jinja2 pages that replicate the React SPA without a build step: the whole
 workbench — log picking, uploads, parameter configuration, job monitoring,
 script editing — renders on the server, so every view is a plain,
-deep-linkable URL. Mounted instead of the SPA when LOGSMITH_UI=python
+deep-linkable URL. Mounted instead of the SPA when SCRIPTENGINE_UI=python
 (see main.py and `run.sh --ui python`).
 
 The pages call the API routers' functions directly (no HTTP round-trip)
@@ -1071,7 +1071,7 @@ def job_compare(request: Request, job_id: str, other: str = ""):
 
 def _editing_disabled() -> HTTPException:
     return HTTPException(403, "Script editing is disabled on this server "
-                              "(LOGSMITH_ALLOW_SCRIPT_EDITING=0)")
+                              "(SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0)")
 
 
 @router.get("/scripts")
@@ -1504,7 +1504,7 @@ def terminal_page(request: Request):
     """The command box (zero JS): one command, its output, a back button.
 
     The interactive shell lives in the React tab — a pty cannot be driven
-    from plain HTML forms. While LOGSMITH_TERMINAL is off this is a 404,
+    from plain HTML forms. While SCRIPTENGINE_TERMINAL is off this is a 404,
     matching what the API does; with accounts on it is admin-only (a
     shell as the server user is the one surface no regular account
     should reach — the single-user operator keeps it).

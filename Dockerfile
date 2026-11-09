@@ -1,9 +1,9 @@
-# LogSmith — multi-stage image: build the React app, then ship it with the API.
+# ScriptEngine — multi-stage image: build the React app, then ship it with the API.
 #
-# Build:   docker build -t logsmith .
+# Build:   docker build -t scriptengine .
 # Run:     docker run -p 8000:8000 \
-#            -v logsmith-logs:/app/logs -v logsmith-data:/app/data \
-#            -e LOGSMITH_TOKEN=... logsmith
+#            -v scriptengine-logs:/app/logs -v scriptengine-data:/app/data \
+#            -e SCRIPTENGINE_TOKEN=... scriptengine
 #
 # The container serves plain HTTP (TLS belongs to whatever proxy fronts it)
 # and ships the Python/Bash sample scripts; Node/Ruby/Perl scripts need their
@@ -22,7 +22,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # app/ resolves paths relative to backend/app/../.. — keep the repo layout
-ENV LOGSMITH_HTTP=1 \
+ENV SCRIPTENGINE_HTTP=1 \
     LOGS_DIR=/app/logs \
     DATA_DIR=/app/data \
     SCRIPTS_DIR=/app/scripts

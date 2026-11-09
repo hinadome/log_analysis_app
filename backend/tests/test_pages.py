@@ -1,6 +1,6 @@
-"""Tests for the server-rendered frontend (the LOGSMITH_UI=python pages).
+"""Tests for the server-rendered frontend (the SCRIPTENGINE_UI=python pages).
 
-The conftest pins LOGSMITH_UI=python, so the app under test serves the
+The conftest pins SCRIPTENGINE_UI=python, so the app under test serves the
 Jinja2 pages instead of the React SPA. These tests drive the full page
 flow — home, run configuration, submission, job monitoring, compare,
 upload and the script editor — the way a browser would (forms, redirects,

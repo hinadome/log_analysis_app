@@ -62,7 +62,7 @@ def visible_by_id(user: User | None) -> dict[str, ScriptInfo]:
 #
 # Sharing policy (deliberately permissive — small trusted teams):
 #   edit    private: owner or admin; shared: any account (the
-#           LOGSMITH_ALLOW_SCRIPT_EDITING flag stays the real gate)
+#           SCRIPTENGINE_ALLOW_SCRIPT_EDITING flag stays the real gate)
 #   delete  private: owner or admin; shared: admin only
 #   share   owner or admin — moves the script into the shared library
 #   unshare admin only — moves it out, into that admin's private space

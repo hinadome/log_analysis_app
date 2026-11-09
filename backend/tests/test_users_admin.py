@@ -37,7 +37,7 @@ class _AsUser:
         self._session = session
 
     def _as_account(self, kwargs):
-        headers = {"Cookie": f"logsmith_session={self._session}",
+        headers = {"Cookie": f"scriptengine_session={self._session}",
                    **(kwargs.get("headers") or {})}
         return {**kwargs, "headers": headers}
 
@@ -63,15 +63,15 @@ def as_user(client, username, password):
     identity it had before — usually the admin fixture's — is restored
     on the way out.
     """
-    jar = [ck.value for ck in client.cookies.jar if ck.name == "logsmith_session"]
+    jar = [ck.value for ck in client.cookies.jar if ck.name == "scriptengine_session"]
     before = jar[0] if jar else None
     res = client.post("/api/auth/login",
                       json={"username": username, "password": password})
     assert res.status_code == 200, res.text
     session = res.headers["set-cookie"].split(";")[0].split("=", 1)[1]
-    client.cookies.delete("logsmith_session")   # every domain flavor at once
+    client.cookies.delete("scriptengine_session")   # every domain flavor at once
     if before is not None:
-        client.cookies.set("logsmith_session", before)
+        client.cookies.set("scriptengine_session", before)
     return _AsUser(client, session)
 
 
@@ -186,7 +186,7 @@ def test_operator_creates_first_admin_and_stays_logged_in(client, users_file,
     assert auth_module.multi_user_enabled() is True
 
     # the response carries the minted session: no bounce to /login mid-click
-    assert "logsmith_session=" in res.headers["set-cookie"]
+    assert "scriptengine_session=" in res.headers["set-cookie"]
     status = client.get("/api/auth/status").json()
     assert status["user"] == {"username": "root", "role": "admin"}
 
@@ -206,7 +206,7 @@ def test_bootstrap_via_python_ui_form(client, users_file, sessions_file, fresh_l
                       data={"username": "root", "password": "root-pw", "role": "admin"},
                       follow_redirects=False)
     assert res.status_code == 303
-    assert "logsmith_session=" in res.headers["set-cookie"]  # carried over as admin
+    assert "scriptengine_session=" in res.headers["set-cookie"]  # carried over as admin
     assert client.get("/api/auth/status").json()["user"]["username"] == "root"
 
 

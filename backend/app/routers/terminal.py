@@ -1,6 +1,6 @@
 """Terminal endpoints: create a shell session, stream its output, feed it.
 
-Everything hides behind LOGSMITH_TERMINAL (config.TERMINAL_ENABLED): while
+Everything hides behind SCRIPTENGINE_TERMINAL (config.TERMINAL_ENABLED): while
 the flag is off, every endpoint answers 404 as if the feature did not
 exist. With accounts on (multi-user mode) the shell is admin-only — a
 terminal is a shell as the server user, the one surface no regular

@@ -1,4 +1,4 @@
-/* LogSmith python-UI terminal client.
+/* ScriptEngine python-UI terminal client.
  *
  * Progressive enhancement for /terminal: when this script (plus the
  * vendored xterm.js) loads, the page's interactive shell mounts and the

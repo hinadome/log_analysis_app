@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A log-free sample: a host + filesystem usage snapshot.
 
-The command has no {log} placeholder, so LogSmith runs it without a
+The command has no {log} placeholder, so ScriptEngine runs it without a
 selected log — handy for scripts that generate rather than analyze
 input. Output is a JSON object, so the UI renders it as a table.
 """

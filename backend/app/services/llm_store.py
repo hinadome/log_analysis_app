@@ -27,7 +27,7 @@ An absent file means {"provider": "none"} — no LLM, no outbound calls,
 the deployment unchanged until an admin turns a provider on in the
 Settings UI (the opt-in stance the terminal takes).
 
-LOGSMITH_LLM_* env vars seed the file on first boot only
+SCRIPTENGINE_LLM_* env vars seed the file on first boot only
 (seed_from_env, called from the app lifespan): after that the UI owns
 it, exactly like the admin bootstrap.
 """
@@ -176,7 +176,7 @@ store = LlmStore()
 
 
 def seed_from_env() -> bool:
-    """First-boot seeding from LOGSMITH_LLM_* (config.py): write
+    """First-boot seeding from SCRIPTENGINE_LLM_* (config.py): write
     data/llm.json when it doesn't exist yet and a provider is named.
     Returns True when a file was written. Afterwards the UI owns the
     file — the env vars are ignored (the ADMIN_BOOTSTRAP pattern).
@@ -187,7 +187,7 @@ def seed_from_env() -> bool:
     if not provider or store._path.exists():
         return False
     if provider not in PROVIDERS:
-        print(f"llm: LOGSMITH_LLM_PROVIDER={provider!r} is unknown "
+        print(f"llm: SCRIPTENGINE_LLM_PROVIDER={provider!r} is unknown "
               f"(one of {', '.join(PROVIDERS)}) — ignored")
         return False
     fields = {
@@ -196,6 +196,6 @@ def seed_from_env() -> bool:
         "base_url": (config.LLM_BASE_URL or "").strip(),
     }
     store.update(provider, {provider: {k: v for k, v in fields.items() if v}})
-    print(f"llm: seeded data/llm.json from LOGSMITH_LLM_* "
+    print(f"llm: seeded data/llm.json from SCRIPTENGINE_LLM_* "
           f"(first boot only — manage providers in the Settings UI)")
     return True

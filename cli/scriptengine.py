@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""logsmith — the LogSmith command-line client.
+"""scriptengine — the ScriptEngine command-line client.
 
-A single-file client for the LogSmith API, dependency-free (stdlib only:
+A single-file client for the ScriptEngine API, dependency-free (stdlib only:
 argparse, urllib, json). Everything the web UIs can do is here: browse
 logs, run scripts (live stdout streaming), manage scripts, pipelines,
 schedules, job history and — for admins — user accounts.
 
 Quick start:
 
-    logsmith login                    # once per server (session is saved)
-    logsmith logs list
-    logsmith run grep_search:pattern=ERROR --log app.log
-    logsmith jobs list
+    scriptengine login                    # once per server (session is saved)
+    scriptengine logs list
+    scriptengine run grep_search:pattern=ERROR --log app.log
+    scriptengine jobs list
 
-Authentication: `login` stores a session cookie in ~/.logsmith.json and
+Authentication: `login` stores a session cookie in ~/.scriptengine.json and
 every later command sends it. The legacy shared password (single-user
-servers with LOGSMITH_TOKEN) can be used directly instead:
-`--token`/LOGSMITH_TOKEN sends it as a Bearer header.
+servers with SCRIPTENGINE_TOKEN) can be used directly instead:
+`--token`/SCRIPTENGINE_TOKEN sends it as a Bearer header.
 
 Steps (used by run, pipelines save, schedules save) are written as
 
@@ -42,7 +42,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-COOKIE_NAME = "logsmith_session"
+COOKIE_NAME = "scriptengine_session"
 DEFAULT_URL = "http://127.0.0.1:8000"
 POLL_INTERVAL = 0.5           # seconds between job polls while following
 TERMINAL_STATUSES = ("completed", "failed", "cancelled")
@@ -51,8 +51,8 @@ TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 # --- configuration ---------------------------------------------------------
 
 def config_path() -> Path:
-    """Where login state lives: $LOGSMITH_CONFIG or ~/.logsmith.json."""
-    return Path(os.environ.get("LOGSMITH_CONFIG", Path.home() / ".logsmith.json"))
+    """Where login state lives: $SCRIPTENGINE_CONFIG or ~/.scriptengine.json."""
+    return Path(os.environ.get("SCRIPTENGINE_CONFIG", Path.home() / ".scriptengine.json"))
 
 
 def load_config() -> dict:
@@ -73,8 +73,8 @@ def save_config(cfg: dict) -> None:
 
 
 def server_url(args, cfg: dict) -> str:
-    """--url > LOGSMITH_URL > the config file > the localhost default."""
-    url = getattr(args, "url", None) or os.environ.get("LOGSMITH_URL") \
+    """--url > SCRIPTENGINE_URL > the config file > the localhost default."""
+    url = getattr(args, "url", None) or os.environ.get("SCRIPTENGINE_URL") \
         or cfg.get("url") or DEFAULT_URL
     return url.rstrip("/")
 
@@ -178,7 +178,7 @@ class Client:
     def post_multipart(self, path: str, fields: dict[str, str],
                        files: list[tuple[str, str, bytes, str]]):
         """fields + files as multipart/form-data (log/script uploads)."""
-        boundary = "----logsmith-" + uuid.uuid4().hex
+        boundary = "----scriptengine-" + uuid.uuid4().hex
         chunks: list[bytes] = []
         for name, value in fields.items():
             chunks.append(
@@ -196,7 +196,7 @@ class Client:
             return self._json_or_none(resp)
 
     def session_cookie(self) -> str | None:
-        """The logsmith_session value of the last response, if any."""
+        """The scriptengine_session value of the last response, if any."""
         for header in self.cookies:
             for part in header.split(";"):
                 name, _, value = part.strip().partition("=")
@@ -208,7 +208,7 @@ class Client:
 def make_client(args) -> tuple[Client, dict]:
     """A client with whatever auth the flags/env/config provide."""
     cfg = load_config()
-    token = getattr(args, "token", None) or os.environ.get("LOGSMITH_TOKEN") or None
+    token = getattr(args, "token", None) or os.environ.get("SCRIPTENGINE_TOKEN") or None
     session = None if token else cfg.get("session")
     return Client(server_url(args, cfg), token=token, session=session), cfg
 
@@ -377,14 +377,14 @@ def follow_jobs(client: Client, jobs: list[dict], interval: float) -> int:
             tail = detail.get("stderr_tail") or ""
             for line in (tail.splitlines() or [""]):
                 if line.strip():
-                    sys.stderr.write(f"logsmith: {line}\n")
+                    sys.stderr.write(f"scriptengine: {line}\n")
             sys.stderr.write(
-                f"logsmith: job {jid} ({names[jid]}) {detail['status']}"
+                f"scriptengine: job {jid} ({names[jid]}) {detail['status']}"
                 + (f", exit {detail['exit_code']}"
                    if detail.get("exit_code") is not None else "") + "\n")
     if len(finished) > 1:
         ok = sum(1 for d in finished.values() if d["status"] == "completed")
-        sys.stderr.write(f"logsmith: {len(finished)} jobs: {ok} completed, "
+        sys.stderr.write(f"scriptengine: {len(finished)} jobs: {ok} completed, "
                          f"{len(finished) - ok} failed/cancelled\n")
     return 0 if all(d["status"] == "completed" for d in finished.values()) else 1
 
@@ -400,7 +400,7 @@ def cmd_status(args) -> int:
     print(f"server:  {client.url}")
     print(f"config:  {config_path()}")
     if client.token:
-        print("auth:    LOGSMITH_TOKEN (Bearer, legacy shared password)")
+        print("auth:    SCRIPTENGINE_TOKEN (Bearer, legacy shared password)")
     elif client.session:
         print(f"auth:    session cookie ({cfg.get('username') or 'unknown user'})")
     else:
@@ -430,7 +430,7 @@ def cmd_status(args) -> int:
     except ApiError as exc:
         print(f"health:  FAILED — {exc}")
         if exc.status == 401:
-            print("         the saved session is stale — run `logsmith login`")
+            print("         the saved session is stale — run `scriptengine login`")
     return 0
 
 
@@ -680,7 +680,7 @@ def cmd_scripts_export(args) -> int:
             else "/api/scripts/export")
     data = client.get_bytes(path)
     out = Path(args.out or (f"{args.script_id}.tar.gz" if args.script_id
-                            else "logsmith-scripts.tar.gz"))
+                            else "scriptengine-scripts.tar.gz"))
     out.write_bytes(data)
     print(f"wrote {out} ({human_size(len(data))})")
     return 0
@@ -1079,24 +1079,24 @@ def cmd_users_enable(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--url", help="server base URL "
-                      "(default: $LOGSMITH_URL, the config file, or "
+                      "(default: $SCRIPTENGINE_URL, the config file, or "
                       f"{DEFAULT_URL})")
     common.add_argument("--token", help="legacy shared-password token "
-                      "(default: $LOGSMITH_TOKEN)")
+                      "(default: $SCRIPTENGINE_TOKEN)")
     common.add_argument("--json", action="store_true",
                         help="print the raw JSON response")
 
     parser = argparse.ArgumentParser(
-        prog="logsmith",
-        description="The LogSmith command-line client.",
+        prog="scriptengine",
+        description="The ScriptEngine command-line client.",
         epilog="Steps are 'script_id:param=value,...' — values parse as JSON "
                "when valid (2, true, [\"a\",\"b\"]), raw strings otherwise; "
                "quote values containing commas; repeating a parameter makes "
                "a list. Examples:\n"
-               "  logsmith run grep_search:pattern=ERROR,context=2 --log app.log\n"
-               "  logsmith run --mode chain grep_search:pattern=ERROR "
+               "  scriptengine run grep_search:pattern=ERROR,context=2 --log app.log\n"
+               "  scriptengine run --mode chain grep_search:pattern=ERROR "
                "error_counter:level=ERROR --log app.log\n"
-               "  logsmith pipelines save errors grep_search:pattern=ERROR "
+               "  scriptengine pipelines save errors grep_search:pattern=ERROR "
                "error_counter:level=ERROR\n",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     top = parser.add_subparsers(dest="command", required=True,
@@ -1108,7 +1108,7 @@ def build_parser() -> argparse.ArgumentParser:
         return p
 
     def group(name: str, help_text: str):
-        """A nested command group (logsmith logs list, scripts show, ...)."""
+        """A nested command group (scriptengine logs list, scripts show, ...)."""
         p = top.add_parser(name, help=help_text)
         return p.add_subparsers(dest="subcommand", required=True,
                                 metavar="SUBCOMMAND")
@@ -1299,14 +1299,14 @@ def main(argv: list[str] | None = None) -> int:
     except ApiError as exc:
         hint = ""
         if exc.status == 401 and args.command != "login":
-            hint = (" — run `logsmith login` first (or set LOGSMITH_TOKEN "
+            hint = (" — run `scriptengine login` first (or set SCRIPTENGINE_TOKEN "
                     "on single-password servers)")
         elif exc.status == 403 and "admin" in str(exc).lower():
             hint = " — this needs an admin account"
-        print(f"logsmith: {exc}{hint}", file=sys.stderr)
+        print(f"scriptengine: {exc}{hint}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
-        print("logsmith: interrupted", file=sys.stderr)
+        print("scriptengine: interrupted", file=sys.stderr)
         return 130
 
 

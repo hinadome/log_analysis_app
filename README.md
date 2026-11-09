@@ -1,4 +1,4 @@
-# LogSmith — Log Analysis Workbench
+# ScriptEngine — Log Analysis Workbench
 
 A web application for running server-side analysis scripts against server-side
 log files. Pick a log, pick one or more scripts, set parameters, run — jobs
@@ -39,7 +39,7 @@ First start sets itself up: `.venv` and its python packages, `node_modules`
 and the SPA build are created on demand — and reinstalled automatically when
 `backend/requirements.txt` or `frontend/package-lock.json` changed.
 
-`--ui` (or `LOGSMITH_UI`) picks the frontend: `react` — the default SPA
+`--ui` (or `SCRIPTENGINE_UI`) picks the frontend: `react` — the default SPA
 built with Vite — or `python` — Jinja2 pages rendered by the backend with
 zero build tooling. Both serve the same `/api` and the same session
 cookie, so either can be pointed at the same data. See
@@ -62,8 +62,8 @@ or job history leave the machine). The remote then bootstraps itself on
 its first `./run.sh start`:
 
 ```bash
-tools/upload.sh user@192.168.1.50            # → ~/logsmith on the remote
-tools/upload.sh -p 2222 me@server:apps/logsmith   # custom ssh port + dir
+tools/upload.sh user@192.168.1.50            # → ~/scriptengine on the remote
+tools/upload.sh -p 2222 me@server:apps/scriptengine   # custom ssh port + dir
 tools/upload.sh --start user@host           # unpack and (re)start it there
 tools/upload.sh --tar-only                   # just build the tarball, no upload
 ```
@@ -107,9 +107,9 @@ Vite proxy talks HTTPS to the backend.
   The option explicitly replaces the existing certificate (the `localhost`
   SANs stay included; hostnames become DNS SANs, dotted quads become IP
   SANs) — the only way to regenerate one, since a certificate is otherwise
-  kept forever once generated. The `LOGSMITH_CERT_HOSTS` environment
+  kept forever once generated. The `SCRIPTENGINE_CERT_HOSTS` environment
   variable adds the same names when a certificate is first generated.
-- Plain HTTP is disabled when HTTPS is on. Set `LOGSMITH_HTTP=1 ./run.sh` to
+- Plain HTTP is disabled when HTTPS is on. Set `SCRIPTENGINE_HTTP=1 ./run.sh` to
   fall back to HTTP.
 - Running uvicorn manually with TLS:
 
@@ -148,7 +148,7 @@ Vite proxy talks HTTPS to the backend.
 - **Live streaming** — the job detail page uses server-sent events
   (`GET /api/jobs/{id}/events`) for zero-latency stdout while a script runs,
   with automatic fallback to polling.
-- **Remote terminal** — `LOGSMITH_TERMINAL=1` adds a Terminal tab: a real
+- **Remote terminal** — `SCRIPTENGINE_TERMINAL=1` adds a Terminal tab: a real
   interactive shell on the server in the browser (xterm.js over SSE + POST,
   no WebSocket, no extra dependency). Off by default — a shell is the whole
   machine. Both UIs have it: React's Terminal tab, and the python UI's
@@ -167,17 +167,17 @@ Vite proxy talks HTTPS to the backend.
   "None" (the default) means nothing calls out. API keys are stored
   server-side only and render masked (a blank key field keeps the stored
   one), and **Save & test** fires a one-shot completion so a switch is
-  verified before it's trusted. `LOGSMITH_LLM_*` env vars seed the file
+  verified before it's trusted. `SCRIPTENGINE_LLM_*` env vars seed the file
   on first boot; afterwards the UI owns it (no restart needed).
 - **File artifacts** — anything a script writes to its `outputs/` directory is
   viewable/downloadable in the browser; Markdown files render nicely.
-- **Authentication** — `LOGSMITH_TOKEN` requires a password for the UI
+- **Authentication** — `SCRIPTENGINE_TOKEN` requires a password for the UI
   (browser login screen, HttpOnly session cookie). Automation can send
   `Authorization: Bearer <token>`. The server listens on **all interfaces**
   by default, and scripts run as your user — so the launcher is secure by
   default: binding a non-local address with no token set generates a strong
   password (printed once, stored in `.run/authtoken`, reused across
-  restarts). `LOGSMITH_INSECURE=1` keeps it open, `LOGSMITH_HOST=127.0.0.1`
+  restarts). `SCRIPTENGINE_INSECURE=1` keeps it open, `SCRIPTENGINE_HOST=127.0.0.1`
   makes it local-only with no auth.
 - **Multi-user accounts** *(optional)* — create accounts (username +
   password, file-backed sessions that revoking actually revokes) and the
@@ -196,24 +196,24 @@ Vite proxy talks HTTPS to the backend.
   remote terminal (admin-only in multi-user mode), and a
   Users page for accounts — create, reset passwords (live sessions die with
   a reset), disable, promote; the server refuses to demote or disable its
-  last working admin. No accounts means the exact single-user LogSmith as
+  last working admin. No accounts means the exact single-user ScriptEngine as
   before; the first admin is bootstrapped either from the UI (the
   single-user operator creates it and stays signed in) or at startup via
-  `LOGSMITH_ADMIN_USER`/`LOGSMITH_ADMIN_PASSWORD`. See
+  `SCRIPTENGINE_ADMIN_USER`/`SCRIPTENGINE_ADMIN_PASSWORD`. See
   [SPECS.md §8](SPECS.md#8-authentication).
 - **Script authoring lock** — scripts are code that runs on the server, so
   the editor is remote code execution by design (trusted-operator tool).
-  When other people have the password, `LOGSMITH_ALLOW_SCRIPT_EDITING=0`
+  When other people have the password, `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0`
   locks it down: creating, changing, deleting or importing scripts answers
   403 in both UIs while the scripts on disk stay runnable — and exportable,
   single-script or the whole library, for a backup before an upgrade —
   "run the vetted analyses only".
-- **Docker sandbox** — `LOGSMITH_DOCKER_SANDBOX=1` runs every script inside
+- **Docker sandbox** — `SCRIPTENGINE_DOCKER_SANDBOX=1` runs every script inside
   a throwaway container instead of directly on the host: no network, a
   memory cap, and only the script, its input (read-only) and the output
   directory mounted. The sandbox image (python3, bash, node, ruby, perl) is
   built automatically from `sandbox.Dockerfile` on first start; extend that
-  image and point `LOGSMITH_SANDBOX_IMAGE` at your tag when scripts need
+  image and point `SCRIPTENGINE_SANDBOX_IMAGE` at your tag when scripts need
   extra libraries.
 - **gzip logs** — `.gz`, `.bz2` and `.xz` logs are transparently decompressed
   before scripts run, and preview correctly in the UI. The decompressed copy
@@ -272,7 +272,7 @@ Vite proxy talks HTTPS to the backend.
   steps = 6 jobs"), e.g. the same counter across all rotated files.
 - **Any file by path** — pick from `logs/`, or type an absolute path
   (React: the box under the log filter; python UI: "Use a file by path")
-  and analyze any existing file on the machine LogSmith runs on —
+  and analyze any existing file on the machine ScriptEngine runs on —
   `/var/log/system.log`, a big export, whatever. Previews work on it too,
   and jobs from outside `logs/` carry the full path as their name. Scripts
   run as your user with full filesystem access anyway, so this opens no
@@ -331,7 +331,7 @@ Vite proxy talks HTTPS to the backend.
   nothing selected, for a script whose target file is none — and jumps
   straight to the live result.
 - **Brute-force protection** — failed logins are rate-limited per client
-  (5 per minute) once `LOGSMITH_TOKEN` is set.
+  (5 per minute) once `SCRIPTENGINE_TOKEN` is set.
 - **Notifications** *(React UI)* — enable the 🔔 button in the top bar to
   get a browser notification when a job finishes (the python UI refreshes
   the job page instead).
@@ -626,7 +626,7 @@ wakes every 30 seconds (server-local time, minute granularity).
   backfill. This is a workbench, not Airflow.
 - **Managing** — Run now (▶, ignores the clock), Pause/Resume, 🗑 Delete;
   the list shows each schedule's next fire, last run and last result.
-  `LOGSMITH_SCHEDULER=0` disables the ticker — schedules stay listed and
+  `SCRIPTENGINE_SCHEDULER=0` disables the ticker — schedules stay listed and
   editable, and you can fire them from a system crontab hitting
   `POST /api/schedules/{name}/run` if you'd rather own the clock.
 
@@ -678,7 +678,7 @@ files into `$JOB_OUTPUT_DIR` — both are exposed via
 | GET | `/api/llm/settings` | **admin** — the LLM provider switch: the active provider plus every configured one (api keys come back **masked** — never the raw key) |
 | PUT | `/api/llm/settings` | **admin** — `{provider, providers: {openai/anthropic/ollama/openai-compatible: {api_key, model, base_url}}}`; a blank api_key keeps the stored one; base_url empty = the provider's default |
 | POST | `/api/llm/test` | **admin** — one tiny completion through the saved settings → `{ok, reply, elapsed_ms}` or `{ok: false, error}` (a dead provider is an answer, not a 500) |
-| POST | `/api/terminal/sessions` | (flag-gated: 404 while `LOGSMITH_TERMINAL` is off; **admin-only in multi-user mode** — 403 otherwise) start a shell session → `{id, shell}` (429 at `LOGSMITH_TERMINAL_MAX_SESSIONS`) |
+| POST | `/api/terminal/sessions` | (flag-gated: 404 while `SCRIPTENGINE_TERMINAL` is off; **admin-only in multi-user mode** — 403 otherwise) start a shell session → `{id, shell}` (429 at `SCRIPTENGINE_TERMINAL_MAX_SESSIONS`) |
 | GET | `/api/terminal/sessions/{id}/output` | SSE stream of the session's output — `{"type":"output","data":<base64>}` frames, then one `{"type":"exit","code":N}` |
 | POST | `/api/terminal/sessions/{id}/input` | raw body = keystrokes, written to the pty verbatim |
 | POST | `/api/terminal/sessions/{id}/size` | `{cols, rows}` → pty resize + SIGWINCH |
@@ -698,26 +698,26 @@ Interactive docs: https://localhost:8000/docs · full request/response shapes:
 
 ## Command-line client
 
-[`cli/logsmith.py`](cli/logsmith.py) is a single-file client with no
+[`cli/scriptengine.py`](cli/scriptengine.py) is a single-file client with no
 dependencies beyond python3's standard library, mirroring the whole API:
 browse logs, run scripts with live output, manage scripts, pipelines,
 schedules, the job history and — for admins — user accounts.
 
 ```bash
-./cli/logsmith.py login                      # once per server
-./cli/logsmith.py logs list
-./cli/logsmith.py run grep_search:pattern=ERROR --log app.log
-./cli/logsmith.py jobs list
+./cli/scriptengine.py login                      # once per server
+./cli/scriptengine.py logs list
+./cli/scriptengine.py run grep_search:pattern=ERROR --log app.log
+./cli/scriptengine.py jobs list
 ```
 
 **Authentication.** `login` prompts for username + password (multi-user
-servers) or just the password (a single-password `LOGSMITH_TOKEN` server)
-and stores a session in `~/.logsmith.json`; later commands send it as a
+servers) or just the password (a single-password `SCRIPTENGINE_TOKEN` server)
+and stores a session in `~/.scriptengine.json`; later commands send it as a
 cookie. A server without authentication needs nothing. The legacy shared
-password can also be used directly: `--token` (or `$LOGSMITH_TOKEN`)
+password can also be used directly: `--token` (or `$SCRIPTENGINE_TOKEN`)
 sends it as a Bearer header. The server URL resolves from `--url` >
-`$LOGSMITH_URL` > the config file > `http://127.0.0.1:8000`;
-`$LOGSMITH_CONFIG` relocates the config file itself.
+`$SCRIPTENGINE_URL` > the config file > `http://127.0.0.1:8000`;
+`$SCRIPTENGINE_CONFIG` relocates the config file itself.
 
 **Steps.** Wherever a command takes a STEP, write
 `script_id:param=value,...` — values parse as JSON when valid
@@ -732,7 +732,7 @@ several jobs with a `[script name]` prefix per line. `--no-wait` submits
 and prints the job ids instead. A failed job's stderr tail goes to
 stderr. Exit codes: `0` every job completed, `1` a job failed or was
 cancelled, `2` anything else (bad usage, HTTP failure, not logged in —
-the message then says to run `logsmith login`).
+the message then says to run `scriptengine login`).
 
 | Command | Purpose |
 |---|---|
@@ -761,29 +761,29 @@ after the subcommand.
 | `LOG_PREVIEW_LINES` | `200` | default lines in the log preview modal |
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
-| `LOGSMITH_TOKEN` | *(unset)* | password for the UI; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
-| `LOGSMITH_ADMIN_USER` / `LOGSMITH_ADMIN_PASSWORD` | *(unset)* | first-run bootstrap into multi-user mode: when `data/users.json` doesn't exist yet and both are set, an admin account is created at startup. Afterwards user management lives in the admin UI — these are ignored |
-| `LOGSMITH_LLM_PROVIDER` / `_API_KEY` / `_MODEL` / `_BASE_URL` | *(unset)* | first-run seeding for `data/llm.json`: when the file doesn't exist yet and a provider is named (`openai` / `anthropic` / `ollama` / `openai-compatible`), the other three fill its key, model and base URL. Afterwards the Settings UI owns the file — these are ignored |
-| `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` keeps a non-local server open with no password (not recommended) |
-| `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` locks the script editor: write endpoints answer 403 in both UIs, existing scripts stay runnable |
-| `LOGSMITH_DOCKER_SANDBOX` | `0` | `1` runs every script in a throwaway Docker container — no network, memory-capped, mounts limited to script + input + outputs |
-| `LOGSMITH_SANDBOX_IMAGE` | `logsmith-sandbox:latest` | image for sandboxed runs (built from `sandbox.Dockerfile` by run.sh; extend it for extra libraries) |
-| `LOGSMITH_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
-| `LOGSMITH_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
-| `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
-| `LOGSMITH_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable, they just never fire on their own |
-| `LOGSMITH_TERMINAL` | `0` | `1` enables the interactive shell on the server in the browser: React's Terminal tab, and the python UI's `/terminal` page (same shell as progressive enhancement — its no-JS command box stays as the fallback). Also off whenever `LOGSMITH_ALLOW_SCRIPT_EDITING=0` |
-| `LOGSMITH_TERMINAL_MAX_SESSIONS` | `4` | concurrent shell sessions (429 when full; strays are reaped by the idle timeout) |
-| `LOGSMITH_TERMINAL_IDLE_TIMEOUT` | `1800` | seconds without input or output before a session is killed (0 disables the reaper) |
-| `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |
+| `SCRIPTENGINE_TOKEN` | *(unset)* | password for the UI; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
+| `SCRIPTENGINE_ADMIN_USER` / `SCRIPTENGINE_ADMIN_PASSWORD` | *(unset)* | first-run bootstrap into multi-user mode: when `data/users.json` doesn't exist yet and both are set, an admin account is created at startup. Afterwards user management lives in the admin UI — these are ignored |
+| `SCRIPTENGINE_LLM_PROVIDER` / `_API_KEY` / `_MODEL` / `_BASE_URL` | *(unset)* | first-run seeding for `data/llm.json`: when the file doesn't exist yet and a provider is named (`openai` / `anthropic` / `ollama` / `openai-compatible`), the other three fill its key, model and base URL. Afterwards the Settings UI owns the file — these are ignored |
+| `SCRIPTENGINE_INSECURE` | `0` | launcher escape hatch: `1` keeps a non-local server open with no password (not recommended) |
+| `SCRIPTENGINE_ALLOW_SCRIPT_EDITING` | `1` | `0` locks the script editor: write endpoints answer 403 in both UIs, existing scripts stay runnable |
+| `SCRIPTENGINE_DOCKER_SANDBOX` | `0` | `1` runs every script in a throwaway Docker container — no network, memory-capped, mounts limited to script + input + outputs |
+| `SCRIPTENGINE_SANDBOX_IMAGE` | `scriptengine-sandbox:latest` | image for sandboxed runs (built from `sandbox.Dockerfile` by run.sh; extend it for extra libraries) |
+| `SCRIPTENGINE_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
+| `SCRIPTENGINE_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
+| `SCRIPTENGINE_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
+| `SCRIPTENGINE_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable, they just never fire on their own |
+| `SCRIPTENGINE_TERMINAL` | `0` | `1` enables the interactive shell on the server in the browser: React's Terminal tab, and the python UI's `/terminal` page (same shell as progressive enhancement — its no-JS command box stays as the fallback). Also off whenever `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` |
+| `SCRIPTENGINE_TERMINAL_MAX_SESSIONS` | `4` | concurrent shell sessions (429 when full; strays are reaped by the idle timeout) |
+| `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT` | `1800` | seconds without input or output before a session is killed (0 disables the reaper) |
+| `SCRIPTENGINE_CERT_HOSTS` | *(unset)* | extra TLS SANs (comma-separated IPs/names) for reaching the app from other devices — delete `certs/` to apply |
 | `JOB_RETENTION_DAYS` | `0` | auto-delete jobs older than N days at startup (0 = keep forever) |
 
-Example: `LOGSMITH_TOKEN=s3cret JOB_RETENTION_DAYS=14 ./run.sh`
+Example: `SCRIPTENGINE_TOKEN=s3cret JOB_RETENTION_DAYS=14 ./run.sh`
 
-`LOGSMITH_*` variables may also live in the repo's `.env` — run.sh reads only
-the lines it recognizes (`LOGSMITH_…=…`; anything else in the file, other
+`SCRIPTENGINE_*` variables may also live in the repo's `.env` — run.sh reads only
+the lines it recognizes (`SCRIPTENGINE_…=…`; anything else in the file, other
 tools' keys included, stays untouched) and the real environment wins over the
-file. Example `.env` line: `LOGSMITH_TERMINAL=1`.
+file. Example `.env` line: `SCRIPTENGINE_TERMINAL=1`.
 
 ## Tests
 
@@ -823,21 +823,21 @@ inside `LOGS_DIR`, but the scripts themselves are arbitrary code.
 
 Mitigations built in:
 
-- **Authentication** via `LOGSMITH_TOKEN` (recommended before any LAN exposure),
+- **Authentication** via `SCRIPTENGINE_TOKEN` (recommended before any LAN exposure),
   or **per-user accounts** — the moment `data/users.json` holds one, login
   becomes username + password, sessions become file-backed (logout, password
   resets and disabling a user actually revoke access), scripts and job
   history become per-user with a shared library, and admin accounts get
   oversight of everything (see
   [SPECS.md §8](SPECS.md#8-authentication))
-- Bind address configurable via `LOGSMITH_HOST` (default `0.0.0.0` — all
+- Bind address configurable via `SCRIPTENGINE_HOST` (default `0.0.0.0` — all
   interfaces; the start script warns loudly when exposed with no token);
   HTTPS with a local certificate
-- **The terminal is opt-in** (`LOGSMITH_TERMINAL`, default off = hidden:
+- **The terminal is opt-in** (`SCRIPTENGINE_TERMINAL`, default off = hidden:
   404s, no nav links). It is a shell as the server user — anyone with the
   password can run anything, which is why it also refuses to turn on while
-  `LOGSMITH_ALLOW_SCRIPT_EDITING=0` is set. Sessions die with their browser
-  tab, on explicit close, or after `LOGSMITH_TERMINAL_IDLE_TIMEOUT` (30 min
+  `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` is set. Sessions die with their browser
+  tab, on explicit close, or after `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT` (30 min
   default) with no input and no output.
 - **The LLM is opt-in** (provider "None" by default = nothing calls out).
   Picking a provider aims the server at an external endpoint — prompts sent

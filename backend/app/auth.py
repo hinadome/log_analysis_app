@@ -8,7 +8,7 @@ Two modes, auto-detected — nothing about an existing deployment changes:
   a user actually revoke access. Scripts and jobs get owners (see the
   routers); an admin account can oversee everything.
 
-* **Legacy / anonymous** — no accounts. LOGSMITH_TOKEN set means the old
+* **Legacy / anonymous** — no accounts. SCRIPTENGINE_TOKEN set means the old
   single shared password (cookie = hash of it, or `Authorization: Bearer`
   for automation); unset means no authentication at all (localhost use).
 
@@ -30,8 +30,8 @@ from .models import User
 from .services.session_store import store as session_store
 from .services.user_store import store as user_store, verify_password
 
-COOKIE_NAME = "logsmith_session"
-SESSION_SALT = "logsmith-session:v1"  # legacy mode only (stateless cookie)
+COOKIE_NAME = "scriptengine_session"
+SESSION_SALT = "scriptengine-session:v1"  # legacy mode only (stateless cookie)
 SESSION_MAX_AGE = 7 * 86400  # 7 days, then the browser drops the cookie
 
 # Brute-force protection: at most N failed logins per IP per window.

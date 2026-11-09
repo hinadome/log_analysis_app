@@ -1,4 +1,4 @@
-"""The Docker sandbox executor path (LOGSMITH_DOCKER_SANDBOX=1).
+"""The Docker sandbox executor path (SCRIPTENGINE_DOCKER_SANDBOX=1).
 
 Two layers:
 
@@ -6,7 +6,7 @@ Two layers:
   off, user, env, container name — without needing Docker at all.
 - End-to-end tests (skipped unless Docker and the image are available)
   actually run jobs in the sandbox. `docker build -f sandbox.Dockerfile
-  -t logsmith-sandbox .` prepares them (run.sh does it on start).
+  -t scriptengine-sandbox .` prepares them (run.sh does it on start).
 
 The flag is module-level state read at import, so tests monkeypatch
 executor.DOCKER_SANDBOX per test — same pattern test_auth.py and
@@ -81,7 +81,7 @@ def test_sandbox_argv_shape(sandbox):
     i = argv.index
     assert "--rm" in argv
     assert argv[i("--network") + 1] == "none"
-    assert argv[i("--name") + 1] == f"logsmith-job-{job.id}"
+    assert argv[i("--name") + 1] == f"scriptengine-job-{job.id}"
     assert argv[i("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
     assert argv[i("--memory") + 1] == executor_module.SANDBOX_MEMORY
     assert argv[i("--workdir") + 1] == str(out_dir)
@@ -171,7 +171,7 @@ def _docker_ok() -> bool:
 docker_required = pytest.mark.skipif(
     not _docker_ok(),
     reason=f"needs the Docker daemon and the {SANDBOX_IMAGE} image "
-           f"(docker build -f sandbox.Dockerfile -t logsmith-sandbox .)",
+           f"(docker build -f sandbox.Dockerfile -t scriptengine-sandbox .)",
 )
 
 
@@ -239,7 +239,7 @@ def test_sandbox_timeout_kills_container(sandbox, client, scripts_dir):
     assert "Timed out" in detail["error"]
     import time
     time.sleep(1)  # let --rm finish removing the killed container
-    left = subprocess.run(["docker", "ps", "-q", "--filter", "name=logsmith-job-"],
+    left = subprocess.run(["docker", "ps", "-q", "--filter", "name=scriptengine-job-"],
                           capture_output=True, timeout=15)
     assert left.stdout.strip() == b"", "sandboxed containers must not outlive their jobs"
 

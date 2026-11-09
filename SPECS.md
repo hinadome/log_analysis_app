@@ -1,4 +1,4 @@
-# LogSmith Specification
+# ScriptEngine Specification
 
 Normative functional specification. Implementation details live in
 [ARCHITECTURE.md](ARCHITECTURE.md); setup and usage in [README.md](README.md).
@@ -179,7 +179,7 @@ and the ones after it:
 
 ## 5. API reference
 
-All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
+All endpoints are under `/api`, require auth when `SCRIPTENGINE_TOKEN` is set
 (§8), and return JSON unless noted. Errors use FastAPI's
 `{"detail": "…"}` shape.
 
@@ -204,10 +204,10 @@ All endpoints are under `/api`, require auth when `LOGSMITH_TOKEN` is set
 403 for non-admins; the single-user operator may create the first account
 (no admin UI exists yet — that is the bootstrap), nothing else.
 
-### Terminal (flag-gated: `LOGSMITH_TERMINAL`; admin-only in multi-user mode)
+### Terminal (flag-gated: `SCRIPTENGINE_TERMINAL`; admin-only in multi-user mode)
 
 Every endpoint below answers **404 while the flag is off** (also off whenever
-`LOGSMITH_ALLOW_SCRIPT_EDITING=0` — a shell beats the script editor). With
+`SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` — a shell beats the script editor). With
 accounts on (§8) the shell is the **admin's** — a regular account gets 403
 on every endpoint and the `/terminal` page an error (the single-user
 operator keeps full access: the flag alone decides). The flag is checked
@@ -218,7 +218,7 @@ headers, but the session cookie needs none.
 
 | Method & Path | Description |
 |---|---|
-| `POST /api/terminal/sessions` | fork a pty running `$SHELL` (fallback `/bin/bash`, then `/bin/sh`) in the repo root with `TERM=xterm-256color` → `{"id", "shell"}`. **429** when `LOGSMITH_TERMINAL_MAX_SESSIONS` (default 4) are live |
+| `POST /api/terminal/sessions` | fork a pty running `$SHELL` (fallback `/bin/bash`, then `/bin/sh`) in the repo root with `TERM=xterm-256color` → `{"id", "shell"}`. **429** when `SCRIPTENGINE_TERMINAL_MAX_SESSIONS` (default 4) are live |
 | `GET /api/terminal/sessions/{id}/output` | SSE stream: `data: {"type": "output", "data": "<base64 pty bytes>"}` frames, then one `data: {"type": "exit", "code": N}` (N is the shell's exit code, or null for a killed session) and the stream closes. A dropped connection does **not** end the session — output waits in a bounded queue (newest 256 chunks; older output is dropped), so a reconnecting stream resumes with whatever it holds. A finished session answers with just the exit frame |
 | `POST /api/terminal/sessions/{id}/input` | **raw body = keystrokes**, written to the pty verbatim (413 over 256 KiB; 410 once the shell has exited; 504 if the shell stops reading) |
 | `POST /api/terminal/sessions/{id}/size` | `{"cols": 2..500, "rows": 2..300}` → `TIOCSWINSZ` + `SIGWINCH` (422 out of range) |
@@ -226,7 +226,7 @@ headers, but the session cookie needs none.
 
 Sessions are cleaned up three ways: the browser tab closing (the React tab
 kills on unmount; the python UI's client DELETEs on page unload), explicit
-DELETE, or the idle reaper — `LOGSMITH_TERMINAL_IDLE_TIMEOUT`
+DELETE, or the idle reaper — `SCRIPTENGINE_TERMINAL_IDLE_TIMEOUT`
 seconds (default 1800) with no input and no output. Nothing is written to
 disk. `GET /api/health` reports the feature as `"terminal": bool`.
 
@@ -255,7 +255,7 @@ confirmation it exists.
 | `POST /api/scripts/{id}/share` | publish a private script into the shared library — owner or admin. A file move (ids don't change, history keeps resolving) → `{"script": …}` with `owner: null`. 422 when already shared |
 | `POST /api/scripts/{id}/unshare` | pull a shared script back out, into the **calling admin's** private space — admin accounts only (a shared script records no origin, so the unsharer takes it over). → `{"script": …}` with the admin as owner. 422 when not shared; 403 in single-user mode (nowhere to move it to) |
 | `GET /api/scripts/{id}/export` | tar.gz download: code + sidecar manifest (flat) or the full directory (directory-style), plus a `RESTORE.txt` explaining where to unpack |
-| `GET /api/scripts/export` | tar.gz of **everything the caller may see** (shared + own private; an admin's: the whole library), `logsmith-scripts-<YYYYMMDD>.tar.gz`: flat scripts as top-level code + sidecar pairs, directory-style scripts under their directory names (the single-script export flattens the name away — a library archive cannot, or scripts would collide), plus a `RESTORE.txt` pointing at Import. Declared before the `/{script_id}` routes so the fixed path wins; a read, so it works even when editing is locked. Consequently the id `export` is reserved — every write path (create, update, import in all shapes) rejects it with a 422, because the fixed route would shadow its source fetch |
+| `GET /api/scripts/export` | tar.gz of **everything the caller may see** (shared + own private; an admin's: the whole library), `scriptengine-scripts-<YYYYMMDD>.tar.gz`: flat scripts as top-level code + sidecar pairs, directory-style scripts under their directory names (the single-script export flattens the name away — a library archive cannot, or scripts would collide), plus a `RESTORE.txt` pointing at Import. Declared before the `/{script_id}` routes so the fixed path wins; a read, so it works even when editing is locked. Consequently the id `export` is reserved — every write path (create, update, import in all shapes) rejects it with a 422, because the fixed route would shadow its source fetch |
 | `POST /api/scripts/import` | multipart `file` = tar.gz — any export back: one script, a pack, or a whole-library archive. A top-level `manifest.json` makes it one directory-style script: the whole tree lands in `scripts/<id>/` (the id from `?name=`, else the upload's file name — the single-script export flattens the original directory name away). Otherwise the top level is a mix: flat code + sidecar pairs, and subdirectories each carrying their own `manifest.json` (the export-all shape — the directory name is the id, and it travels with the script). Two scripts claiming one id inside one archive is a 422, as is a subdirectory without a manifest. Imported scripts land **private** in multi-user mode (the caller's space); `?overwrite=1` replaces existing ids **where they live** with delete rights — the caller's own private scripts, or anything as admin (another user's private id, and a shared id without admin, stay a 409 that doesn't say whose). Extraction is strict: regular files only (no links/devices), relative paths, no duplicates; 50 MiB archive / 100 MiB unpacked / 2000 members caps; compression is auto-detected (`r:*`) so a plain `.tar` imports too — Safari's "open safe files" gunzips a downloaded .tar.gz into one. All-or-nothing — 422 not-a-tar/bad-paths/orphan-manifest/invisible-file/bad-id/duplicate-id/empty, 409 existing ids (without overwrite), 403 when editing is locked. → `{imported: [ids], scripts: [ScriptInfo]}` |
 
 ### Jobs
@@ -356,7 +356,7 @@ Firing semantics (normative):
   catch-up, no retries, no backfill;
 - a schedule that fails at fire time (pipeline deleted, log gone, script
   removed) records `error: …` — the ticker survives its schedules;
-- `LOGSMITH_SCHEDULER=0` stops the ticker; schedules stay listed and
+- `SCRIPTENGINE_SCHEDULER=0` stops the ticker; schedules stay listed and
   editable, and `/run` still fires them on demand.
 
 ### Meta
@@ -369,7 +369,7 @@ Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
 ### 5.1 Pages (python UI)
 
-When `LOGSMITH_UI=python`, the backend serves server-rendered HTML pages
+When `SCRIPTENGINE_UI=python`, the backend serves server-rendered HTML pages
 instead of the React SPA (`app/pages.py`; the two are mutually exclusive —
 the SPA owns a catch-all route). Pages call the same handlers as the API,
 share its session cookie, and redirect to `/login?next=…` when a session is
@@ -387,7 +387,7 @@ missing.
 | `POST /schedules/toggle` | a row's ⏸/⏵ button (`name` field): flips `enabled`, 303-redirect with a flash |
 | `POST /schedules/run` | a row's ▶ Run now button: fires through the ticker's path; the redirect flash carries the result (`ok:`/`skipped:` as a message, `error:` as an error flash) |
 | `POST /schedules/delete` | a row's 🗑 button (`name` field): deletes and 303-redirects with a flash |
-| `GET /terminal` | **flag-gated** (`LOGSMITH_TERMINAL`, else 404 and no nav link): an interactive shell **plus** a zero-JS command box — progressive enhancement, one page. The page ships an xterm.js mount (`#term-mount`, a status badge, a hidden "New session" restart button) and keeps the command box (`#term-fallback`: a `command` textarea, run via the terminal service directly — no HTTP — output + exit badge rendered in a `<pre>`, blank input caught with a flash; one command at a time, 30 s timeout, output capped, nothing stored). With JavaScript the shell mounts over the same pty protocol as the React tab and the box is hidden; without it the box is the page. If the shell cannot start (flag flipped, session cap reached), the client says why in the mount and re-reveals the box. Assets: `GET /terminal/assets/{name}` serves an allowlist of four files — vendored `xterm.js` + `addon-fit.js` + `xterm.css` (byte-identical to the React build's, `backend/app/vendor/`) and LogSmith's own `terminal.js` client — 404 for anything else, and 404 for all four while the flag is off |
+| `GET /terminal` | **flag-gated** (`SCRIPTENGINE_TERMINAL`, else 404 and no nav link): an interactive shell **plus** a zero-JS command box — progressive enhancement, one page. The page ships an xterm.js mount (`#term-mount`, a status badge, a hidden "New session" restart button) and keeps the command box (`#term-fallback`: a `command` textarea, run via the terminal service directly — no HTTP — output + exit badge rendered in a `<pre>`, blank input caught with a flash; one command at a time, 30 s timeout, output capped, nothing stored). With JavaScript the shell mounts over the same pty protocol as the React tab and the box is hidden; without it the box is the page. If the shell cannot start (flag flipped, session cap reached), the client says why in the mount and re-reveals the box. Assets: `GET /terminal/assets/{name}` serves an allowlist of four files — vendored `xterm.js` + `addon-fit.js` + `xterm.css` (byte-identical to the React build's, `backend/app/vendor/`) and ScriptEngine's own `terminal.js` client — 404 for anything else, and 404 for all four while the flag is off |
 | `POST /terminal` | the form target of the same page (same gating): runs `command`, re-renders with the result and the command kept in the textarea |
 | `GET /jobs?q=&status=&user=&sort=&dir=&offset=` | job history — server-side search, status chips, sortable columns, paging (50/page); `&user=` narrows to one account's runs (admins see an owner box and an Owner column — "system" for ownerless rows — regular users neither) |
 | `GET /jobs/{id}?tab=result\|stderr\|input\|files\|details` | job detail. The result tab of a finished job renders stdout like the React OutputView: JSON array of objects → sortable table (`?sortcol=&sortdir=` cycles asc → desc → natural; `?view=raw` toggles the raw text), other JSON → pretty-printed, text → plain. Active jobs tail live via a 2 s meta-refresh |
@@ -510,7 +510,7 @@ step per §4.1 rule 2.
 
 ### Docker sandbox (opt-in)
 
-`LOGSMITH_DOCKER_SANDBOX=1` changes only *where* the same argv runs: inside
+`SCRIPTENGINE_DOCKER_SANDBOX=1` changes only *where* the same argv runs: inside
 a `docker run --rm` container instead of a host process. The command
 template, placeholders, artifacts, chains, timeouts, cancel and the
 runtime contract above are unchanged, with these differences:
@@ -519,11 +519,11 @@ runtime contract above are unchanged, with these differences:
   **read-only at their original paths**, the `outputs/` directory
   read-write — nothing else of the host is visible
 - the container has **no network** (`--network none`), a memory cap
-  (`LOGSMITH_SANDBOX_MEMORY`, default `512m`) and `--pids-limit 256`
+  (`SCRIPTENGINE_SANDBOX_MEMORY`, default `512m`) and `--pids-limit 256`
 - it runs as the host user's uid:gid, so artifacts stay owned by the
   operator; it sees only the `JOB_*` variables above — **not** the server
   environment
-- the image (`LOGSMITH_SANDBOX_IMAGE`, default `logsmith-sandbox:latest`,
+- the image (`SCRIPTENGINE_SANDBOX_IMAGE`, default `scriptengine-sandbox:latest`,
   built from `sandbox.Dockerfile` by run.sh) ships python3, bash, node,
   ruby and perl; scripts needing more bake their own image
 - jobs fail loudly when Docker is missing — there is **no silent fallback**
@@ -554,7 +554,7 @@ account flips the server without a restart:
   impossible with a stateless cookie. Passwords are scrypt-hashed; sessions
   are pruned lazily. Scripts and jobs get owners (§8.2, §8.3); an admin
   account oversees everything.
-- **Legacy** — no accounts, `LOGSMITH_TOKEN` set: the shared password
+- **Legacy** — no accounts, `SCRIPTENGINE_TOKEN` set: the shared password
   everyone knows. The cookie is a hash of it, or
   `Authorization: Bearer <token>` for automation.
 - **Anonymous** — no accounts, no token: local use; whoever runs the
@@ -570,21 +570,21 @@ the username exists.
 Two ways to bootstrap the first admin: the operator (single-user mode)
 opens the Users page or `POST /api/users` and creates it — the first
 account must have role `admin`, and the response mints a session so the
-operator stays signed in as the new admin; or set `LOGSMITH_ADMIN_USER` +
-`LOGSMITH_ADMIN_PASSWORD`, used at startup only while `data/users.json`
+operator stays signed in as the new admin; or set `SCRIPTENGINE_ADMIN_USER` +
+`SCRIPTENGINE_ADMIN_PASSWORD`, used at startup only while `data/users.json`
 doesn't exist yet. After that, user management lives in the admin UI.
 
-The cookie is `logsmith_session` in every mode — HttpOnly, SameSite=Lax,
+The cookie is `scriptengine_session` in every mode — HttpOnly, SameSite=Lax,
 Secure on HTTPS — obtained via `POST /api/auth/login` (the python UI posts
 the same check from its HTML form, then guards pages with a redirect to
-`/login?next=…`). In legacy mode `Authorization: Bearer <LOGSMITH_TOKEN>`
+`/login?next=…`). In legacy mode `Authorization: Bearer <SCRIPTENGINE_TOKEN>`
 works for automation. The SPA serves without a token; API calls failing
 with 401 raise a global event that switches the UI to the login screen.
 
 ### 8.1 Script authoring lock
 
 Scripts are arbitrary code running as the server user, so the editor is
-remote code execution by design. `LOGSMITH_ALLOW_SCRIPT_EDITING=0` narrows
+remote code execution by design. `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` narrows
 that trust: `POST /api/scripts`, `PUT` and `DELETE /api/scripts/{id}` and
 `POST /api/scripts/import` answer **403** (the python UI also bounces its
 editor pages and hides the editor actions and the Import card), while
@@ -639,17 +639,17 @@ too — same reasoning, stronger: it is a shell as the server user.
 | `LOG_PREVIEW_LINES` | `200` | default lines in log preview |
 | `STDOUT_TAIL_BYTES` | `32768` | stdout/stderr bytes inlined in job detail |
 | `MAX_LOG_UPLOAD_MB` | `512` | max size of a browser log upload (0 disables uploads) |
-| `LOGSMITH_TOKEN` | *(unset)* | UI password; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
-| `LOGSMITH_ADMIN_USER` / `LOGSMITH_ADMIN_PASSWORD` | *(unset)* | first-run bootstrap into multi-user mode: an admin account is created at startup while `data/users.json` doesn't exist yet — ignored afterwards (§8) |
-| `LOGSMITH_INSECURE` | `0` | launcher escape hatch: `1` = non-local bind with no password (not recommended) |
-| `LOGSMITH_ALLOW_SCRIPT_EDITING` | `1` | `0` = script write endpoints answer 403 (§8.1); existing scripts stay runnable |
-| `LOGSMITH_DOCKER_SANDBOX` | `0` | `1` = scripts run in throwaway Docker containers (see "Docker sandbox" under the script runtime contract) |
-| `LOGSMITH_SANDBOX_IMAGE` | `logsmith-sandbox:latest` | sandbox image tag (run.sh builds it from `sandbox.Dockerfile`) |
-| `LOGSMITH_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
-| `LOGSMITH_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
-| `LOGSMITH_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages, §5.1); same as `run.sh --ui` |
-| `LOGSMITH_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable (§5 Schedules), they just never fire on their own |
-| `LOGSMITH_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation (`run.sh --cert-hostname names` regenerates the certificate with them) |
+| `SCRIPTENGINE_TOKEN` | *(unset)* | UI password; when unset and the bind is non-local, the launcher generates one into `.run/authtoken` |
+| `SCRIPTENGINE_ADMIN_USER` / `SCRIPTENGINE_ADMIN_PASSWORD` | *(unset)* | first-run bootstrap into multi-user mode: an admin account is created at startup while `data/users.json` doesn't exist yet — ignored afterwards (§8) |
+| `SCRIPTENGINE_INSECURE` | `0` | launcher escape hatch: `1` = non-local bind with no password (not recommended) |
+| `SCRIPTENGINE_ALLOW_SCRIPT_EDITING` | `1` | `0` = script write endpoints answer 403 (§8.1); existing scripts stay runnable |
+| `SCRIPTENGINE_DOCKER_SANDBOX` | `0` | `1` = scripts run in throwaway Docker containers (see "Docker sandbox" under the script runtime contract) |
+| `SCRIPTENGINE_SANDBOX_IMAGE` | `scriptengine-sandbox:latest` | sandbox image tag (run.sh builds it from `sandbox.Dockerfile`) |
+| `SCRIPTENGINE_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
+| `SCRIPTENGINE_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
+| `SCRIPTENGINE_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages, §5.1); same as `run.sh --ui` |
+| `SCRIPTENGINE_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable (§5 Schedules), they just never fire on their own |
+| `SCRIPTENGINE_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation (`run.sh --cert-hostname names` regenerates the certificate with them) |
 | `JOB_RETENTION_DAYS` | `0` | startup auto-delete window (0 = keep forever) |
 
 All variables are read once at process start; restart to apply changes.
@@ -660,8 +660,8 @@ Copies the app to a remote host over ssh/scp, so it can run there against
 that machine's own logs.
 
 ```bash
-tools/upload.sh user@host                    # → ~/logsmith on the remote
-tools/upload.sh user@host:apps/logsmith     # custom dir (~/…, ~user/… or absolute)
+tools/upload.sh user@host                    # → ~/scriptengine on the remote
+tools/upload.sh user@host:apps/scriptengine     # custom dir (~/…, ~user/… or absolute)
 tools/upload.sh -p 2222 user@host           # non-standard ssh port
 tools/upload.sh --start user@host           # unpack, then (re)start it there
 tools/upload.sh --tar-only                   # build the tarball, print its path, upload nothing

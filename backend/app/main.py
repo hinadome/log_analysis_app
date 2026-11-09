@@ -49,25 +49,25 @@ async def lifespan(app: FastAPI):
     if cache_removed:
         print(f"decompressed cache: removed {cache_removed} stale file(s)")
     if not auth.auth_required():
-        print("WARNING: LOGSMITH_TOKEN is not set — running without authentication.")
+        print("WARNING: SCRIPTENGINE_TOKEN is not set — running without authentication.")
     # First run with bootstrap env vars: seed the initial admin, flipping the
     # server into multi-user mode (per-user scripts/jobs, user management).
     if ADMIN_BOOTSTRAP_USER and ADMIN_BOOTSTRAP_PASSWORD and not users_store.has_users():
         users_store.create(ADMIN_BOOTSTRAP_USER, ADMIN_BOOTSTRAP_PASSWORD, role="admin")
         print(f"multi-user: bootstrapped admin '{ADMIN_BOOTSTRAP_USER}' "
-              "from LOGSMITH_ADMIN_USER/LOGSMITH_ADMIN_PASSWORD "
+              "from SCRIPTENGINE_ADMIN_USER/SCRIPTENGINE_ADMIN_PASSWORD "
               "(ignored on future starts — manage users in the admin UI)")
     if auth.multi_user_enabled():
         print(f"multi-user: {len(users_store.list())} account(s) — "
               "login is username + password; scripts and jobs are per-user")
-    # First run with LOGSMITH_LLM_* set: write the initial data/llm.json
+    # First run with SCRIPTENGINE_LLM_* set: write the initial data/llm.json
     # so a container/deployment lands pre-configured (afterwards the
     # Settings UI owns the file — the env vars are ignored).
     llm_store.seed_from_env()
     if DOCKER_SANDBOX:
         print(f"docker sandbox: enabled (image {SANDBOX_IMAGE}, no network)")
         if which("docker") is None:
-            print("WARNING: LOGSMITH_DOCKER_SANDBOX=1 but the docker CLI is "
+            print("WARNING: SCRIPTENGINE_DOCKER_SANDBOX=1 but the docker CLI is "
                   "not on PATH — every job will fail until Docker is installed.")
     # The cron ticker. Schedules whose minute was missed while the server
     # was down stay missed — no catch-up by design.
@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
         print(f"scheduler: enabled (checking schedules every "
               f"{scheduler.interval:.0f}s, local time)")
     if TERMINAL_ENABLED:
-        print("terminal: enabled (LOGSMITH_TERMINAL) — shells run as the "
+        print("terminal: enabled (SCRIPTENGINE_TERMINAL) — shells run as the "
               "server user")
     yield
     await scheduler.shutdown()
@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
     await terminal_service.shutdown()
 
 
-app = FastAPI(title="LogSmith", description="Server-side log analysis workbench",
+app = FastAPI(title="ScriptEngine", description="Server-side log analysis workbench",
               version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
@@ -152,7 +152,7 @@ def _dir_size(path) -> int:
 
 
 # --- frontend ------------------------------------------------------------
-# Two interchangeable frontends, selected at startup via LOGSMITH_UI (run.sh
+# Two interchangeable frontends, selected at startup via SCRIPTENGINE_UI (run.sh
 # --ui): the server-rendered python pages or the built React SPA. They are
 # mutually exclusive — the SPA owns a catch-all route.
 if UI == "python":

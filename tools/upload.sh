@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# LogSmith uploader — copy the app to a remote machine via scp.
+# ScriptEngine uploader — copy the app to a remote machine via scp.
 #
-#   tools/upload.sh user@host                 unpacks into ~/logsmith on the host
-#   tools/upload.sh user@host:apps/logsmith   custom dir (~/… or absolute ok)
+#   tools/upload.sh user@host                 unpacks into ~/scriptengine on the host
+#   tools/upload.sh user@host:apps/scriptengine   custom dir (~/… or absolute ok)
 #   tools/upload.sh -p 2222 user@host         non-standard ssh port
 #   tools/upload.sh --start user@host         also (re)starts it there
 #
@@ -75,12 +75,12 @@ SHA="$(git rev-parse --short "$TREE")"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
-TARBALL="$WORKDIR/logsmith-$SHA.tar.gz"
+TARBALL="$WORKDIR/scriptengine-$SHA.tar.gz"
 git archive --format=tar.gz -o "$TARBALL" "$TREE"
 
 FILES="$(git ls-tree -r --name-only "$TREE" | wc -l | tr -d ' ')"
 SIZE="$(du -h "$TARBALL" | cut -f1)"
-echo "Packed   ●  logsmith @ $SHA ($FILES files, $SIZE) — git-tracked files only"
+echo "Packed   ●  scriptengine @ $SHA ($FILES files, $SIZE) — git-tracked files only"
 
 if [ "$TAR_ONLY" = "1" ]; then
   trap - EXIT
@@ -88,16 +88,16 @@ if [ "$TAR_ONLY" = "1" ]; then
   exit 0
 fi
 
-# Target spec: user@host[:dir] — dir defaults to ~/logsmith on the remote.
+# Target spec: user@host[:dir] — dir defaults to ~/scriptengine on the remote.
 [ -n "$TARGET" ] || { usage >&2; exit 1; }
 [ "$TARGET" = "${TARGET#*:}" ] && DIR="" || DIR="${TARGET#*:}"  # host[:dir]
 REMOTE="${TARGET%%:*}"
 [ -n "$REMOTE" ] || die "no host in '$TARGET' (want user@host[:dir])"
-[ -n "$DIR" ] || DIR="logsmith"
+[ -n "$DIR" ] || DIR="scriptengine"
 
 # Quote a path for the remote shell. Everything is single-quoted (a dir like
-# "my apps/logsmith" must survive); a leading ~[user] stays unquoted so the
-# remote expands it — user@host:~/logsmith means $HOME/logsmith there, not a
+# "my apps/scriptengine" must survive); a leading ~[user] stays unquoted so the
+# remote expands it — user@host:~/scriptengine means $HOME/scriptengine there, not a
 # literal '~' directory created inside it.
 rq() {
   local p="$1" prefix=""
@@ -113,7 +113,7 @@ rq() {
   else printf "%s/'%s'" "$prefix" "$p"; fi
 }
 QDIR="$(rq "$DIR")"
-TMPPATH="/tmp/logsmith-upload-$$.tar.gz"  # raw — scp must not get shell quotes
+TMPPATH="/tmp/scriptengine-upload-$$.tar.gz"  # raw — scp must not get shell quotes
 RTMP="$(rq "$TMPPATH")"                   # quoted — for the remote command line
 
 echo "Upload   ●  $REMOTE:$DIR (port $PORT)"
