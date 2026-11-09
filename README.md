@@ -12,7 +12,9 @@ artifact files) are viewable in the browser.
 ## Quick start
 
 Prerequisites: Python 3.10+ — plus Node.js for the default react UI
-(`--ui python` needs no Node at all). Everything else the first
+(`--ui python` needs no Node at all). Machines whose default `python3`
+is missing, older or elsewhere: set `SCRIPTENGINE_PYTHON` to the right
+interpreter. Everything else the first
 `./run.sh start` does by itself:
 
 ```bash
@@ -774,6 +776,7 @@ after the subcommand.
 | `SCRIPTENGINE_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
 | `SCRIPTENGINE_HOST` | `0.0.0.0` | address the server binds — all interfaces by default; `127.0.0.1` restores local-only |
 | `SCRIPTENGINE_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages) — same as `run.sh --ui` |
+| `SCRIPTENGINE_PYTHON` | `python3` | the interpreter `run.sh` builds `.venv` with and the app runs on — set it when a machine's default `python3` is missing, older than 3.10, or lives elsewhere (`/opt/python-3.12/bin/python3`); changing it after the first boot rebuilds `.venv` |
 | `SCRIPTENGINE_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable, they just never fire on their own |
 | `SCRIPTENGINE_TERMINAL` | `1` | the interactive shell on the server in the browser — **admin-only** (the single-user operator is the admin): React's Terminal tab, and the python UI's `/terminal` page (same shell as progressive enhancement — its no-JS command box stays as the fallback). `0` hides it entirely (every endpoint 404s, no nav links); also off whenever `SCRIPTENGINE_ALLOW_SCRIPT_EDITING=0` |
 | `SCRIPTENGINE_TERMINAL_MAX_SESSIONS` | `4` | concurrent shell sessions (429 when full; strays are reaped by the idle timeout) |

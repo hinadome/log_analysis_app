@@ -648,6 +648,7 @@ too — same reasoning, stronger: it is a shell as the server user.
 | `SCRIPTENGINE_SANDBOX_MEMORY` | `512m` | per-job memory cap inside the sandbox |
 | `SCRIPTENGINE_HOST` | `0.0.0.0` | bind address (launcher-level; `127.0.0.1` = local only) |
 | `SCRIPTENGINE_UI` | `react` | which frontend the backend serves: `react` (built SPA) or `python` (server-rendered pages, §5.1); same as `run.sh --ui` |
+| `SCRIPTENGINE_PYTHON` | `python3` | the interpreter the launcher builds `.venv` with and the app runs on (must be 3.10+); changing it after the first boot rebuilds the venv |
 | `SCRIPTENGINE_SCHEDULER` | `1` | `0` disables the cron ticker — schedules stay listed and editable (§5 Schedules), they just never fire on their own |
 | `SCRIPTENGINE_CERT_HOSTS` | *(unset)* | extra TLS SANs for the launcher's cert generation (`run.sh --cert-hostname names` regenerates the certificate with them) |
 | `JOB_RETENTION_DAYS` | `0` | startup auto-delete window (0 = keep forever) |
@@ -688,5 +689,7 @@ Normative behavior:
   uploaded code goes live either way (the stop is a safe no-op when idle).
 - The remote bootstraps itself on its first `./run.sh start`: `.venv` +
   python packages, `node_modules` and the SPA build are created on demand
-  and reinstalled when their lockfiles change. It needs python3 — Node
-  only for the react UI (`--ui python` needs none).
+  and reinstalled when their lockfiles change. It needs python 3.10+ —
+  when the machine's `python3` isn't, `SCRIPTENGINE_PYTHON` in the
+  remote's `.env` points at one that is (changing it later rebuilds the
+  venv). Node only for the react UI (`--ui python` needs none).

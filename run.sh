@@ -36,6 +36,10 @@
 # SPA build are created on demand when missing (or when their requirements
 # files changed). --ui python needs no Node at all.
 #
+# The interpreter behind .venv is SCRIPTENGINE_PYTHON (default: python3
+# from PATH) — machines differ. It must be 3.10+, and changing it after
+# the first boot rebuilds .venv from the new one.
+#
 # Anything else (e.g. './run.sh --port 8001') runs the foreground server with
 # the args passed through to uvicorn, exactly like before (except --ui,
 # which this script consumes).
@@ -72,6 +76,7 @@ FRONTEND_PORT=5173
 BACKEND_PORT=8000  # overridden by --port in start/foreground modes
 HOST="${SCRIPTENGINE_HOST:-0.0.0.0}"  # bind address: all interfaces (use 127.0.0.1 to go back to local-only)
 UI="${SCRIPTENGINE_UI:-react}"        # frontend: react SPA or python pages (--ui)
+PYTHON="${SCRIPTENGINE_PYTHON:-python3}"  # the interpreter that builds .venv and runs the app
 CERT_HOSTNAMES=""                 # --cert-hostname: regenerate the TLS cert for these names
 
 usage() {
@@ -257,20 +262,53 @@ wait_ready() { # $1 = url, $2 = label, $3 = log file
 }
 
 # One-time setup shared by every mode. Idempotent and self-healing:
-# - .venv is (re)created when missing or broken
+# - the interpreter is SCRIPTENGINE_PYTHON (default: the first python3 on
+#   PATH) — machines differ, so the knob exists; it must be 3.10+
+# - .venv is (re)created when missing, broken, or built from a different
+#   interpreter than the configured one (.venv/.scriptengine-python stamps
+#   which one built it; pre-stamp venvs are compared via pyvenv.cfg)
 # - python packages reinstall when backend/requirements.txt changed
 # - everything is reported, so a slow first start is never a mystery
 ensure_backend_env() {
   local stamp=.venv/.scriptengine-installed
-  if [ ! -x .venv/bin/python ]; then
-    if ! command -v python3 >/dev/null 2>&1; then
-      echo "Error: python3 (3.10+) is not installed or not on PATH." >&2
-      exit 1
+  local py_stamp=.venv/.scriptengine-python
+  if ! command -v "$PYTHON" >/dev/null 2>&1; then
+    echo "Error: python interpreter '$PYTHON' not found." >&2
+    if [ "$PYTHON" = "python3" ]; then
+      echo "       Install python 3.10+ or point SCRIPTENGINE_PYTHON at it." >&2
+    else
+      echo "       SCRIPTENGINE_PYTHON points there — set it to this" >&2
+      echo "       machine's python (3.10+) and try again." >&2
     fi
-    rm -rf .venv   # a venv without a python binary is a broken half-state
-    echo "Setup    ●  creating virtualenv .venv…"
-    python3 -m venv .venv
+    exit 1
   fi
+  # Resolve through the interpreter itself (sys.executable): a PATH entry
+  # like a pyenv shim would otherwise stamp a path that can change under
+  # the venv — the real binary cannot.
+  PYBIN="$("$PYTHON" -c 'import sys; print(sys.executable)')"
+  if ! "$PYBIN" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+    echo "Error: $PYBIN is $("$PYBIN" -V 2>&1) — ScriptEngine needs 3.10+." >&2
+    echo "       Set SCRIPTENGINE_PYTHON to a newer interpreter's path." >&2
+    exit 1
+  fi
+  local rebuild=""
+  if [ ! -x .venv/bin/python ]; then
+    rebuild="venv missing or broken"
+  elif [ -f "$py_stamp" ]; then
+    [ "$(cat "$py_stamp")" = "$PYBIN" ] || rebuild="interpreter changed ($(cat "$py_stamp") → $PYBIN)"
+  else
+    # A venv from before this stamp existed: pyvenv.cfg's home= records
+    # the directory of the interpreter that built it — compare with that
+    local built_dir
+    built_dir="$(sed -n 's/^home *= *//p' .venv/pyvenv.cfg 2>/dev/null)"
+    [ "$built_dir/$(basename "$PYBIN")" = "$PYBIN" ] || rebuild="interpreter changed ($built_dir → $(dirname "$PYBIN"))"
+  fi
+  if [ -n "$rebuild" ]; then
+    rm -rf .venv   # a venv from another interpreter is a broken half-state
+    echo "Setup    ●  $rebuild — creating virtualenv .venv ($PYBIN)…"
+    "$PYBIN" -m venv .venv
+  fi
+  echo "$PYBIN" > "$py_stamp"
   if [ ! -f "$stamp" ] || [ backend/requirements.txt -nt "$stamp" ]; then
     echo "Setup    ●  installing python packages (backend/requirements.txt)…"
     .venv/bin/pip install -q -r backend/requirements.txt

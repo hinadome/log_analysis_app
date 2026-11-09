@@ -242,7 +242,8 @@ frontend/src/
 
 repo root
 ├── run.sh             Launcher: start/stop/status/restart (background or
-│                      foreground), --ui python|react; bootstraps .venv,
+│                      foreground), --ui python|react; bootstraps .venv
+│                      (SCRIPTENGINE_PYTHON picks the interpreter),
 │                      node_modules and the SPA build on demand; secure-by-
 │                      default token generation
 ├── Dockerfile         Ships the whole app as one container (optional)
